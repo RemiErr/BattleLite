@@ -4,9 +4,19 @@ use ggrs::{Config, GgrsError, P2PSession, PlayerType, SessionBuilder, InputStatu
 use std::net::SocketAddr;
 
 // --- 1. 物理常數 (定點數，1000 = 1 單位) ---
-const GRAVITY: i32 = 150; // 每幀重力加速度
+const GRAVITY: i32 = 400;      // 每幀重力加速度
+const JUMP_IMPULSE: i32 = 9000; // 跳躍初速度
+const WALK_SPEED_X: i32 = 5000; // 左右移動速度
+const WALK_SPEED_Y: i32 = 3000; // 深淺移動速度 (較慢，符合 2.5D 透視)
 
-// --- 2. 遊戲狀態與配置 ---
+// --- 2. 輸入遮罩定義 (Input Mask) ---
+const INPUT_RIGHT: u8 = 1 << 0;
+const INPUT_LEFT: u8  = 1 << 1;
+const INPUT_UP: u8    = 1 << 2;
+const INPUT_DOWN: u8  = 1 << 3;
+const INPUT_JUMP: u8  = 1 << 4;
+
+// --- 3. 遊戲狀態與配置 ---
 
 #[derive(Clone, Default, Debug)]
 pub struct GameState {
@@ -20,19 +30,17 @@ impl Config for BattleConfig {
     type Address = SocketAddr;
 }
 
-// --- 3. 物理實體 ---
+// --- 4. 物理實體 ---
 
 #[pyclass]
 #[derive(Clone, Default, Debug)]
 pub struct Player {
-    // 座標
     #[pyo3(get, set)]
     pub x: i32,
     #[pyo3(get, set)]
     pub y: i32,
     #[pyo3(get, set)]
     pub z: i32,
-    // 速度
     #[pyo3(get, set)]
     pub vx: i32,
     #[pyo3(get, set)]
@@ -48,19 +56,18 @@ impl Player {
         Player::default()
     }
 
-    /// 執行一幀的物理模擬
     fn update(&mut self) {
-        // A. 應用重力 (僅當在空中或有向上速度時)
+        // 應用重力
         if self.z > 0 || self.vz > 0 {
             self.vz -= GRAVITY;
         }
 
-        // B. 更新座標
+        // 更新座標
         self.x += self.vx;
         self.y += self.vy;
         self.z += self.vz;
 
-        // C. 落地判定
+        // 落地判定
         if self.z <= 0 {
             self.z = 0;
             self.vz = 0;
@@ -68,7 +75,7 @@ impl Player {
     }
 }
 
-// --- 4. GGRS Session 橋接器 ---
+// --- 5. GGRS Session 橋接器 ---
 
 #[pyclass(unsendable)]
 pub struct GGRSSession {
@@ -124,11 +131,7 @@ impl GGRSSession {
     }
 
     fn is_synchronized(&self) -> bool {
-        if let Some(ref s) = self.session_p2p {
-            s.current_state() == SessionState::Running
-        } else {
-            false
-        }
+        self.session_p2p.as_ref().map_or(false, |s| s.current_state() == SessionState::Running)
     }
 
     fn get_player(&self, player_id: usize) -> PyResult<Player> {
@@ -151,13 +154,20 @@ impl GGRSSession {
                         if *status != InputStatus::Disconnected {
                             let p = &mut self.current_state.players[i];
                             
-                            // 根據輸入設定速度 (暫時簡化版)
+                            // --- 完善的輸入映射 ---
                             p.vx = 0;
                             p.vy = 0;
-                            if input & 1 != 0 { p.vx = 5000; } // 右
-                            if input & 2 != 0 { p.vx = -5000; } // 左
                             
-                            // 呼叫物理更新
+                            if input & INPUT_RIGHT != 0 { p.vx += WALK_SPEED_X; }
+                            if input & INPUT_LEFT != 0  { p.vx -= WALK_SPEED_X; }
+                            if input & INPUT_DOWN != 0  { p.vy += WALK_SPEED_Y; }
+                            if input & INPUT_UP != 0    { p.vy -= WALK_SPEED_Y; }
+                            
+                            // 跳躍邏輯：僅當在地面且按下跳躍鍵時觸發
+                            if input & INPUT_JUMP != 0 && p.z == 0 {
+                                p.vz = JUMP_IMPULSE;
+                            }
+                            
                             p.update();
                         }
                     }
