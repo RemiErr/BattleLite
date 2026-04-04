@@ -1,0 +1,33 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+*.so
+*.pyd
+*.dll
+*.dylib
+.pytest_cache/
+
+# --- Rust ---
+# Ignore all levels of target directories
+**/target/
+Cargo.lock
+
+# --- Maturin ---
+dist/
+.maturin/
+
+# --- IDE & OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- AI & Tools (Local Only) ---
+GEMINI.md
+DEV_LOG.md
+TODO.md
+.cursorrules
+.windsurfrules
