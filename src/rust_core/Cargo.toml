@@ -1,0 +1,24 @@
+[package]
+name = "battlelite_core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "battlelite_core"
+# "cdylib" 是讓 Rust 編譯成 Python 可載入的動態函式庫 (.so 或 .dll) 的關鍵
+crate-type = ["cdylib"]
+
+[dependencies]
+# PyO3: Rust 與 Python 的橋樑
+pyo3 = { version = "0.20", features = ["extension-module"] }
+
+# GGRS: P2P Rollback Netcode 核心
+ggrs = "0.11"
+
+# Serde: 序列化與反序列化 (用於遊戲狀態快照)
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3"
+
+# 決定性運算 (可選，但建議加入以利後續開發)
+rand = "0.8"
+rand_pcg = "0.3"
