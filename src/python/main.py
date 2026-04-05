@@ -67,8 +67,6 @@ def run_game():
                     debug_manager.toggle()
 
         # B. 邏輯推進
-        # 在目前的單機測試中，我們只傳送本地玩家 (P0) 的輸入
-        # 其他玩家因為沒收到遠端輸入，會處於「等待」或「預測」狀態
         input_mask = get_input_mask()
         session.advance(input_mask)
 

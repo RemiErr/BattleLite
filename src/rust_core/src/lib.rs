@@ -106,11 +106,22 @@ impl GGRSSession {
 
         let session = builder.start_p2p_session(socket)
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+// 初始化狀態與出生點
+let mut players = Vec::new();
+let spawn_points = [
+    (200000, 300000), (600000, 300000), 
+    (200000, 450000), (600000, 450000)
+];
 
-        let mut players = Vec::new();
-        for _ in 0..num_players {
-            players.push(Player::default());
-        }
+for i in 0..num_players {
+    let mut p = Player::default();
+    if i < spawn_points.len() {
+        p.x = spawn_points[i].0;
+        p.y = spawn_points[i].1;
+    }
+    players.push(p);
+}
+
 
         Ok(GGRSSession {
             session_p2p: Some(session),
