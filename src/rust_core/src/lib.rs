@@ -134,6 +134,15 @@ impl GGRSSession {
         self.session_p2p.as_ref().map_or(false, |s| s.current_state() == SessionState::Running)
     }
 
+    /// 獲取目前 GGRS 模擬的總幀數
+    fn current_frame(&self) -> i32 {
+        if let Some(ref s) = self.session_p2p {
+            s.current_frame()
+        } else {
+            0
+        }
+    }
+
     fn get_player(&self, player_id: usize) -> PyResult<Player> {
         if player_id < self.current_state.players.len() {
             Ok(self.current_state.players[player_id].clone())
