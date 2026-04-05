@@ -49,22 +49,39 @@ pub struct Player {
     pub state: u8,
     #[pyo3(get, set)]
     pub timer: u32,
+    #[pyo3(get, set)]
+    pub facing_right: bool, // 新增：面向
 }
 
 #[pymethods]
 impl Player {
     #[new]
     fn new() -> Self {
-        Player::default()
+        let mut p = Player::default();
+        p.facing_right = true;
+        p
     }
 
-    /// 基礎 AABB 碰撞檢測 (2.5D)
-    fn is_colliding_with(&self, other: &Player) -> bool {
-        let dx = (self.x - other.x).abs();
-        let dy = (self.y - other.y).abs();
-        let dz = (self.z - other.z).abs();
+    /// 檢查此玩家的「攻擊框」是否打中對方的「身體框」
+    fn check_attack_hit(&self, other: &Player) -> bool {
+        // 1. 定義攻擊框相對於玩家中心的偏移 (定點數)
+        let atk_offset_x = if self.facing_right { 30000 } else { -30000 };
+        let atk_x = self.x + atk_offset_x;
+        let atk_y = self.y;
+        let atk_z = self.z;
 
-        dx < CHAR_WIDTH && dy < CHAR_DEPTH && dz < CHAR_HEIGHT
+        // 2. 定義各框的大小
+        let atk_w = 20000; // 攻擊框半寬
+        let body_w = CHAR_WIDTH / 2;
+        let body_d = CHAR_DEPTH / 2;
+        let body_h = 20000; // 身體受擊高度判定範圍
+
+        // 3. 執行 AABB 判定
+        let dx = (atk_x - other.x).abs();
+        let dy = (atk_y - other.y).abs();
+        let dz = (atk_z - other.z).abs();
+
+        dx < (atk_w + body_w) && dy < body_d && dz < body_h
     }
 
     fn update(&mut self) {
@@ -185,6 +202,16 @@ impl GGRSSession {
         }
     }
 
+    /// 將修改後的玩家狀態寫回核心 (主要用於離線開發模式)
+    fn set_player(&mut self, player_id: usize, player: Player) -> PyResult<()> {
+        if player_id < self.current_state.players.len() {
+            self.current_state.players[player_id] = player;
+            Ok(())
+        } else {
+            Err(PyIndexError::new_err("Player ID out of range"))
+        }
+    }
+
     fn add_player(&mut self, _player_type: String, _id: usize) -> PyResult<()> { Ok(()) }
 }
 
@@ -235,7 +262,7 @@ impl GGRSSession {
                                 let attacker_pos = self.current_state.players[i].clone();
                                 let victim = &mut self.current_state.players[j];
                                 
-                                if attacker_pos.is_colliding_with(victim) {
+                                if attacker_pos.check_attack_hit(victim) {
                                     victim.state = STATE_HURT;
                                     victim.timer = 30; // 受擊硬直 30 幀
                                     victim.vz = 3000;  // 稍微打浮空
