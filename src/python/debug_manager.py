@@ -13,11 +13,11 @@ class DebugManager:
         if not self.enabled:
             return
 
-        # 1. 繪製半透明背景面板
+        # 1. 根據玩家人數調整面板高度
         panel_width = 300
-        panel_height = 220
+        panel_height = 120 + (len(players) * 40)
         overlay = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 180)) # 深黑色 70% 透明
+        overlay.fill((0, 0, 0, 180)) 
         screen.blit(overlay, (5, 5))
 
         # 2. 收集資訊
@@ -26,6 +26,7 @@ class DebugManager:
             f"GGRS Frame: {session.current_frame()}",
             f"Status:     {'SYNCED' if session.is_synchronized() else 'WAITING'}",
             f"FPS:        {int(fps)}",
+            f"Players:    {len(players)}",
             f"------------------------",
         ]
 

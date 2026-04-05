@@ -20,6 +20,14 @@ INPUT_UP    = 1 << 2
 INPUT_DOWN  = 1 << 3
 INPUT_JUMP  = 1 << 4
 
+# 玩家顏色清單
+PLAYER_COLORS = [
+    (255, 50, 50),   # P0: 紅
+    (50, 255, 50),   # P1: 綠
+    (50, 50, 255),   # P2: 藍
+    (255, 255, 50),  # P3: 黃
+]
+
 def get_input_mask():
     keys = pygame.key.get_pressed()
     mask = 0
@@ -34,15 +42,16 @@ def run_game():
     pygame.init()
     screen_width, screen_height = 800, 600
     screen = pygame.display.set_mode((screen_width, screen_height))
-    pygame.display.set_caption("BattleLite - Debug Overlay Enabled")
+    pygame.display.set_caption("BattleLite - 4 Player Support Enabled")
     clock = pygame.time.Clock()
     
-    # 初始化 Debug 管理器
     debug_manager = DebugManager()
 
+    # 初始化 4 人 Session (本地測試)
+    num_players = 4
     try:
-        session = GGRSSession(local_player_id=0, num_players=1, port=12345)
-        print("✅ GGRS Session 已啟動")
+        session = GGRSSession(local_player_id=0, num_players=num_players, port=12345)
+        print(f"✅ {num_players} 人 GGRS Session 已啟動")
     except Exception as e:
         print(f"❌ 無法啟動 Session: {e}")
         sys.exit(1)
@@ -53,36 +62,46 @@ def run_game():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            # 偵測 F1 按鍵切換 Debug Overlay
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_F1:
                     debug_manager.toggle()
 
         # B. 邏輯推進
+        # 在目前的單機測試中，我們只傳送本地玩家 (P0) 的輸入
+        # 其他玩家因為沒收到遠端輸入，會處於「等待」或「預測」狀態
         input_mask = get_input_mask()
         session.advance(input_mask)
 
         # C. 渲染
         screen.fill((30, 30, 30))
         
+        # 即使未同步也可以獲取初始資料進行渲染
+        all_players = []
+        for i in range(num_players):
+            try:
+                p = session.get_player(i)
+                all_players.append(p)
+            except:
+                break
+
         if not session.is_synchronized():
             font = pygame.font.SysFont("Arial", 24)
-            text_surf = font.render("Waiting for synchronization...", True, (255, 255, 255))
-            screen.blit(text_surf, (screen_width // 2 - 100, screen_height // 2))
-        else:
-            player0 = session.get_player(0)
-            
+            text_surf = font.render(f"Waiting for synchronization (4 players)...", True, (255, 255, 255))
+            screen.blit(text_surf, (screen_width // 2 - 150, screen_height // 2))
+        
+        # 繪製所有玩家與影子
+        for i, player in enumerate(all_players):
             # 渲染影子
-            shadow_x = player0.x / 1000.0
-            shadow_y = player0.y / 1000.0 + 40
+            shadow_x = player.x / 1000.0
+            shadow_y = player.y / 1000.0 + 40
             pygame.draw.ellipse(screen, (10, 10, 10), (shadow_x, shadow_y, 50, 20))
             
             # 渲染玩家
-            screen_x, screen_y = get_screen_pos(player0)
-            pygame.draw.rect(screen, (255, 50, 50), (screen_x, screen_y, 50, 50))
+            screen_x, screen_y = get_screen_pos(player)
+            pygame.draw.rect(screen, PLAYER_COLORS[i], (screen_x, screen_y, 50, 50))
             
-            # 渲染 Debug Overlay
-            debug_manager.draw(screen, session, [player0], clock.get_fps())
+        # 渲染 Debug Overlay
+        debug_manager.draw(screen, session, all_players, clock.get_fps())
 
         pygame.display.flip()
         clock.tick(60)
