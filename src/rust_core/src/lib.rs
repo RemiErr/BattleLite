@@ -3,34 +3,32 @@ use pyo3::exceptions::{PyRuntimeError, PyIndexError};
 use ggrs::{Config, GgrsError, P2PSession, PlayerType, SessionBuilder, InputStatus, GgrsRequest, UdpNonBlockingSocket, SessionState};
 use std::net::SocketAddr;
 
-// --- 1. 物理常數 (定點數，1000 = 1 單位) ---
-const GRAVITY: i32 = 400;      // 每幀重力加速度
-const JUMP_IMPULSE: i32 = 9000; // 跳躍初速度
-const WALK_SPEED_X: i32 = 5000; // 左右移動速度
-const WALK_SPEED_Y: i32 = 3000; // 深淺移動速度 (較慢，符合 2.5D 透視)
+// --- 1. 物理與戰鬥常數 ---
+const GRAVITY: i32 = 400;
+const JUMP_IMPULSE: i32 = 9000;
+const WALK_SPEED_X: i32 = 5000;
+const WALK_SPEED_Y: i32 = 3000;
 
-// --- 2. 輸入遮罩定義 (Input Mask) ---
+// 碰撞箱大小 (定點數，1000 = 1 像素)
+const CHAR_WIDTH: i32 = 30000;  // 30px
+const CHAR_DEPTH: i32 = 15000;  // 15px
+const CHAR_HEIGHT: i32 = 4000;  // 4px (非常嚴格的高度判定，確保跳躍能躲過)
+
+// 狀態定義
+const STATE_IDLE: u8 = 0;
+const STATE_WALK: u8 = 1;
+const STATE_ATTACK: u8 = 2;
+const STATE_HURT: u8 = 3;
+
+// --- 2. 輸入遮罩定義 ---
 const INPUT_RIGHT: u8 = 1 << 0;
 const INPUT_LEFT: u8  = 1 << 1;
 const INPUT_UP: u8    = 1 << 2;
 const INPUT_DOWN: u8  = 1 << 3;
 const INPUT_JUMP: u8  = 1 << 4;
+const INPUT_ATTACK: u8 = 1 << 5;
 
-// --- 3. 遊戲狀態與配置 ---
-
-#[derive(Clone, Default, Debug)]
-pub struct GameState {
-    pub players: Vec<Player>,
-}
-
-pub struct BattleConfig;
-impl Config for BattleConfig {
-    type Input = u8;
-    type State = GameState;
-    type Address = SocketAddr;
-}
-
-// --- 4. 物理實體 ---
+// --- 3. 物理實體 ---
 
 #[pyclass]
 #[derive(Clone, Default, Debug)]
@@ -47,6 +45,10 @@ pub struct Player {
     pub vy: i32,
     #[pyo3(get, set)]
     pub vz: i32,
+    #[pyo3(get, set)]
+    pub state: u8,
+    #[pyo3(get, set)]
+    pub timer: u32,
 }
 
 #[pymethods]
@@ -56,18 +58,37 @@ impl Player {
         Player::default()
     }
 
+    /// 基礎 AABB 碰撞檢測 (2.5D)
+    fn is_colliding_with(&self, other: &Player) -> bool {
+        let dx = (self.x - other.x).abs();
+        let dy = (self.y - other.y).abs();
+        let dz = (self.z - other.z).abs();
+
+        dx < CHAR_WIDTH && dy < CHAR_DEPTH && dz < CHAR_HEIGHT
+    }
+
     fn update(&mut self) {
-        // 應用重力
+        // A. 處理計時器與狀態恢復
+        if self.timer > 0 {
+            self.timer -= 1;
+            if self.timer == 0 && (self.state == STATE_ATTACK || self.state == STATE_HURT) {
+                self.state = STATE_IDLE;
+            }
+        }
+
+        // B. 應用重力
         if self.z > 0 || self.vz > 0 {
             self.vz -= GRAVITY;
         }
 
-        // 更新座標
-        self.x += self.vx;
-        self.y += self.vy;
+        // C. 更新座標 (如果是攻擊或受擊狀態，則限制位移)
+        if self.state != STATE_ATTACK && self.state != STATE_HURT {
+            self.x += self.vx;
+            self.y += self.vy;
+        }
         self.z += self.vz;
 
-        // 落地判定
+        // D. 落地判定
         if self.z <= 0 {
             self.z = 0;
             self.vz = 0;
@@ -75,7 +96,19 @@ impl Player {
     }
 }
 
-// --- 5. GGRS Session 橋接器 ---
+// --- 4. 遊戲狀態與 GGRS 橋接器 ---
+
+#[derive(Clone, Default, Debug)]
+pub struct GameState {
+    pub players: Vec<Player>,
+}
+
+pub struct BattleConfig;
+impl Config for BattleConfig {
+    type Input = u8;
+    type State = GameState;
+    type Address = SocketAddr;
+}
 
 #[pyclass(unsendable)]
 pub struct GGRSSession {
@@ -106,22 +139,17 @@ impl GGRSSession {
 
         let session = builder.start_p2p_session(socket)
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-// 初始化狀態與出生點
-let mut players = Vec::new();
-let spawn_points = [
-    (200000, 300000), (600000, 300000), 
-    (200000, 450000), (600000, 450000)
-];
 
-for i in 0..num_players {
-    let mut p = Player::default();
-    if i < spawn_points.len() {
-        p.x = spawn_points[i].0;
-        p.y = spawn_points[i].1;
-    }
-    players.push(p);
-}
-
+        // 初始化出生點
+        let mut players = Vec::new();
+        let spawn_points = [(200000, 300000), (600000, 300000), (200000, 450000), (600000, 450000)];
+        for i in 0..num_players {
+            let mut p = Player::default();
+            if i < spawn_points.len() {
+                p.x = spawn_points[i].0; p.y = spawn_points[i].1;
+            }
+            players.push(p);
+        }
 
         Ok(GGRSSession {
             session_p2p: Some(session),
@@ -145,13 +173,8 @@ for i in 0..num_players {
         self.session_p2p.as_ref().map_or(false, |s| s.current_state() == SessionState::Running)
     }
 
-    /// 獲取目前 GGRS 模擬的總幀數
     fn current_frame(&self) -> i32 {
-        if let Some(ref s) = self.session_p2p {
-            s.current_frame()
-        } else {
-            0
-        }
+        self.session_p2p.as_ref().map_or(0, |s| s.current_frame())
     }
 
     fn get_player(&self, player_id: usize) -> PyResult<Player> {
@@ -170,25 +193,54 @@ impl GGRSSession {
         for req in requests {
             match req {
                 GgrsRequest::AdvanceFrame { inputs } => {
+                    // --- 1. 處理輸入與狀態轉換 ---
                     for (i, (input, status)) in inputs.iter().enumerate() {
                         if *status != InputStatus::Disconnected {
                             let p = &mut self.current_state.players[i];
                             
-                            // --- 完善的輸入映射 ---
-                            p.vx = 0;
-                            p.vy = 0;
-                            
-                            if input & INPUT_RIGHT != 0 { p.vx += WALK_SPEED_X; }
-                            if input & INPUT_LEFT != 0  { p.vx -= WALK_SPEED_X; }
-                            if input & INPUT_DOWN != 0  { p.vy += WALK_SPEED_Y; }
-                            if input & INPUT_UP != 0    { p.vy -= WALK_SPEED_Y; }
-                            
-                            // 跳躍邏輯：僅當在地面且按下跳躍鍵時觸發
-                            if input & INPUT_JUMP != 0 && p.z == 0 {
-                                p.vz = JUMP_IMPULSE;
+                            // 只有在非硬直狀態下才能移動或攻擊
+                            if p.state == STATE_IDLE || p.state == STATE_WALK {
+                                p.vx = 0; p.vy = 0;
+                                if input & INPUT_RIGHT != 0 { p.vx += WALK_SPEED_X; p.state = STATE_WALK; }
+                                if input & INPUT_LEFT  != 0 { p.vx -= WALK_SPEED_X; p.state = STATE_WALK; }
+                                if input & INPUT_DOWN  != 0 { p.vy += WALK_SPEED_Y; p.state = STATE_WALK; }
+                                if input & INPUT_UP    != 0 { p.vy -= WALK_SPEED_Y; p.state = STATE_WALK; }
+                                
+                                if p.vx == 0 && p.vy == 0 { p.state = STATE_IDLE; }
+
+                                if input & INPUT_JUMP != 0 && p.z == 0 {
+                                    p.vz = JUMP_IMPULSE;
+                                }
+
+                                if input & INPUT_ATTACK != 0 {
+                                    p.state = STATE_ATTACK;
+                                    p.timer = 20; // 攻擊持續 20 幀
+                                    p.vx = 0; p.vy = 0; // 攻擊時停下
+                                }
                             }
                             
                             p.update();
+                        }
+                    }
+
+                    // --- 2. 處理戰鬥判定 (簡易版) ---
+                    // 遍歷所有玩家，檢查是否有人被打中
+                    // 這裡先實作一個雛型：如果有人在 ATTACK 且與他人碰撞，他人進入 HURT
+                    let num_players = self.current_state.players.len();
+                    for i in 0..num_players {
+                        if self.current_state.players[i].state == STATE_ATTACK && self.current_state.players[i].timer == 15 {
+                            for j in 0..num_players {
+                                if i == j { continue; }
+                                // 借用檢查繞過：先克隆 p_i 的位置資訊
+                                let attacker_pos = self.current_state.players[i].clone();
+                                let victim = &mut self.current_state.players[j];
+                                
+                                if attacker_pos.is_colliding_with(victim) {
+                                    victim.state = STATE_HURT;
+                                    victim.timer = 30; // 受擊硬直 30 幀
+                                    victim.vz = 3000;  // 稍微打浮空
+                                }
+                            }
                         }
                     }
                 }

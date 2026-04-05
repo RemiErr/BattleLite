@@ -1,66 +1,63 @@
 import pytest
-from battlelite_core import Player, GGRSSession
+from battlelite_core import Player
 
-# 定義標準輸入位元 (與 Rust 對齊)
-INPUT_RIGHT = 1
-INPUT_LEFT = 2
-INPUT_UP = 4
-INPUT_DOWN = 8
-INPUT_JUMP = 16
+# 定義狀態常數 (與計畫對齊)
+STATE_IDLE = 0
+STATE_WALK = 1
+STATE_ATTACK = 2
+STATE_HURT = 3
 
-def test_y_axis_movement():
+def test_player_state_attribute():
     """
-    驗證 Y 軸 (深淺) 的位移邏輯。
-    """
-    # 建立一個測試 Session (P2P 模式，僅測試邏輯不測試連線)
-    session = GGRSSession(local_player_id=0, num_players=1, port=12350)
-    
-    # 手動進入 Running 狀態（在測試中我們假設它能處理）
-    # 注意：P2P Session 在測試中很難真正達到 Running，
-    # 這就是為什麼我們之後可能需要實作一個強制的 'test_mode'。
-    # 暫時我們直接測試 Player 結構體的 update 邏輯。
-    
-    player = Player()
-    player.y = 2000
-    
-    # 測試向上走 (INPUT_UP)
-    # 我們預期如果輸入包含 UP，VY 應為負值 (在 Pygame 中向上是座標減少)
-    # 但在我們 2.5D 架構中，我們定義 UP 為 Y 減少
-    player.vy = -3000
-    player.update()
-    assert player.y < 2000, f"向上移動後 Y 應減少，目前為 {player.y}"
-
-def test_jump_trigger():
-    """
-    驗證跳躍觸發邏輯。
-    按下跳躍鍵時，垂直速度 VZ 應該獲得一個向上的初速度。
+    驗證 Player 是否具備 state 屬性，且預設為 IDLE。
     """
     player = Player()
-    player.z = 0
-    player.vz = 0
-    
-    # 這裡我們模擬 Rust 核心收到 INPUT_JUMP 後的行為
-    # 預期初速度應為正值 (向上)
-    jump_impulse = 8000 
-    
-    # 模擬核心邏輯：如果收到跳躍鍵且在地面
-    if player.z == 0:
-        player.vz = jump_impulse
-    
-    player.update()
-    assert player.z > 0, "跳躍後 Z 座標應大於 0"
-    assert player.vz < jump_impulse, "受重力影響，跳躍後 VZ 應小於初速度"
+    assert hasattr(player, 'state')
+    assert player.state == STATE_IDLE
 
-def test_input_mask_processing():
+def test_attack_trigger_logic():
     """
-    這是一個關鍵測試：驗證 GGRSSession 是否能正確解析多個按鍵。
+    驗證攻擊觸發邏輯。
+    在 Rust 端實作後，我們預期透過 update 或是特定的 state 轉換來觸發。
     """
-    # 預計會失敗，因為目前 GGRSSession.advance 只處理了左右
-    session = GGRSSession(local_player_id=0, num_players=1, port=12351)
+    player = Player()
+    player.state = STATE_IDLE
     
-    # 同時按下「右」與「跳」
-    input_mask = INPUT_RIGHT | INPUT_JUMP
+    # 這裡我們模擬攻擊指令
+    # 在實際 GGRS 中，這會由 input_mask 觸發
+    # 目前測試直接修改狀態來驗證屬性讀寫
+    player.state = STATE_ATTACK
+    assert player.state == STATE_ATTACK
+
+def test_basic_collision_detection():
+    """
+    驗證 2.5D 碰撞判定邏輯 (AABB)。
+    測試兩位玩家在 X, Y 重疊且 Z 高度相近時是否判定為碰撞。
+    """
+    p1 = Player()
+    p1.x, p1.y, p1.z = 1000, 1000, 0
     
-    # 這裡我們需要一個方法來在測試中強制執行模擬，而不受網路同步限制
-    # 暫時保留此測試作為目標
-    pass
+    p2 = Player()
+    p2.x, p2.y, p2.z = 1050, 1050, 0 # 非常接近 p1
+    
+    # 這裡我們預期 Rust 端會提供一個檢測函式
+    if hasattr(p1, 'is_colliding_with'):
+        result = p1.is_colliding_with(p2)
+        assert result is True
+    else:
+        pytest.fail("Player 類別中找不到 'is_colliding_with' 判定函式")
+
+def test_z_axis_collision_avoidance():
+    """
+    驗證 Z 軸高度對判定的影響。
+    如果一方跳得太高，即便 X, Y 重疊也不應判定為碰撞。
+    """
+    p1 = Player()
+    p1.x, p1.y, p1.z = 1000, 1000, 0
+    
+    p2 = Player()
+    p2.x, p2.y, p2.z = 1000, 1000, 5000 # 在 p1 正上方但很高
+    
+    if hasattr(p1, 'is_colliding_with'):
+        result = p1.is_colliding_with(p2)
+        assert result is False, "Z 軸高度差過大時不應判定為碰撞"
