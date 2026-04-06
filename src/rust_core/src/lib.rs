@@ -1,7 +1,11 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::{PyRuntimeError, PyIndexError};
-use ggrs::{Config, GgrsError, P2PSession, PlayerType, SessionBuilder, InputStatus, GgrsRequest, UdpNonBlockingSocket, SessionState};
+use ggrs::{Config, P2PSession, PlayerType, SessionBuilder, InputStatus, GgrsRequest, UdpNonBlockingSocket, SessionState};
 use std::net::SocketAddr;
+
+// 加密庫 (0.10+ 版本)
+use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce, KeyInit, aead::Aead};
+use base64::{engine::general_purpose, Engine as _};
 
 // --- 1. 常數定義 ---
 const GRAVITY: i32 = 400;
@@ -89,7 +93,35 @@ impl Player {
     }
 }
 
-// --- 3. GGRS 橋接器 ---
+// --- 3. 安全啟動模組 ---
+
+#[pyfunction]
+fn decrypt_payload(payload: String, key: &[u8]) -> PyResult<String> {
+    let data = general_purpose::STANDARD.decode(payload)
+        .map_err(|e| PyRuntimeError::new_err(format!("Base64 decode error: {}", e)))?;
+
+    if data.len() < 12 {
+        return Err(PyRuntimeError::new_err("Payload too short"));
+    }
+
+    let (nonce_bytes, ciphertext) = data.split_at(12);
+    let nonce = Nonce::from_slice(nonce_bytes);
+    let key = Key::from_slice(key);
+
+    let cipher = ChaCha20Poly1305::new(key);
+    let plaintext = cipher.decrypt(nonce, ciphertext)
+        .map_err(|e| PyRuntimeError::new_err(format!("Decryption failed: {}", e)))?;
+
+    String::from_utf8(plaintext)
+        .map_err(|e| PyRuntimeError::new_err(format!("UTF-8 error: {}", e)))
+}
+
+#[pyfunction]
+fn hello_from_rust() -> PyResult<String> {
+    Ok("Hello from BattleLite Rust Core!".to_string())
+}
+
+// --- 4. GGRS 橋接器 ---
 
 #[derive(Clone, Default, Debug)]
 pub struct GameState { pub players: Vec<Player> }
@@ -141,7 +173,6 @@ impl GGRSSession {
         Ok(())
     }
 
-    /// 離線模擬介面：直接傳入所有玩家的輸入，執行一幀物理
     fn advance_local(&mut self, inputs: Vec<u8>) -> PyResult<()> {
         let mut ggrs_style_inputs = Vec::new();
         for i in 0..self.current_state.players.len() {
@@ -163,15 +194,11 @@ impl GGRSSession {
 }
 
 impl GGRSSession {
-    /// 核心邏輯大一統：處理輸入、狀態、物理與判定
     fn apply_logic(&mut self, inputs: &[(u8, InputStatus)]) {
-        // 1. 處理輸入與個人狀態更新
         for (i, (input, status)) in inputs.iter().enumerate() {
             if i >= self.current_state.players.len() { break; }
             if *status == InputStatus::Disconnected { continue; }
-            
             let p = &mut self.current_state.players[i];
-            
             if p.state == STATE_IDLE || p.state == STATE_WALK {
                 p.vx = 0; p.vy = 0;
                 if input & INPUT_RIGHT != 0 { p.vx += WALK_SPEED_X; p.state = STATE_WALK; p.facing_right = true; }
@@ -180,32 +207,24 @@ impl GGRSSession {
                 if input & INPUT_UP    != 0 { p.vy -= WALK_SPEED_Y; p.state = STATE_WALK; }
                 if p.vx == 0 && p.vy == 0 { p.state = STATE_IDLE; }
                 if input & INPUT_JUMP != 0 && p.z == 0 { p.vz = JUMP_IMPULSE; }
-                
-                if input & INPUT_ATTACK != 0 {
-                    p.state = STATE_ATTACK; p.timer = 20; p.vx = 0; p.vy = 0;
-                }
+                if input & INPUT_ATTACK != 0 { p.state = STATE_ATTACK; p.timer = 20; p.vx = 0; p.vy = 0; }
                 if input & INPUT_SKILL != 0 && p.mp >= SKILL_COST {
                     p.state = STATE_SKILL; p.timer = 40; p.mp -= SKILL_COST; p.vx = 0; p.vy = 0;
                 }
             }
             p.update();
         }
-
-        // 2. 全域戰鬥判定
         let num_players = self.current_state.players.len();
         for i in 0..num_players {
             let attacker_info = self.current_state.players[i].clone();
-            // 判定觸發點：普攻在第 15 幀，技能在整個持續期間
             let is_attacking = (attacker_info.state == STATE_ATTACK && attacker_info.timer == 15) ||
                                (attacker_info.state == STATE_SKILL && attacker_info.timer > 10);
-            
             if is_attacking {
                 for j in 0..num_players {
                     if i == j { continue; }
                     let victim = &mut self.current_state.players[j];
                     if attacker_info.check_attack_hit(victim) {
-                        victim.state = STATE_HURT; victim.timer = 30; victim.vz = 4000;
-                        victim.hp -= 10000;
+                        victim.state = STATE_HURT; victim.timer = 30; victim.vz = 4000; victim.hp -= 10000;
                     }
                 }
             }
@@ -225,6 +244,8 @@ impl GGRSSession {
 
 #[pymodule]
 fn battlelite_core(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(hello_from_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(decrypt_payload, m)?)?;
     m.add_class::<Player>()?;
     m.add_class::<GGRSSession>()?;
     Ok(())
