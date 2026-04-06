@@ -33,9 +33,13 @@ def test_room_broadcasting():
 
     # 1. 玩家 A 加入房間 'battle_123'
     with client.websocket_connect("/ws/battle_123/PlayerA") as ws_a:
+        # 玩家 A 加入時會先收到自己的加入通知，我們將其消耗掉
+        initial_data = ws_a.receive_json()
+        assert len(initial_data["players"]) == 1
+
         # 2. 玩家 B 加入同一個房間
         with client.websocket_connect("/ws/battle_123/PlayerB") as ws_b:
-            # 3. 玩家 A 應該收到一則廣播，通知 PlayerB 已加入
+            # 3. 玩家 A 現在應該收到「第二個」廣播，通知 PlayerB 已加入
             data = ws_a.receive_json()
             assert data["type"] == "room_update"
             assert len(data["players"]) == 2
