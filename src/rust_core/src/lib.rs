@@ -77,17 +77,35 @@ impl Player {
         p.mp = MAX_MP;
         p
     }
+/// 檢查此玩家的「攻擊框」是否打中對方的「身體框」
+fn check_attack_hit(&self, other: &Player) -> bool {
+    let is_skill = self.state == STATE_SKILL;
 
-    fn check_attack_hit(&self, other: &Player) -> bool {
-        let atk_offset_x = if self.facing_right { 30000 } else { -30000 };
-        let atk_x = self.x + atk_offset_x;
-        let dx = (atk_x - other.x).abs();
-        let dy = (self.y - other.y).abs();
-        let dz = (self.z - other.z).abs();
-        
-        // 精準判定：X 軸 35px, Y 軸容差 ATK_DEPTH_REACH, Z 軸高度差 5px 內
-        dx < 35000 && dy < ATK_DEPTH_REACH && dz < 5000
-    }
+    // 1. 根據狀態定義攻擊框大小與偏移 (技能判定範圍更大)
+    let atk_offset_x = if self.facing_right { 
+        if is_skill { 45000 } else { 30000 } 
+    } else { 
+        if is_skill { -45000 } else { -30000 } 
+    };
+
+    let atk_w = if is_skill { 35000 } else { 20000 }; // 攻擊框半寬
+    let atk_d = if is_skill { 40000 } else { ATK_DEPTH_REACH }; // 攻擊深度
+    let atk_h = if is_skill { 40000 } else { 5000 }; // 攻擊高度差
+
+    let atk_x = self.x + atk_offset_x;
+    let atk_y = self.y;
+    let atk_z = self.z;
+
+    // 2. 執行 AABB 判定
+    let dx = (atk_x - other.x).abs();
+    let dy = (atk_y - other.y).abs();
+    let dz = (atk_z - other.z).abs();
+
+    let body_w = CHAR_WIDTH / 2;
+
+    dx < (atk_w + body_w) && dy < atk_d && dz < atk_h
+}
+
 
     fn update(&mut self) {
         // A. 處理計時器與狀態恢復
