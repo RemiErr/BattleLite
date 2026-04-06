@@ -1,0 +1,16 @@
+# --- 遊戲引擎與渲染 ---
+pygame
+
+# --- Rust 橋接與建置 ---
+maturin
+
+# --- 測試與自動化 ---
+pytest
+httpx
+
+# --- 信令大廳伺服器 ---
+fastapi
+uvicorn
+
+# --- 安全與加密 ---
+cryptography
