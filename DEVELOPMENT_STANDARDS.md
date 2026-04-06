@@ -35,3 +35,11 @@ This document defines the technical architecture and coding standards for the Ba
 - `src/python/`: Pygame rendering, event loop, and Launcher.
 - `docs/`: Design documents and protocol specifications.
 - `tests/`: Integrated tests for Python and Rust core modules.
+- `assets/`: Character sprites, UI elements, and audio files.
+
+## 7. Sprite Asset Standards (LF2 Style)
+- **Format**: `.png` with Alpha channel (transparency).
+- **Organization**: One directory per character (e.g., `assets/characters/knight/`).
+- **Storage**: Prefer single-row Sprite Sheets for each animation state (e.g., `idle.png`).
+- **Naming**: `[action]_[frame_count].png` (e.g., `walk_6.png`).
+- **Configuration**: Each character folder must contain a `config.json` defining hitbox offsets and animation speed per state.
