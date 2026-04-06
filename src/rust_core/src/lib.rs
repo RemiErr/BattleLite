@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::{PyRuntimeError, PyIndexError};
-use ggrs::{Config, GgrsError, P2PSession, PlayerType, SessionBuilder, InputStatus, GgrsRequest, UdpNonBlockingSocket, SessionState};
+use ggrs::{Config, P2PSession, PlayerType, SessionBuilder, InputStatus, GgrsRequest, UdpNonBlockingSocket, SessionState};
 use std::net::SocketAddr;
 
 // --- 1. 物理與戰鬥常數 (定點數，1000 = 1 像素/單位) ---
@@ -133,12 +133,26 @@ fn check_attack_hit(&self, other: &Player) -> bool {
             self.y += self.vy;
         }
         self.z += self.vz;
+        if self.z <= 0 { self.z = 0; self.vz = 0; }
+    }
+}
 
         if self.z <= 0 {
             self.z = 0;
             self.vz = 0;
         }
     }
+
+    let (nonce_bytes, ciphertext) = data.split_at(12);
+    let nonce = Nonce::from_slice(nonce_bytes);
+    let key = Key::from_slice(key);
+
+    let cipher = ChaCha20Poly1305::new(key);
+    let plaintext = cipher.decrypt(nonce, ciphertext)
+        .map_err(|e| PyRuntimeError::new_err(format!("Decryption failed: {}", e)))?;
+
+    String::from_utf8(plaintext)
+        .map_err(|e| PyRuntimeError::new_err(format!("UTF-8 error: {}", e)))
 }
 
 // --- 4. 遊戲狀態與 GGRS 橋接器 ---
@@ -165,14 +179,8 @@ pub struct GGRSSession {
 impl GGRSSession {
     #[new]
     fn new(local_player_id: usize, num_players: usize, port: u16) -> PyResult<Self> {
-        let socket = UdpNonBlockingSocket::bind_to_port(port)
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-
-        let mut builder = SessionBuilder::<BattleConfig>::new()
-            .with_num_players(num_players)
-            .with_fps(60)
-            .unwrap();
-
+        let socket = UdpNonBlockingSocket::bind_to_port(port).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        let mut builder = SessionBuilder::<BattleConfig>::new().with_num_players(num_players).with_fps(60).unwrap();
         for i in 0..num_players {
             let addr = if i == local_player_id { PlayerType::Local } 
                       else { PlayerType::Remote(format!("127.0.0.1:{}", 7000+i).parse().unwrap()) };
@@ -190,11 +198,7 @@ impl GGRSSession {
             }
             players.push(p);
         }
-
-        Ok(GGRSSession {
-            session_p2p: Some(session),
-            current_state: GameState { players },
-        })
+        Ok(GGRSSession { session_p2p: Some(session), current_state: GameState { players } })
     }
 
     fn advance(&mut self, local_input: u8) -> PyResult<()> {
@@ -276,7 +280,6 @@ impl GGRSSession {
             }
         }
     }
-}
 
 #[pymodule]
 fn battlelite_core(_py: Python, m: &PyModule) -> PyResult<()> {
