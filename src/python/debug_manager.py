@@ -13,11 +13,11 @@ class DebugManager:
         if not self.enabled:
             return
 
-        # 1. 根據玩家人數動態調整面板高度
+        # 1. 根據玩家人數調整面板高度
         panel_width = 300
         panel_height = 120 + (len(players) * 40)
         overlay = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 180)) # 深黑色 70% 透明
+        overlay.fill((0, 0, 0, 180)) 
         screen.blit(overlay, (5, 5))
 
         # 2. 收集資訊
@@ -30,10 +30,10 @@ class DebugManager:
             f"------------------------",
         ]
 
-        # 每個玩家的座標、速度與狀態
+        # 每個玩家的座標與速度
         for i, player in enumerate(players):
             info_lines.append(f"P{i} Pos: ({player.x//1000}, {player.y//1000}, {player.z//1000})")
-            info_lines.append(f"P{i} State: {player.state} (T:{player.timer})")
+            info_lines.append(f"P{i} Vel: ({player.vx}, {player.vy}, {player.vz})")
 
         # 3. 渲染文字
         for idx, line in enumerate(info_lines):
