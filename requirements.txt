@@ -14,3 +14,6 @@ uvicorn
 
 # --- 安全與加密 ---
 cryptography
+
+# --- Launcher UI ---
+customtkinter
