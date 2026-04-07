@@ -4,7 +4,7 @@ import sys
 import json
 import subprocess
 
-# 確保路徑正確以匯入 settings 與 crypto
+# 確保路徑正確
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
@@ -24,6 +24,7 @@ class LauncherApp(ctk.CTk):
         self.title("BattleLite Launcher")
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
         
+        # 恢復設定
         size = self.settings_mgr.get("window_size")
         pos = self.settings_mgr.get("window_pos")
         self.geometry(f"{size[0]}x{size[1]}+{pos[0]}+{pos[1]}")
@@ -31,6 +32,10 @@ class LauncherApp(ctk.CTk):
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
+        # 遊戲進程追蹤
+        self.game_process = None
+
+        # --- UI 佈局 ---
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
@@ -61,40 +66,53 @@ class LauncherApp(ctk.CTk):
         self.label_status.grid(row=5, column=0, padx=20, pady=10)
 
     def start_game_action(self):
+        if self.game_process and self.game_process.poll() is None:
+            return # 遊戲還在跑，禁止重複啟動
+
         nickname = self.entry_nickname.get()
         room = self.entry_room.get()
         mode = self.btn_mode.get()
         
-        # 1. 構造啟動合約
         session_data = {
-            "nickname": nickname,
-            "room": room,
+            "nickname": nickname, "room": room,
             "is_offline": (mode == "Offline Dev"),
-            "local_id": 0,
-            "num_players": 4
+            "local_id": 0, "num_players": 4
         }
         
-        # 2. 加密
         payload = encrypt_payload(session_data)
         
-        # 3. 保存設定
-        self.settings_mgr.set("nickname", nickname)
-        self.settings_mgr.set("last_room", room)
-        self.settings_mgr.save()
+        # 禁用按鈕與顯示狀態
+        self.btn_start.configure(state="disabled", text="GAME RUNNING")
+        self.label_status.configure(text=f"Game session active...")
         
-        # 4. 啟動 Game Client
         try:
-            # 獲取 main.py 的絕對路徑
             game_script = os.path.join(PROJECT_ROOT, "src", "python", "main.py")
-            cmd = [sys.executable, game_script, "--payload", payload]
-            subprocess.Popen(cmd)
-            self.label_status.configure(text="Game launched!")
-            # 最小化 Launcher
+            self.game_process = subprocess.Popen([sys.executable, game_script, "--payload", payload])
             self.iconify()
+            # 開始監控進程
+            self.monitor_game_process()
         except Exception as e:
-            self.label_status.configure(text=f"Launch Error: {e}")
+            self.reset_ui(f"Error: {e}")
+
+    def monitor_game_process(self):
+        """定期檢查遊戲是否已關閉。"""
+        if self.game_process:
+            if self.game_process.poll() is not None:
+                # 遊戲已結束
+                self.reset_ui("Welcome back! Game ended.")
+                self.deiconify() # 彈回視窗
+            else:
+                # 每隔 1 秒檢查一次
+                self.after(1000, self.monitor_game_process)
+
+    def reset_ui(self, message):
+        """還原 Launcher 介面狀態。"""
+        self.btn_start.configure(state="normal", text="START GAME")
+        self.label_status.configure(text=message)
+        self.game_process = None
 
     def on_closing(self):
+        # 關閉時若遊戲還在跑，先關閉遊戲 (可選，這裡我們先採溫和策略)
         geo = self.geometry().split('+')
         size = geo[0].split('x')
         self.settings_mgr.set("window_size", [int(size[0]), int(size[1])])

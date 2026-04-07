@@ -137,6 +137,19 @@ def run_game():
                 pygame.draw.rect(screen, (0, 255, 255), (sx + (30 if p.facing_right else -40), sy - 10, 50, 70), 1)
 
         debug_manager.draw(screen, session, [p for _, p in render_list], clock.get_fps())
+
+        # --- 醒目的同步等待提示 (獨立於 Debug UI) ---
+        if not offline_mode and not session.is_synchronized():
+            overlay = pygame.Surface((800, 600), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 150))
+            screen.blit(overlay, (0, 0))
+            
+            wait_font = pygame.font.SysFont("Arial", 36, bold=True)
+            msg = "WAITING FOR OTHER PLAYERS..."
+            text_surf = wait_font.render(msg, True, (255, 255, 0))
+            text_rect = text_surf.get_rect(center=(400, 300))
+            screen.blit(text_surf, text_rect)
+
         pygame.display.flip()
         clock.tick(60)
 
