@@ -1,0 +1,14 @@
+{
+    "nickname": "Player",
+    "volume": 50,
+    "window_size": [
+        894,
+        670
+    ],
+    "window_pos": [
+        12,
+        -29
+    ],
+    "fullscreen": false,
+    "last_room": "test"
+}
