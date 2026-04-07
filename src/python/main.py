@@ -11,7 +11,7 @@ if PROJECT_ROOT not in sys.path:
 
 try:
     import battlelite_core
-    from battlelite_core import GGRSSession, Player
+    from battlelite_core import Player, OfflineSession, GGRSSession
     from src.python.renderer import get_screen_pos
     from src.python.debug_manager import DebugManager
     from src.python.assets_manager.characters.knight import Knight
@@ -20,12 +20,11 @@ except ImportError as e:
     print(f"❌ 匯入失敗: {e}")
     sys.exit(1)
 
-# --- 常數對齊 ---
+# --- 常數對齊 (必須與 Rust 對齊) ---
 INPUT_RIGHT, INPUT_LEFT, INPUT_UP, INPUT_DOWN, INPUT_JUMP, INPUT_ATTACK, INPUT_SKILL = [1<<i for i in range(7)]
 STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = range(5)
 
 def parse_args():
-    """解析命令行參數，支援加密的 Payload。"""
     parser = argparse.ArgumentParser()
     parser.add_argument("--payload", help="Encrypted session data from Launcher")
     return parser.parse_args()
@@ -43,32 +42,32 @@ def get_input_mask():
     return mask
 
 def draw_status_bar(screen, x, y, hp, mp):
+    # HP Bar
     pygame.draw.rect(screen, (100, 0, 0), (x, y - 15, 40, 5))
     pygame.draw.rect(screen, (0, 255, 0), (x, y - 15, max(0, (hp/100000.0)*40), 5))
+    # MP Bar
     pygame.draw.rect(screen, (0, 0, 100), (x, y - 8, 40, 5))
     pygame.draw.rect(screen, (0, 200, 255), (x, y - 8, max(0, (mp/50000.0)*40), 5))
 
 def run_game():
     args = parse_args()
     
-    # 預設設定
+    # 預設啟動設定
     config = {
-        "nickname": "Player",
+        "nickname": "DevPlayer",
         "is_offline": True,
         "local_id": 0,
-        "num_players": 4
+        "num_players": 4,
+        "local_port": 5000
     }
 
-    # 如果有加密 Payload，由 Rust 進行解密
     if args.payload:
         try:
-            print("🔐 Decrypting launcher payload via Rust core...")
             decrypted_str = battlelite_core.decrypt_payload(args.payload, SHARED_SECRET)
             config.update(json.loads(decrypted_str))
-            print(f"✅ Hello, {config['nickname']}! Session initialized.")
+            print(f"✅ Session Handoff Success: Hello {config['nickname']}")
         except Exception as e:
-            print(f"❌ Decryption failed: {e}")
-            sys.exit(1)
+            print(f"❌ Handshake Decryption Failed: {e}"); sys.exit(1)
 
     pygame.init()
     screen = pygame.display.set_mode((800, 600))
@@ -77,19 +76,21 @@ def run_game():
     debug_manager = DebugManager()
     knight_asset = Knight()
 
-    offline_mode = config["is_offline"]
+    # --- Session 工廠：組合模式的核心實作 ---
+    is_offline = config["is_offline"]
     num_players = config["num_players"]
     controlled_idx = config["local_id"]
-    
-    # 準備遠端玩家清單 [(id, ip, port), ...] 供 Rust 使用
-    remote_players_list = []
-    if "players" in config:
-        for p in config["players"]:
-            remote_players_list.append((p["id"], p["ip"], p["port"]))
-    
-    # 初始化 Session (使用 Launcher 選定的埠號)
-    local_port = config.get("local_port", 5000)
-    session = GGRSSession(controlled_idx, num_players, local_port, remote_players_list)
+
+    if is_offline:
+        print("🕹 Mode: Offline Sandbox (Pure Rust Simulation)")
+        session = OfflineSession(num_players)
+    else:
+        print("🌐 Mode: Online P2P (GGRS Rollback)")
+        remote_players_list = []
+        if "players" in config:
+            for p in config["players"]:
+                remote_players_list.append((p["id"], p["ip"], p["port"]))
+        session = GGRSSession(controlled_idx, num_players, config["local_port"], remote_players_list)
 
     player_elapsed_frames = [0] * num_players
     last_states = [STATE_IDLE] * num_players
@@ -100,19 +101,20 @@ def run_game():
             if event.type == pygame.QUIT: running = False
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_F1: debug_manager.toggle()
-                if event.key == pygame.K_F2: offline_mode = not offline_mode
-                if event.key == pygame.K_TAB and offline_mode:
-                    controlled_idx = (controlled_idx + 1) % num_players
 
+        # 1. 邏輯推進 (不論模式，介面完全對等)
         input_mask = get_input_mask()
         
-        if not offline_mode:
-            session.advance(input_mask)
-        else:
+        if is_offline:
+            # 離線模式傳入所有玩家的輸入陣列
             inputs = [0] * num_players
             inputs[controlled_idx] = input_mask
-            session.advance_local(inputs)
+            session.advance(inputs)
+        else:
+            # 線上模式由 GGRS 處理
+            session.advance(input_mask)
 
+        # 2. 渲染處理 (根據 Y 軸排序)
         screen.fill((30, 30, 30))
         pygame.draw.line(screen, (60, 60, 60), (0, 300), (800, 300), 1)
         pygame.draw.line(screen, (60, 60, 60), (0, 450), (800, 450), 1)
@@ -134,9 +136,14 @@ def run_game():
             pygame.draw.ellipse(screen, (10, 10, 10), (p.x/1000.0, p.y/1000.0 + 40, 50, 20))
             sprite = knight_asset.get_sprite(p.state, player_elapsed_frames[original_idx], p.facing_right)
             screen.blit(sprite, (sx, sy))
-            if offline_mode and original_idx == controlled_idx:
+            
+            # 如果是離線模式，高亮當前操作的角色
+            if is_offline and original_idx == controlled_idx:
                 pygame.draw.rect(screen, (255, 255, 255), (sx, sy, 40, 50), 1)
+            
             draw_status_bar(screen, sx, sy, p.hp, p.mp)
+            
+            # 判定框視覺輔助 (僅用於開發者 Debug)
             if p.state == STATE_ATTACK:
                 off = 30 if p.facing_right else -20
                 pygame.draw.rect(screen, (255, 0, 0), (sx + off, sy + 10, 30, 30), 1)
@@ -146,20 +153,19 @@ def run_game():
 
         debug_manager.draw(screen, session, [p for _, p in render_list], clock.get_fps())
 
-        # --- 醒目的同步等待提示 (獨立於 Debug UI) ---
-        if not offline_mode and not session.is_synchronized():
+        # 同步等待提示
+        if not is_offline and not session.is_synchronized():
             overlay = pygame.Surface((800, 600), pygame.SRCALPHA)
             overlay.fill((0, 0, 0, 150))
             screen.blit(overlay, (0, 0))
-            
             wait_font = pygame.font.SysFont("Arial", 36, bold=True)
-            msg = "WAITING FOR OTHER PLAYERS..."
-            text_surf = wait_font.render(msg, True, (255, 255, 0))
-            text_rect = text_surf.get_rect(center=(400, 300))
-            screen.blit(text_surf, text_rect)
+            text_surf = wait_font.render("WAITING FOR SYNC...", True, (255, 255, 0))
+            screen.blit(text_surf, text_surf.get_rect(center=(400, 300)))
 
         pygame.display.flip()
         clock.tick(60)
+
+    pygame.quit()
 
 if __name__ == "__main__":
     run_game()
