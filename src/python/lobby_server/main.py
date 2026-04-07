@@ -1,10 +1,11 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from typing import Dict, List
 import json
+import random
 
 app = FastAPI(title="BattleLite Signaling Lobby")
 
-# 資料結構：{ room_id: [ {name, ip, websocket}, ... ] }
+# 資料結構：{ room_id: [ {name, ip, port, id, websocket}, ... ] }
 rooms: Dict[str, List[dict]] = {}
 
 @app.get("/")
@@ -15,60 +16,73 @@ async def root():
 async def websocket_endpoint(websocket: WebSocket, room_id: str, player_name: str):
     await websocket.accept()
     
-    # 獲取玩家 IP (在 Production 環境中，需考慮 X-Forwarded-For)
-    client_ip = websocket.client.host
-    
-    # 建立玩家物件
+    # 建立玩家物件 (初始資料)
     new_player = {
         "name": player_name,
-        "ip": client_ip,
+        "ip": websocket.client.host,
+        "port": 0, # 等待客戶端透過第一個訊息回報 STUN 埠號
+        "id": 0,
         "websocket": websocket
     }
     
-    # 加入房間
     if room_id not in rooms:
         rooms[room_id] = []
+    
+    # 分配 ID (根據目前房內人數)
+    new_player["id"] = len(rooms[room_id])
     rooms[room_id].append(new_player)
     
-    print(f"➕ Player {player_name} joined room {room_id} ({client_ip})")
+    print(f"➕ Player {player_name} (ID:{new_player['id']}) joined room {room_id}")
     
     try:
-        # 當有人加入，通知房內所有人
+        # 當有人加入，先發送一次房間更新 (通知有人來了)
         await broadcast_room_update(room_id)
         
-        # 維持連線
+        # 進入訊息監聽迴圈
         while True:
-            # 這裡可以處理聊天或準備狀態，目前僅維持心跳
-            data = await websocket.receive_text()
+            data = await websocket.receive_json()
+            
+            # 處理客戶端回報的公網 Endpoint (STUN 結果)
+            if data.get("type") == "report_endpoint":
+                for p in rooms[room_id]:
+                    if p["websocket"] == websocket:
+                        p["ip"] = data["ip"]
+                        p["port"] = data["port"]
+                        print(f"📍 Player {player_name} reported endpoint: {p['ip']}:{p['port']}")
+                
+                # 檢查是否滿 2 人且都已回報地址
+                if len(rooms[room_id]) >= 2:
+                    await trigger_match_start(room_id)
             
     except WebSocketDisconnect:
-        # 移除玩家
         rooms[room_id] = [p for p in rooms[room_id] if p["websocket"] != websocket]
         if not rooms[room_id]:
             del rooms[room_id]
-        
         print(f"➖ Player {player_name} left room {room_id}")
         await broadcast_room_update(room_id)
 
 async def broadcast_room_update(room_id: str):
-    """將目前的房間清單廣播給該房間內的所有人"""
-    if room_id not in rooms:
-        return
-        
-    players_data = [
-        {"name": p["name"], "ip": p["ip"]} 
-        for p in rooms[room_id]
-    ]
+    if room_id not in rooms: return
+    players_data = [{"name": p["name"], "id": p["id"]} for p in rooms[room_id]]
+    message = {"type": "room_update", "players": players_data}
+    for p in rooms[room_id]:
+        await p["websocket"].send_json(message)
+
+async def trigger_match_start(room_id: str):
+    """當房間滿 2 人，發送開始對戰訊號。"""
+    players = rooms[room_id]
+    seed = random.randint(1, 1000000)
     
-    message = {
-        "type": "room_update",
-        "players": players_data
+    # 構造對戰資料 (包含所有人的公網地址)
+    match_info = {
+        "type": "start_match",
+        "seed": seed,
+        "players": [
+            {"id": p["id"], "name": p["name"], "ip": p["ip"], "port": p["port"]} 
+            for p in players
+        ]
     }
     
-    # 執行廣播
-    for p in rooms[room_id]:
-        try:
-            await p["websocket"].send_json(message)
-        except:
-            # 忽略發送失敗的客戶端
-            pass
+    print(f"🎮 Starting match in room {room_id} with seed {seed}")
+    for p in players:
+        await p["websocket"].send_json(match_info)

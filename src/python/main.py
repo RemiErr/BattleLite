@@ -81,7 +81,15 @@ def run_game():
     num_players = config["num_players"]
     controlled_idx = config["local_id"]
     
-    session = GGRSSession(local_player_id=controlled_idx, num_players=num_players, port=12345 + controlled_idx)
+    # 準備遠端玩家清單 [(id, ip, port), ...] 供 Rust 使用
+    remote_players_list = []
+    if "players" in config:
+        for p in config["players"]:
+            remote_players_list.append((p["id"], p["ip"], p["port"]))
+    
+    # 初始化 Session (Port 分配：如果是 P2P，必須綁定到 Launcher 報備的那個 Port，預設 5000)
+    local_port = 5000
+    session = GGRSSession(controlled_idx, num_players, local_port, remote_players_list)
 
     player_elapsed_frames = [0] * num_players
     last_states = [STATE_IDLE] * num_players
