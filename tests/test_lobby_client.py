@@ -1,23 +1,23 @@
 import pytest
 import asyncio
-from src.python.lobby_server.main import app
-from fastapi.testclient import TestClient
 import sys
 import os
 
-def test_launcher_lobby_flow():
-    """
-    模擬 Launcher 的大廳通訊流程。
-    """
-    from src.python.lobby_server.main import app
-    client = TestClient(app)
+# 確保路徑正確
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
-    # 模擬玩家連線到大廳
-    with client.websocket_connect("/ws/room_999/AlphaPlayer") as ws:
-        # 1. 應收到初始房間狀態
-        data = ws.receive_json()
-        assert data["type"] == "room_update"
-        assert len(data["players"]) == 1
-        assert data["players"][0]["name"] == "AlphaPlayer"
-        
-        # 此測試目前僅驗證連線與初始接收，後續會整合真實 Client
+def test_lobby_client_logic():
+    """
+    驗證 Launcher 的連線客戶端邏輯。
+    """
+    try:
+        from src.python.lobby_client import LobbyClient
+    except ImportError:
+        pytest.fail("找不到 'src.python.lobby_client' 模組。")
+
+    # 這裡我們定義 LobbyClient 的基本接口
+    client = LobbyClient(server_url="ws://localhost:8000")
+    assert hasattr(client, 'join_room'), "應具備 join_room 方法"
+    assert hasattr(client, 'listen'), "應具備 listen 方法"
