@@ -86,3 +86,10 @@ async def trigger_match_start(room_id: str):
     print(f"🎮 Starting match in room {room_id} with seed {seed}")
     for p in players:
         await p["websocket"].send_json(match_info)
+
+if __name__ == "__main__":
+    import uvicorn
+    import os
+    # 支援 Render/Railway 等雲端平台的 PORT 環境變數
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
