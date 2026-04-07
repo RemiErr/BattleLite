@@ -17,3 +17,6 @@ cryptography
 
 # --- Launcher UI ---
 customtkinter
+
+# --- 連線與客戶端 ---
+websockets
