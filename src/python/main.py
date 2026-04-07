@@ -87,8 +87,8 @@ def run_game():
         for p in config["players"]:
             remote_players_list.append((p["id"], p["ip"], p["port"]))
     
-    # 初始化 Session (Port 分配：如果是 P2P，必須綁定到 Launcher 報備的那個 Port，預設 5000)
-    local_port = 5000
+    # 初始化 Session (使用 Launcher 選定的埠號)
+    local_port = config.get("local_port", 5000)
     session = GGRSSession(controlled_idx, num_players, local_port, remote_players_list)
 
     player_elapsed_frames = [0] * num_players

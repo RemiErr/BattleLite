@@ -10,7 +10,7 @@ httpx
 
 # --- 信令大廳伺服器 ---
 fastapi
-uvicorn
+uvicorn[standard]
 
 # --- 安全與加密 ---
 cryptography
@@ -20,3 +20,4 @@ customtkinter
 
 # --- 連線與客戶端 ---
 websockets
+python-dotenv
