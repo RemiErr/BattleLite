@@ -1,3 +1,4 @@
+from dotenv import load_dotenv
 import customtkinter as ctk
 import os
 import sys
@@ -8,7 +9,8 @@ import asyncio
 import socket
 
 # 確保路徑正確
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+PROJECT_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), '../..'))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
@@ -21,11 +23,11 @@ except ImportError as e:
     print(f"❌ 匯入失敗: {e}")
     sys.exit(1)
 
-from dotenv import load_dotenv
-load_dotenv() # 載入根目錄的 .env
+load_dotenv()  # 載入根目錄的 .env
 
 # 設定大廳伺服器位址 (優先讀取環境變數)
 LOBBY_SERVER_URL = os.getenv("LOBBY_SERVER_URL", "ws://localhost:8000")
+
 
 class LauncherApp(ctk.CTk):
     def __init__(self):
@@ -34,11 +36,11 @@ class LauncherApp(ctk.CTk):
         self.settings_mgr = SettingsManager()
         self.title("BattleLite Launcher")
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
-        
+
         size = self.settings_mgr.get("window_size")
         pos = self.settings_mgr.get("window_pos")
         self.geometry(f"{size[0]}x{size[1]}+{pos[0]}+{pos[1]}")
-        
+
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
@@ -52,17 +54,21 @@ class LauncherApp(ctk.CTk):
         self.main_frame.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
         self.main_frame.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(self.main_frame, text="BATTLE LITE", font=ctk.CTkFont(size=32, weight="bold")).grid(row=0, column=0, pady=20)
+        ctk.CTkLabel(self.main_frame, text="BATTLE LITE", font=ctk.CTkFont(
+            size=32, weight="bold")).grid(row=0, column=0, pady=20)
 
-        self.entry_nickname = ctk.CTkEntry(self.main_frame, placeholder_text="Nickname", width=250)
+        self.entry_nickname = ctk.CTkEntry(
+            self.main_frame, placeholder_text="Nickname", width=250)
         self.entry_nickname.insert(0, self.settings_mgr.get("nickname"))
         self.entry_nickname.grid(row=1, column=0, pady=10)
 
-        self.entry_room = ctk.CTkEntry(self.main_frame, placeholder_text="Room Code", width=250)
+        self.entry_room = ctk.CTkEntry(
+            self.main_frame, placeholder_text="Room Code", width=250)
         self.entry_room.insert(0, self.settings_mgr.get("last_room"))
         self.entry_room.grid(row=2, column=0, pady=10)
 
-        self.btn_mode = ctk.CTkSegmentedButton(self.main_frame, values=["Online P2P", "Offline Dev"])
+        self.btn_mode = ctk.CTkSegmentedButton(
+            self.main_frame, values=["Online P2P", "Offline Dev"])
         self.btn_mode.set("Offline Dev")
         self.btn_mode.grid(row=3, column=0, pady=10)
 
@@ -70,7 +76,8 @@ class LauncherApp(ctk.CTk):
                                        command=self.on_start_clicked, height=45)
         self.btn_start.grid(row=4, column=0, padx=20, pady=30)
 
-        self.label_status = ctk.CTkLabel(self.main_frame, text="Ready.", font=ctk.CTkFont(size=12))
+        self.label_status = ctk.CTkLabel(
+            self.main_frame, text="Ready.", font=ctk.CTkFont(size=12))
         self.label_status.grid(row=5, column=0, padx=20, pady=10)
 
     def on_start_clicked(self):
@@ -92,11 +99,13 @@ class LauncherApp(ctk.CTk):
         self.do_launch(session_data)
 
     def start_online_flow(self):
-        if self.game_process: return
+        if self.game_process:
+            return
         self.btn_start.configure(state="disabled", text="CONNECTING...")
         self.update_status("Searching for free UDP port...")
-        
-        self.lobby_thread = threading.Thread(target=self.run_async_lobby, daemon=True)
+
+        self.lobby_thread = threading.Thread(
+            target=self.run_async_lobby, daemon=True)
         self.lobby_thread.start()
 
     def run_async_lobby(self):
@@ -107,7 +116,7 @@ class LauncherApp(ctk.CTk):
     async def async_lobby_task(self):
         nickname = self.entry_nickname.get()
         room = self.entry_room.get()
-        
+
         # 1. 尋找可用的本地埠號 (解決 Address already in use)
         local_port = 5000
         for p in range(5000, 5020):
@@ -116,7 +125,8 @@ class LauncherApp(ctk.CTk):
                     s.bind(('0.0.0.0', p))
                     local_port = p
                     break
-                except: continue
+                except:
+                    continue
 
         # 2. STUN 探測
         try:
@@ -143,8 +153,9 @@ class LauncherApp(ctk.CTk):
             if msg["type"] == "start_match":
                 my_id = 0
                 for p in msg["players"]:
-                    if p["name"] == nickname: my_id = p["id"]
-                
+                    if p["name"] == nickname:
+                        my_id = p["id"]
+
                 session_data = {
                     "nickname": nickname,
                     "room": room,
@@ -171,10 +182,14 @@ class LauncherApp(ctk.CTk):
         self.settings_mgr.set("nickname", session_data["nickname"])
         self.settings_mgr.set("last_room", session_data["room"])
         self.settings_mgr.save()
-        
         try:
-            game_script = os.path.join(PROJECT_ROOT, "src", "python", "main.py")
-            self.game_process = subprocess.Popen([sys.executable, game_script, "--payload", payload])
+            game_script = os.path.join(
+                PROJECT_ROOT, "src", "python", "main.py")
+            # 繼承環境變數
+            self.game_process = subprocess.Popen(
+                [sys.executable, game_script, "--payload", payload],
+                env=os.environ.copy()
+            )
             self.iconify()
             self.monitor_game_process()
         except Exception as e:
@@ -195,6 +210,7 @@ class LauncherApp(ctk.CTk):
     def on_closing(self):
         self.settings_mgr.save()
         self.destroy()
+
 
 if __name__ == "__main__":
     app = LauncherApp()
