@@ -7,6 +7,7 @@ import subprocess
 import threading
 import asyncio
 import socket
+import time
 
 # 確保路徑正確
 PROJECT_ROOT = os.path.abspath(
@@ -17,15 +18,14 @@ if PROJECT_ROOT not in sys.path:
 try:
     from src.python.launcher_settings import SettingsManager
     from src.python.crypto_utils import encrypt_payload
-    from src.python.stun_utils import get_public_endpoint
+    from src.python.stun_utils import probe_stun_on_sock
     from src.python.lobby_client import LobbyClient
 except ImportError as e:
     print(f"❌ 匯入失敗: {e}")
     sys.exit(1)
 
-load_dotenv()  # 載入根目錄的 .env
+load_dotenv()
 
-# 設定大廳伺服器位址 (優先讀取環境變數)
 LOBBY_SERVER_URL = os.getenv("LOBBY_SERVER_URL", "ws://localhost:8000")
 
 
@@ -48,7 +48,6 @@ class LauncherApp(ctk.CTk):
         self.lobby_thread = None
         self.loop = None
 
-        # --- UI 佈局 ---
         self.grid_columnconfigure(0, weight=1)
         self.main_frame = ctk.CTkFrame(self, corner_radius=10)
         self.main_frame.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
@@ -72,7 +71,8 @@ class LauncherApp(ctk.CTk):
         self.btn_mode.set("Offline Dev")
         self.btn_mode.grid(row=3, column=0, pady=10)
 
-        self.btn_start = ctk.CTkButton(self.main_frame, text="START GAME", font=ctk.CTkFont(size=18, weight="bold"),
+        self.btn_start = ctk.CTkButton(self.main_frame, text="START GAME",
+                                       font=ctk.CTkFont(size=18, weight="bold"),
                                        command=self.on_start_clicked, height=45)
         self.btn_start.grid(row=4, column=0, padx=20, pady=30)
 
@@ -103,10 +103,26 @@ class LauncherApp(ctk.CTk):
             return
         self.btn_start.configure(state="disabled", text="CONNECTING...")
         self.update_status("Searching for free UDP port...")
-
         self.lobby_thread = threading.Thread(
             target=self.run_async_lobby, daemon=True)
         self.lobby_thread.start()
+
+    # --- Punch loop (背景執行緒) ---
+
+    def _punch_loop(self, sock: socket.socket, remotes: list, stop_event: threading.Event):
+        """持續向所有 remote 發 UDP 封包，直到 stop_event 被設置。"""
+        count = 0
+        while not stop_event.is_set():
+            for ip, port in remotes:
+                try:
+                    sock.sendto(b'\x00', (ip, port))
+                except Exception:
+                    pass
+            count += 1
+            time.sleep(0.1)  # 10 輪/秒
+        print(f"  [punch] 結束，共發送 {count} 輪")
+
+    # --- Async lobby flow ---
 
     def run_async_lobby(self):
         self.loop = asyncio.new_event_loop()
@@ -114,32 +130,41 @@ class LauncherApp(ctk.CTk):
         try:
             self.loop.run_until_complete(self.async_lobby_task())
         finally:
-            # 清理所有 pending tasks，避免 "Task was destroyed but it is pending"
             pending = asyncio.all_tasks(self.loop)
             if pending:
-                self.loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                self.loop.run_until_complete(
+                    asyncio.gather(*pending, return_exceptions=True))
             self.loop.close()
 
     async def async_lobby_task(self):
         nickname = self.entry_nickname.get()
         room = self.entry_room.get()
 
-        # 1. 尋找可用的本地埠號 (解決 Address already in use)
+        # 1. 找可用 local port
         local_port = 5000
         for p in range(5000, 5020):
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-                try:
-                    s.bind(('0.0.0.0', p))
-                    local_port = p
-                    break
-                except:
-                    continue
+            test_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                test_sock.bind(('0.0.0.0', p))
+                test_sock.close()
+                local_port = p
+                break
+            except OSError:
+                test_sock.close()
 
-        # 2. STUN 探測
+        # 2. 建立並保持 UDP socket（方案二：不在 STUN 後關閉）
+        udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        udp_sock.bind(('0.0.0.0', local_port))
+
         try:
-            pub_ip, pub_port = get_public_endpoint(local_port)
+            loop = asyncio.get_event_loop()
+            pub_ip, pub_port = await loop.run_in_executor(
+                None, lambda: probe_stun_on_sock(udp_sock))
             self.update_status(f"NAT Probe: {pub_ip}:{pub_port}")
+            print(f"  [stun] local={local_port}  public={pub_ip}:{pub_port}")
         except Exception as e:
+            udp_sock.close()
             self.update_status(f"STUN Failed: {e}")
             self.after(2000, self.reset_ui_to_idle)
             return
@@ -147,35 +172,70 @@ class LauncherApp(ctk.CTk):
         # 3. 連線大廳
         client = LobbyClient(server_url=LOBBY_SERVER_URL)
         if not await client.join_room(room, nickname):
+            udp_sock.close()
             self.update_status("Lobby Server offline.")
             self.after(2000, self.reset_ui_to_idle)
             return
 
-        # 4. 回報
+        # 4. 回報公網 endpoint
         await client.send_data({"type": "report_endpoint", "ip": pub_ip, "port": pub_port})
         self.update_status("Waiting for opponent...")
 
-        # 5. 監聽
-        async for msg in client.listen():
-            if msg["type"] == "start_match":
-                my_id = 0
-                for p in msg["players"]:
-                    if p["name"] == nickname:
-                        my_id = p["id"]
+        # 5. 監聽大廳訊息（方案三：新協議 punch_start / game_start）
+        punch_stop = threading.Event()
+        punch_thread = None
 
-                session_data = {
-                    "nickname": nickname,
-                    "room": room,
-                    "is_offline": False,
-                    "local_id": my_id,
-                    "local_port": local_port,
-                    "num_players": len(msg["players"]),
-                    "players": msg["players"],
-                    "seed": msg["seed"]
-                }
-                await client.close()
-                self.after(100, lambda: self.do_launch(session_data))
-                break
+        try:
+            async for msg in client.listen():
+
+                if msg["type"] == "punch_start":
+                    # Lobby 確認所有人都回報後同時通知 → 開始對穿
+                    my_id = next((p["id"] for p in msg["players"] if p["name"] == nickname), 0)
+                    remotes = [
+                        (p["ip"], p["port"])
+                        for p in msg["players"]
+                        if p["id"] != my_id and p["port"] != 0
+                    ]
+                    print(f"  [punch_start] my_id={my_id}  remotes={remotes}")
+                    punch_stop.clear()
+                    punch_thread = threading.Thread(
+                        target=self._punch_loop,
+                        args=(udp_sock, remotes, punch_stop),
+                        daemon=True
+                    )
+                    punch_thread.start()
+                    self.update_status("Punching NAT holes...")
+
+                elif msg["type"] == "game_start":
+                    # Lobby 在 punch_start 後固定秒數才發此訊號
+                    punch_stop.set()
+                    if punch_thread:
+                        punch_thread.join(timeout=1.0)
+
+                    # 關閉 socket → GGRS 立即綁定同一 port
+                    udp_sock.close()
+
+                    my_id = next((p["id"] for p in msg["players"] if p["name"] == nickname), 0)
+                    session_data = {
+                        "nickname": nickname,
+                        "room": room,
+                        "is_offline": False,
+                        "local_id": my_id,
+                        "local_port": local_port,
+                        "num_players": len(msg["players"]),
+                        "players": msg["players"],
+                        "seed": msg["seed"]
+                    }
+                    await client.close()
+                    # 給 OS 50ms 釋放 port 再讓 GGRS 綁定
+                    self.after(50, lambda sd=session_data: self.do_launch(sd))
+                    break
+
+        except Exception as e:
+            punch_stop.set()
+            udp_sock.close()
+            self.update_status(f"Lobby error: {e}")
+            self.after(2000, self.reset_ui_to_idle)
 
     def reset_ui_to_idle(self):
         self.btn_start.configure(state="normal", text="START GAME")
@@ -190,9 +250,7 @@ class LauncherApp(ctk.CTk):
         self.settings_mgr.set("last_room", session_data["room"])
         self.settings_mgr.save()
         try:
-            game_script = os.path.join(
-                PROJECT_ROOT, "src", "python", "main.py")
-            # 繼承環境變數
+            game_script = os.path.join(PROJECT_ROOT, "src", "python", "main.py")
             self.game_process = subprocess.Popen(
                 [sys.executable, game_script, "--payload", payload],
                 env=os.environ.copy()
