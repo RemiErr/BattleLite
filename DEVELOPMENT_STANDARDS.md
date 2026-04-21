@@ -1,6 +1,6 @@
 # Development Standards - BattleLite
 
-This document defines the technical architecture and coding standards for the BattleLite project. All contributors (human and AI) must follow these rules.
+**CRITICAL: All AI contributors MUST read `AI_HANDOVER.md` before analyzing the codebase or suggesting changes.** This document contains essential information regarding environment constraints (WSL2 quirks), cross-platform binary compatibility, and project history.
 
 ## 1. Technical Stack
 - **Game Engine**: Pygame (for rendering, audio, and basic input).
@@ -35,3 +35,11 @@ This document defines the technical architecture and coding standards for the Ba
 - `src/python/`: Pygame rendering, event loop, and Launcher.
 - `docs/`: Design documents and protocol specifications.
 - `tests/`: Integrated tests for Python and Rust core modules.
+- `assets/`: Character sprites, UI elements, and audio files.
+
+## 7. Sprite Asset Standards (LF2 Style)
+- **Format**: `.png` with Alpha channel (transparency).
+- **Organization**: One directory per character (e.g., `assets/characters/knight/`).
+- **Storage**: Prefer single-row Sprite Sheets for each animation state (e.g., `idle.png`).
+- **Naming**: `[action]_[frame_count].png` (e.g., `walk_6.png`).
+- **Configuration**: Each character folder must contain a `config.json` defining hitbox offsets and animation speed per state.
