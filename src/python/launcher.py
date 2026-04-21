@@ -111,7 +111,14 @@ class LauncherApp(ctk.CTk):
     def run_async_lobby(self):
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
-        self.loop.run_until_complete(self.async_lobby_task())
+        try:
+            self.loop.run_until_complete(self.async_lobby_task())
+        finally:
+            # 清理所有 pending tasks，避免 "Task was destroyed but it is pending"
+            pending = asyncio.all_tasks(self.loop)
+            if pending:
+                self.loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            self.loop.close()
 
     async def async_lobby_task(self):
         nickname = self.entry_nickname.get()
