@@ -23,8 +23,10 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, player_name: st
 
     new_player = {
         "name": player_name,
-        "ip": websocket.client.host,
-        "port": 0,
+        "pub_ip": websocket.client.host if websocket.client else "unknown",
+        "pub_port": 0,
+        "local_ip": "unknown",
+        "local_port": 0,
         "id": 0,
         "match_started": False,
         "websocket": websocket
@@ -46,14 +48,16 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, player_name: st
             if data.get("type") == "report_endpoint":
                 for p in rooms[room_id]:
                     if p["websocket"] == websocket:
-                        p["ip"] = data["ip"]
-                        p["port"] = data["port"]
-                        print(f"📍 {player_name} endpoint: {p['ip']}:{p['port']}")
+                        p["pub_ip"]    = data["pub_ip"]
+                        p["pub_port"]  = data["pub_port"]
+                        p["local_ip"]  = data["local_ip"]
+                        p["local_port"]= data["local_port"]
+                        print(f"📍 {player_name}  pub={p['pub_ip']}:{p['pub_port']}  lan={p['local_ip']}:{p['local_port']}")
 
                 # 所有玩家都回報有效 port 且尚未啟動 → 進入打洞流程
                 all_reported = (
                     len(rooms[room_id]) >= 2 and
-                    all(p["port"] != 0 for p in rooms[room_id])
+                    all(p["pub_port"] != 0 for p in rooms[room_id])
                 )
                 already_started = rooms[room_id][0].get("match_started", False)
                 if all_reported and not already_started:
@@ -84,7 +88,11 @@ async def trigger_punch_start(room_id: str):
     seed = random.randint(1, 1_000_000)
 
     players_info = [
-        {"id": p["id"], "name": p["name"], "ip": p["ip"], "port": p["port"]}
+        {
+            "id": p["id"], "name": p["name"],
+            "pub_ip": p["pub_ip"], "pub_port": p["pub_port"],
+            "local_ip": p["local_ip"], "local_port": p["local_port"],
+        }
         for p in players
     ]
 

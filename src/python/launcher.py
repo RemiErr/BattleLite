@@ -18,7 +18,7 @@ if PROJECT_ROOT not in sys.path:
 try:
     from src.python.launcher_settings import SettingsManager
     from src.python.crypto_utils import encrypt_payload
-    from src.python.stun_utils import probe_stun_on_sock
+    from src.python.stun_utils import probe_stun_on_sock, get_local_ip
     from src.python.lobby_client import LobbyClient
 except ImportError as e:
     print(f"❌ 匯入失敗: {e}")
@@ -177,8 +177,14 @@ class LauncherApp(ctk.CTk):
             self.after(2000, self.reset_ui_to_idle)
             return
 
-        # 4. 回報公網 endpoint
-        await client.send_data({"type": "report_endpoint", "ip": pub_ip, "port": pub_port})
+        # 4. 回報公網 + 私有 endpoint（供同 LAN 直連判斷使用）
+        local_ip = get_local_ip()
+        await client.send_data({
+            "type": "report_endpoint",
+            "pub_ip": pub_ip, "pub_port": pub_port,
+            "local_ip": local_ip, "local_port": local_port,
+        })
+        print(f"  [report] pub={pub_ip}:{pub_port}  lan={local_ip}:{local_port}")
         self.update_status("Waiting for opponent...")
 
         # 5. 監聽大廳訊息（方案三：新協議 punch_start / game_start）
@@ -189,12 +195,14 @@ class LauncherApp(ctk.CTk):
             async for msg in client.listen():
 
                 if msg["type"] == "punch_start":
-                    # Lobby 確認所有人都回報後同時通知 → 開始對穿
                     my_id = next((p["id"] for p in msg["players"] if p["name"] == nickname), 0)
+                    my_pub_ip = next((p["pub_ip"] for p in msg["players"] if p["id"] == my_id), pub_ip)
                     remotes = [
-                        (p["ip"], p["port"])
+                        # 同公網 IP → 同 LAN → 用私有 IP 直連，避免 NAT hairpin 失敗
+                        (p["local_ip"], p["local_port"]) if p["pub_ip"] == my_pub_ip
+                        else (p["pub_ip"], p["pub_port"])
                         for p in msg["players"]
-                        if p["id"] != my_id and p["port"] != 0
+                        if p["id"] != my_id and p["pub_port"] != 0
                     ]
                     print(f"  [punch_start] my_id={my_id}  remotes={remotes}")
                     punch_stop.clear()
@@ -207,15 +215,26 @@ class LauncherApp(ctk.CTk):
                     self.update_status("Punching NAT holes...")
 
                 elif msg["type"] == "game_start":
-                    # Lobby 在 punch_start 後固定秒數才發此訊號
                     punch_stop.set()
                     if punch_thread:
                         punch_thread.join(timeout=1.0)
-
-                    # 關閉 socket → GGRS 立即綁定同一 port
                     udp_sock.close()
 
                     my_id = next((p["id"] for p in msg["players"] if p["name"] == nickname), 0)
+                    my_pub_ip = next((p["pub_ip"] for p in msg["players"] if p["id"] == my_id), "")
+
+                    # 為每位玩家決定 GGRS 實際要連線的 IP:port
+                    resolved_players = []
+                    for p in msg["players"]:
+                        if p["pub_ip"] == my_pub_ip and p["id"] != my_id:
+                            # 同 LAN → 私有 IP 直連
+                            eff_ip, eff_port = p["local_ip"], p["local_port"]
+                        else:
+                            eff_ip, eff_port = p["pub_ip"], p["pub_port"]
+                        resolved_players.append({**p, "ip": eff_ip, "port": eff_port})
+                        tag = "← me" if p["id"] == my_id else "→ remote"
+                        print(f"  [resolve] id={p['id']} {eff_ip}:{eff_port}  {tag}")
+
                     session_data = {
                         "nickname": nickname,
                         "room": room,
@@ -223,7 +242,7 @@ class LauncherApp(ctk.CTk):
                         "local_id": my_id,
                         "local_port": local_port,
                         "num_players": len(msg["players"]),
-                        "players": msg["players"],
+                        "players": resolved_players,
                         "seed": msg["seed"]
                     }
                     await client.close()

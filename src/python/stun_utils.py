@@ -49,6 +49,13 @@ def get_public_endpoint(local_port: int,
         sock.close()
 
 
+def get_local_ip() -> str:
+    """取得本機在 LAN 內的私有 IP（送出路由的來源 IP）。"""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+
+
 if __name__ == "__main__":
     try:
         ip, port = get_public_endpoint(5000)
