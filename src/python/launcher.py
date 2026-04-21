@@ -26,7 +26,11 @@ except ImportError as e:
 
 load_dotenv()
 
-LOBBY_SERVER_URL = os.getenv("LOBBY_SERVER_URL", "ws://localhost:8000")
+_use_local = os.getenv("LOBBY_USE_LOCAL", "false").lower() == "true"
+LOBBY_SERVER_URL = (
+    os.getenv("LOBBY_SERVER_URL_LOCAL", "ws://localhost:8000") if _use_local
+    else os.getenv("LOBBY_SERVER_URL_CLOUD", "ws://localhost:8000")
+)
 
 
 class LauncherApp(ctk.CTk):
