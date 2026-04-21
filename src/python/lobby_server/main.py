@@ -49,9 +49,13 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, player_name: st
                         p["ip"] = data["ip"]
                         p["port"] = data["port"]
                         print(f"📍 Player {player_name} reported endpoint: {p['ip']}:{p['port']}")
-                
-                # 檢查是否滿 2 人且都已回報地址
-                if len(rooms[room_id]) >= 2:
+
+                # 必須等所有玩家都回報了有效 port 才觸發，避免帶 port=0 的錯誤地址出發
+                all_reported = len(rooms[room_id]) >= 2 and all(p["port"] != 0 for p in rooms[room_id])
+                already_started = rooms[room_id][0].get("match_started", False)
+                if all_reported and not already_started:
+                    for p in rooms[room_id]:
+                        p["match_started"] = True
                     await trigger_match_start(room_id)
             
     except WebSocketDisconnect:

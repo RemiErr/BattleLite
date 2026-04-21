@@ -186,6 +186,7 @@ impl OfflineSession {
 pub struct GGRSSession {
     session: P2PSession<BattleConfig>,
     current_state: GameState,
+    local_player_id: usize,
 }
 
 #[pymethods]
@@ -209,13 +210,13 @@ impl GGRSSession {
             if i < spawn_points.len() { p.x = spawn_points[i].0; p.y = spawn_points[i].1; }
             players.push(p);
         }
-        Ok(GGRSSession { session, current_state: GameState { players, frame: 0 } })
+        Ok(GGRSSession { session, current_state: GameState { players, frame: 0 }, local_player_id })
     }
 
     fn advance(&mut self, local_input: u8) -> PyResult<()> {
         self.session.poll_remote_clients();
         if self.session.current_state() == SessionState::Running {
-            self.session.add_local_input(0, local_input).ok();
+            self.session.add_local_input(self.local_player_id, local_input).ok();
             match self.session.advance_frame() {
                 Ok(requests) => self.handle_requests(requests),
                 _ => {}
