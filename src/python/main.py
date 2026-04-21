@@ -86,14 +86,18 @@ def run_game():
         session = OfflineSession(num_players)
     else:
         print("🌐 Mode: Online P2P (GGRS Rollback)")
+        print(f"  local_id={controlled_idx}  local_port={config['local_port']}")
         remote_players_list = []
         if "players" in config:
             for p in config["players"]:
                 remote_players_list.append((p["id"], p["ip"], p["port"]))
+                tag = "← me" if p["id"] == controlled_idx else "→ remote"
+                print(f"  player id={p['id']}  {p['ip']}:{p['port']}  {tag}")
         session = GGRSSession(controlled_idx, num_players, config["local_port"], remote_players_list)
 
     player_elapsed_frames = [0] * num_players
     last_states = [STATE_IDLE] * num_players
+    sync_wait_frames = 0
 
     running = True
     while running:
@@ -155,12 +159,26 @@ def run_game():
 
         # 同步等待提示
         if not is_offline and not session.is_synchronized():
+            sync_wait_frames += 1
+            if sync_wait_frames % (60 * 5) == 0:  # 每 5 秒印一次
+                remotes = [(p["id"], p["ip"], p["port"]) for p in config.get("players", []) if p["id"] != controlled_idx]
+                print(f"[SYNC] waiting... {sync_wait_frames//60}s  my_port={config['local_port']}  remotes={remotes}")
+
             overlay = pygame.Surface((800, 600), pygame.SRCALPHA)
             overlay.fill((0, 0, 0, 150))
             screen.blit(overlay, (0, 0))
             wait_font = pygame.font.SysFont("Arial", 36, bold=True)
             text_surf = wait_font.render("WAITING FOR SYNC...", True, (255, 255, 0))
             screen.blit(text_surf, text_surf.get_rect(center=(400, 300)))
+
+            info_font = pygame.font.SysFont("Arial", 16)
+            remotes_str = "  ".join(f"id={p['id']} {p['ip']}:{p['port']}" for p in config.get("players", []) if p["id"] != controlled_idx)
+            info1 = info_font.render(f"My id={controlled_idx}  local_port={config['local_port']}", True, (200, 200, 200))
+            info2 = info_font.render(f"Remote: {remotes_str}", True, (200, 200, 200))
+            info3 = info_font.render(f"Waiting {sync_wait_frames // 60}s", True, (150, 150, 150))
+            screen.blit(info1, info1.get_rect(center=(400, 350)))
+            screen.blit(info2, info2.get_rect(center=(400, 375)))
+            screen.blit(info3, info3.get_rect(center=(400, 400)))
 
         pygame.display.flip()
         clock.tick(60)
