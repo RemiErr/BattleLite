@@ -39,9 +39,11 @@ class SettingsManager:
         except Exception as e:
             print(f"❌ 儲存設定失敗: {e}")
 
-    def get(self, key):
-        """獲取特定設定項。"""
-        return self.settings.get(key, self.DEFAULT_SETTINGS.get(key))
+    def get(self, key: str):
+        """獲取特定設定項，保證有 DEFAULT_SETTINGS 中定義的 key 一定有值。"""
+        value = self.settings.get(key, self.DEFAULT_SETTINGS.get(key))
+        assert value is not None, f"Missing key in DEFAULT_SETTINGS: {key}"
+        return value
 
     def set(self, key, value):
         """修改特定設定項。"""
