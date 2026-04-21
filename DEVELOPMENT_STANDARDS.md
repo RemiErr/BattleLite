@@ -1,6 +1,6 @@
 # Development Standards - BattleLite
 
-This document defines the technical architecture and coding standards for the BattleLite project. All contributors (human and AI) must follow these rules.
+**CRITICAL: All AI contributors MUST read `AI_HANDOVER.md` before analyzing the codebase or suggesting changes.** This document contains essential information regarding environment constraints (WSL2 quirks), cross-platform binary compatibility, and project history.
 
 ## 1. Technical Stack
 - **Game Engine**: Pygame (for rendering, audio, and basic input).
