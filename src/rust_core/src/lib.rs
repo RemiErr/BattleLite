@@ -103,12 +103,26 @@ impl Player {
             if self.mp > MAX_MP { self.mp = MAX_MP; }
         }
         if self.z > 0 || self.vz > 0 { self.vz -= GRAVITY; }
-        if self.state != STATE_ATTACK && self.state != STATE_HURT && self.state != STATE_SKILL {
+        // ATTACK/SKILL 鎖住位移；HURT 允許擊飛移動
+        if self.state != STATE_ATTACK && self.state != STATE_SKILL {
             self.x += self.vx;
             self.y += self.vy;
         }
+        // HURT 狀態空氣阻力，每幀衰減 10%
+        if self.state == STATE_HURT {
+            self.vx = self.vx * 9 / 10;
+            self.vy = self.vy * 9 / 10;
+        }
         self.z += self.vz;
-        if self.z <= 0 { self.z = 0; self.vz = 0; }
+        if self.z <= 0 {
+            self.z = 0;
+            self.vz = 0;
+            // 落地加強摩擦
+            if self.state == STATE_HURT {
+                self.vx /= 2;
+                self.vy /= 2;
+            }
+        }
     }
 }
 
@@ -201,8 +215,9 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)]) {
     // 3. 加入本幀新生成的實體
     state.entities.extend(spawn_queue);
 
-    // 4. 實體與玩家碰撞判定（先收集，再批次套用，避免借用衝突）
-    let mut hurt_events: Vec<usize> = Vec::new();
+    // 4. 實體與玩家碰撞判定
+    struct EntityHit { victim: usize, vx: i32 }
+    let mut entity_hits: Vec<EntityHit> = Vec::new();
     for e in &state.entities {
         for j in 0..state.players.len() {
             if e.owner_id == j { continue; }
@@ -212,33 +227,49 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)]) {
             let dy = (e.y - victim.y).abs();
             if dx < ENTITY_HIT_RADIUS + CHAR_WIDTH / 2
                 && dy < ENTITY_HIT_RADIUS + CHAR_DEPTH / 2 {
-                hurt_events.push(j);
+                // 擊飛方向與投擲物行進方向一致
+                let kb_vx = if e.vx >= 0 { 6000i32 } else { -6000i32 };
+                entity_hits.push(EntityHit { victim: j, vx: kb_vx });
             }
         }
     }
-    for j in hurt_events {
-        let victim = &mut state.players[j];
+    for hit in entity_hits {
+        let victim = &mut state.players[hit.victim];
         victim.state = STATE_HURT;
-        victim.timer = 30;
+        victim.timer = 25;
+        victim.vx = hit.vx;
         victim.vz = 3000;
         victim.hp -= 8000;
     }
 
-    // 5. 玩家近戰判定（原有邏輯）
+    // 5. 玩家近戰判定，帶方向性 knockback
     let num_players = state.players.len();
     for i in 0..num_players {
         let atk_info = state.players[i].clone();
-        let is_attacking = (atk_info.state == STATE_ATTACK && atk_info.timer == 15)
-            || (atk_info.state == STATE_SKILL
-                && atk_info.character_type == CHAR_TYPE_KNIGHT
-                && atk_info.timer > 10);
-        if is_attacking {
-            for j in 0..num_players {
-                if i == j { continue; }
-                let victim = &mut state.players[j];
-                if atk_info.check_attack_hit(victim) {
-                    victim.state = STATE_HURT; victim.timer = 30; victim.vz = 4000; victim.hp -= 10000;
-                }
+        let is_attack = atk_info.state == STATE_ATTACK && atk_info.timer == 15;
+        let is_skill  = atk_info.state == STATE_SKILL
+            && atk_info.character_type == CHAR_TYPE_KNIGHT
+            && atk_info.timer > 10;
+        if !is_attack && !is_skill { continue; }
+
+        // 不同招式的擊飛參數
+        let (kb_vz, kb_timer, kb_dmg) = if is_skill {
+            (6000i32, 40u32, 15000i32)  // 技能：高飛、長硬直、高傷
+        } else {
+            (4000i32, 30u32, 10000i32)  // 普攻
+        };
+        let kb_vx = if atk_info.facing_right { 8000i32 } else { -8000i32 };
+
+        for j in 0..num_players {
+            if i == j { continue; }
+            let victim = &mut state.players[j];
+            if victim.state == STATE_HURT { continue; }
+            if atk_info.check_attack_hit(victim) {
+                victim.state = STATE_HURT;
+                victim.timer = kb_timer;
+                victim.vx = kb_vx;
+                victim.vz = kb_vz;
+                victim.hp -= kb_dmg;
             }
         }
     }
