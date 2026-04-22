@@ -15,6 +15,7 @@ try:
     from src.python.renderer import get_screen_pos
     from src.python.debug_manager import DebugManager
     from src.python.assets_manager.characters.knight import Knight
+    from src.python.assets_manager.base_character import BaseCharacter
     from src.python.crypto_utils import SHARED_SECRET
 except ImportError as e:
     print(f"❌ 匯入失敗: {e}")
@@ -23,6 +24,42 @@ except ImportError as e:
 # --- 常數對齊 (必須與 Rust 對齊) ---
 INPUT_RIGHT, INPUT_LEFT, INPUT_UP, INPUT_DOWN, INPUT_JUMP, INPUT_ATTACK, INPUT_SKILL = [1<<i for i in range(7)]
 STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = range(5)
+
+def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
+    """
+    將 Python 角色定義（HitboxDef + CharStats）轉換為 Rust 遊戲單位，
+    並傳入 session.set_char_config()，讓 Rust 使用這些參數做碰撞判定與傷害計算。
+
+    HitboxDef → Rust 轉換：
+      hit_box 定義在預設朝向（朝左）下：
+        front_offset = -(ox + w//2)  →  × 1000 → game units
+        half_w       = w // 2        →  × 1000
+        half_h       = h // 2        →  × 1000
+    """
+    s = asset.stats
+
+    def hb_to_rust(state: int):
+        hb = asset.hit_boxes.get(state)
+        if hb is None:
+            return 0, 0, 0
+        front   = -(hb.ox + hb.w // 2) * 1000
+        half_w  = (hb.w // 2) * 1000
+        half_h  = (hb.h // 2) * 1000
+        return front, half_w, half_h
+
+    atk_f, atk_hw, atk_hh = hb_to_rust(STATE_ATTACK)
+    skl_f, skl_hw, skl_hh = hb_to_rust(STATE_SKILL)
+
+    session.set_char_config(
+        char_type,
+        s.max_hp, s.max_mp, s.skill_cost,
+        s.atk_dmg, s.skill_dmg,
+        atk_f, atk_hw, s.atk_depth, atk_hh,
+        skl_f, skl_hw, s.skl_depth, skl_hh,
+        s.atk_kb_vx, s.atk_kb_vz, s.atk_kb_timer,
+        s.skl_kb_vx, s.skl_kb_vz, s.skl_kb_timer,
+    )
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -84,6 +121,7 @@ def run_game():
     if is_offline:
         print("🕹 Mode: Offline Sandbox (Pure Rust Simulation)")
         session = OfflineSession(num_players)
+        apply_char_config(session, 0, knight_asset)   # Knight = char_type 0
     else:
         print("🌐 Mode: Online P2P (GGRS Rollback)")
         print(f"  local_id={controlled_idx}  local_port={config['local_port']}")
@@ -94,6 +132,7 @@ def run_game():
                 tag = "← me" if p["id"] == controlled_idx else "→ remote"
                 print(f"  player id={p['id']}  {p['ip']}:{p['port']}  {tag}")
         session = GGRSSession(controlled_idx, num_players, config["local_port"], remote_players_list)
+        apply_char_config(session, 0, knight_asset)
 
     player_elapsed_frames = [0] * num_players
     last_states = [STATE_IDLE] * num_players

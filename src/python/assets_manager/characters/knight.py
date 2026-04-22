@@ -1,14 +1,14 @@
 import os
 import pygame
-from src.python.assets_manager.base_character import BaseCharacter, HitboxDef
+from src.python.assets_manager.base_character import BaseCharacter, HitboxDef, CharStats
 
 _SHEET_PATH = os.path.join(
     os.path.dirname(__file__), "..", "..", "..", "..",
     "src", "assets", "char", "knight", "sprite-sheet-183-123.png"
 )
 
-_FRAME_W = 183
-_FRAME_H = 123
+_FRAME_W = 182
+_FRAME_H = 122
 
 # (state, row, num_frames, loop, speed)
 _STATE_ROWS = [
@@ -37,11 +37,11 @@ _STATE_ROWS = [
 #     → ox = 40-91 = -51, oy = 15-61 = -46, w=60, h=75
 # ---------------------------------------------------------------------------
 
-_HURT_BODY = HitboxDef(ox=-73, oy=-51, w=67, h=98)
-_HURT_HURT = HitboxDef(ox=-60, oy=-40, w=55, h=80)   # HURT 狀態身體縮小
+_HURT_BODY = HitboxDef(ox=-35, oy=-41, w=90, h=100)
+_HURT_HURT = HitboxDef(ox=-15, oy=-41, w=70, h=90)   # HURT 狀態身體縮小
 
-_HIT_ATTACK = HitboxDef(ox=-91, oy=-53, w=55, h=74)
-_HIT_SKILL  = HitboxDef(ox=-51, oy=-46, w=60, h=75)
+_HIT_ATTACK = HitboxDef(ox=-86, oy=-53, w=75, h=110)
+_HIT_SKILL = HitboxDef(ox=-50, oy=-33, w=66, h=85)
 
 STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
 
@@ -53,6 +53,22 @@ class Knight(BaseCharacter):
             os.path.normpath(_SHEET_PATH),
             _FRAME_W, _FRAME_H,
             _STATE_ROWS,
+        )
+
+        self.stats = CharStats(
+            max_hp       = 100_000,
+            max_mp       =  50_000,
+            skill_cost   =  20_000,
+            atk_dmg      =  10_000,
+            skill_dmg    =  15_000,
+            atk_depth    =  25_000,
+            skl_depth    =  40_000,
+            atk_kb_vx    =   8_000,
+            atk_kb_vz    =   4_000,
+            atk_kb_timer =      30,
+            skl_kb_vx    =   8_000,
+            skl_kb_vz    =   6_000,
+            skl_kb_timer =      40,
         )
 
         self.hurt_boxes = {

@@ -1,6 +1,30 @@
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import pygame
+
+
+@dataclass
+class CharStats:
+    """
+    角色數值定義，單位與 Rust 遊戲單位一致（px × 1000）。
+    session.set_char_config() 會把這些值傳入 Rust，驅動實際判定。
+    """
+    max_hp:       int = 100_000   # 血量上限
+    max_mp:       int =  50_000   # 魔力上限
+    skill_cost:   int =  20_000   # 技能消耗魔力
+    atk_dmg:      int =  10_000   # 普攻傷害
+    skill_dmg:    int =  15_000   # 技能傷害
+    # y 軸深度容許誤差（非 2D 螢幕概念，維持預設即可）
+    atk_depth:    int =  25_000
+    skl_depth:    int =  40_000
+    # 普攻擊飛
+    atk_kb_vx:    int =   8_000
+    atk_kb_vz:    int =   4_000
+    atk_kb_timer: int =      30
+    # 技能擊飛
+    skl_kb_vx:    int =   8_000
+    skl_kb_vz:    int =   6_000
+    skl_kb_timer: int =      40
 
 
 @dataclass
@@ -51,6 +75,8 @@ class BaseCharacter:
         self.hurt_boxes: dict[int, HitboxDef] = {}
         # hit_box  : 攻擊動作傷害敵人的範圍；None 表示該狀態不造成傷害
         self.hit_boxes: dict[int, HitboxDef | None] = {}
+        # 角色數值（血量、傷害等），傳入 Rust set_char_config
+        self.stats: CharStats = CharStats()
 
     def load_sheet(self, path: str, frame_w: int, frame_h: int,
                    state_rows: list[tuple]) -> None:

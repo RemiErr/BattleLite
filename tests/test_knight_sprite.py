@@ -19,8 +19,8 @@ STATE_ATTACK = 2
 STATE_HURT   = 3
 STATE_SKILL  = 4
 
-SHEET_FRAME_W = 183
-SHEET_FRAME_H = 123
+SHEET_FRAME_W = 182
+SHEET_FRAME_H = 122
 
 
 @pytest.fixture(scope="module")
@@ -42,7 +42,8 @@ def test_get_sprite_returns_surface(knight):
 
 
 def test_sprite_size_matches_frame(knight):
-    surf = knight.get_sprite(STATE_IDLE, 0, True)
+    # facing_right=False → 不翻轉，直接測切幀尺寸
+    surf = knight.get_sprite(STATE_IDLE, 0, False)
     assert surf.get_width()  == SHEET_FRAME_W
     assert surf.get_height() == SHEET_FRAME_H
 

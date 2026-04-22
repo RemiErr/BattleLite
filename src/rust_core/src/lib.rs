@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce, KeyInit, aead::Aead};
 use base64::{engine::general_purpose, Engine as _};
 
-// --- 1. 常數定義 ---
+// --- 1. 全域常數（不受角色影響的物理常數）---
 const GRAVITY: i32 = 400;
 const JUMP_IMPULSE: i32 = 9000;
 const WALK_SPEED_X: i32 = 5000;
@@ -16,16 +16,16 @@ const CHAR_WIDTH: i32 = 30000;
 const CHAR_DEPTH: i32 = 15000;
 const ATK_DEPTH_REACH: i32 = 25000;
 
+const MAX_HP: i32 = 100000;
+const MAX_MP: i32 = 50000;
+const MP_REGEN: i32 = 50;
+const SKILL_COST: i32 = 20000;
+
 const STATE_IDLE: u8 = 0;
 const STATE_WALK: u8 = 1;
 const STATE_ATTACK: u8 = 2;
 const STATE_HURT: u8 = 3;
 const STATE_SKILL: u8 = 4;
-
-const MAX_HP: i32 = 100000;
-const MAX_MP: i32 = 50000;
-const MP_REGEN: i32 = 50;
-const SKILL_COST: i32 = 20000;
 
 const INPUT_RIGHT: u8  = 1 << 0;
 const INPUT_LEFT: u8   = 1 << 1;
@@ -35,18 +35,75 @@ const INPUT_JUMP: u8   = 1 << 4;
 const INPUT_ATTACK: u8 = 1 << 5;
 const INPUT_SKILL: u8  = 1 << 6;
 
-// 角色種類
 const CHAR_TYPE_KNIGHT: u8 = 0;
 const CHAR_TYPE_MAGE: u8   = 1;
 
-// 投擲物參數
-const PROJECTILE_VX: i32      = 15000; // 每幀橫向移動量
-const PROJECTILE_LIFETIME: u32 = 60;   // 存活幀數（1 秒）
-const ENTITY_HIT_RADIUS: i32  = 20000; // 碰撞半徑
-// 法師技能在 timer==35 時（5 幀預備動作後）生成投擲物
+const PROJECTILE_VX: i32      = 15000;
+const PROJECTILE_LIFETIME: u32 = 60;
+const ENTITY_HIT_RADIUS: i32  = 20000;
 const MAGE_SPAWN_TIMER: u32 = 35;
 
-// --- 2. 物理實體 ---
+// --- 2. 角色設定（session 層持有，不進 GameState）---
+//
+// 所有距離單位皆為遊戲單位（px × 1000）。
+// atk_front / skl_front：攻擊框中心距角色中心的距離（朝面向方向為正）。
+// atk_half_w / skl_half_w：攻擊框半寬。
+// atk_half_h / skl_half_h：攻擊框半高（z 軸容許誤差）。
+// atk_depth / skl_depth：攻擊框深度（y 軸容許誤差）。
+#[derive(Clone, Debug)]
+struct CharConfig {
+    max_hp:       i32,
+    max_mp:       i32,
+    skill_cost:   i32,
+    atk_dmg:      i32,
+    skill_dmg:    i32,
+    atk_front:    i32,
+    atk_half_w:   i32,
+    atk_depth:    i32,
+    atk_half_h:   i32,
+    skl_front:    i32,
+    skl_half_w:   i32,
+    skl_depth:    i32,
+    skl_half_h:   i32,
+    atk_kb_vx:    i32,
+    atk_kb_vz:    i32,
+    atk_kb_timer: u32,
+    skl_kb_vx:    i32,
+    skl_kb_vz:    i32,
+    skl_kb_timer: u32,
+}
+
+impl Default for CharConfig {
+    fn default() -> Self {
+        CharConfig {
+            max_hp:       MAX_HP,
+            max_mp:       MAX_MP,
+            skill_cost:   SKILL_COST,
+            atk_dmg:      10000,
+            skill_dmg:    15000,
+            atk_front:    30000,
+            atk_half_w:   20000,
+            atk_depth:    ATK_DEPTH_REACH,
+            atk_half_h:   5000,
+            skl_front:    45000,
+            skl_half_w:   35000,
+            skl_depth:    40000,
+            skl_half_h:   40000,
+            atk_kb_vx:    8000,
+            atk_kb_vz:    4000,
+            atk_kb_timer: 30,
+            skl_kb_vx:    8000,
+            skl_kb_vz:    6000,
+            skl_kb_timer: 40,
+        }
+    }
+}
+
+fn get_cfg(configs: &[CharConfig], char_type: u8) -> CharConfig {
+    configs.get(char_type as usize).cloned().unwrap_or_default()
+}
+
+// --- 3. 物理實體 ---
 
 #[pyclass]
 #[derive(Clone, Default, Debug)]
@@ -62,7 +119,7 @@ pub struct Player {
     #[pyo3(get, set)] pub facing_right: bool,
     #[pyo3(get, set)] pub hp: i32,
     #[pyo3(get, set)] pub mp: i32,
-    #[pyo3(get, set)] pub character_type: u8,  // 0=Knight  1=Mage
+    #[pyo3(get, set)] pub character_type: u8,
 }
 
 #[pymethods]
@@ -76,21 +133,9 @@ impl Player {
         p
     }
 
+    // 保留 Python 可呼叫版本，使用預設 config（測試相容用）
     fn check_attack_hit(&self, other: &Player) -> bool {
-        let is_skill = self.state == STATE_SKILL;
-        let atk_offset_x = if self.facing_right {
-            if is_skill { 45000 } else { 30000 }
-        } else {
-            if is_skill { -45000 } else { -30000 }
-        };
-        let atk_w = if is_skill { 35000 } else { 20000 };
-        let atk_d = if is_skill { 40000 } else { ATK_DEPTH_REACH };
-        let atk_h = if is_skill { 40000 } else { 5000 };
-
-        let dx = (self.x + atk_offset_x - other.x).abs();
-        let dy = (self.y - other.y).abs();
-        let dz = (self.z - other.z).abs();
-        dx < (atk_w + CHAR_WIDTH / 2) && dy < atk_d && dz < atk_h
+        check_attack_hit_cfg(self, other, &CharConfig::default())
     }
 
     fn update(&mut self) {
@@ -103,12 +148,10 @@ impl Player {
             if self.mp > MAX_MP { self.mp = MAX_MP; }
         }
         if self.z > 0 || self.vz > 0 { self.vz -= GRAVITY; }
-        // ATTACK/SKILL 鎖住位移；HURT 允許擊飛移動
         if self.state != STATE_ATTACK && self.state != STATE_SKILL {
             self.x += self.vx;
             self.y += self.vy;
         }
-        // HURT 狀態空氣阻力，每幀衰減 10%
         if self.state == STATE_HURT {
             self.vx = self.vx * 9 / 10;
             self.vy = self.vy * 9 / 10;
@@ -117,7 +160,6 @@ impl Player {
         if self.z <= 0 {
             self.z = 0;
             self.vz = 0;
-            // 落地加強摩擦
             if self.state == STATE_HURT {
                 self.vx /= 2;
                 self.vy /= 2;
@@ -126,7 +168,22 @@ impl Player {
     }
 }
 
-// --- 3. 實體系統 ---
+// 使用 CharConfig 的碰撞判定（perform_tick 內部使用）
+fn check_attack_hit_cfg(attacker: &Player, victim: &Player, cfg: &CharConfig) -> bool {
+    let is_skill = attacker.state == STATE_SKILL;
+    let (front, half_w, depth, half_h) = if is_skill {
+        (cfg.skl_front, cfg.skl_half_w, cfg.skl_depth, cfg.skl_half_h)
+    } else {
+        (cfg.atk_front, cfg.atk_half_w, cfg.atk_depth, cfg.atk_half_h)
+    };
+    let offset_x = if attacker.facing_right { front } else { -front };
+    let dx = (attacker.x + offset_x - victim.x).abs();
+    let dy = (attacker.y - victim.y).abs();
+    let dz = (attacker.z - victim.z).abs();
+    dx < (half_w + CHAR_WIDTH / 2) && dy < depth && dz < half_h
+}
+
+// --- 4. 實體系統 ---
 
 #[derive(Clone, Default, Debug)]
 pub struct Entity {
@@ -139,7 +196,6 @@ pub struct Entity {
     pub lifetime: u32,
 }
 
-/// Python 可讀的投擲物快照（唯讀）
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct EntityView {
@@ -150,7 +206,7 @@ pub struct EntityView {
     #[pyo3(get)] pub lifetime: u32,
 }
 
-// --- 4. 遊戲狀態與共用邏輯 ---
+// --- 5. 遊戲狀態與共用邏輯 ---
 
 #[derive(Clone, Default, Debug)]
 pub struct GameState {
@@ -166,15 +222,15 @@ impl Config for BattleConfig {
     type Address = SocketAddr;
 }
 
-fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)]) {
+fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[CharConfig]) {
     state.frame += 1;
 
-    // 1. 玩家輸入與狀態推進，同時收集新增實體指令
     let mut spawn_queue: Vec<Entity> = Vec::new();
 
     for (i, (input, status)) in inputs.iter().enumerate() {
         if i >= state.players.len() || *status == InputStatus::Disconnected { continue; }
         let p = &mut state.players[i];
+        let pcfg = get_cfg(configs, p.character_type);
 
         if p.state == STATE_IDLE || p.state == STATE_WALK {
             p.vx = 0; p.vy = 0;
@@ -185,12 +241,11 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)]) {
             if p.vx == 0 && p.vy == 0 { p.state = STATE_IDLE; }
             if input & INPUT_JUMP   != 0 && p.z == 0 { p.vz = JUMP_IMPULSE; }
             if input & INPUT_ATTACK != 0 { p.state = STATE_ATTACK; p.timer = 20; p.vx = 0; p.vy = 0; }
-            if input & INPUT_SKILL  != 0 && p.mp >= SKILL_COST {
-                p.state = STATE_SKILL; p.timer = 40; p.mp -= SKILL_COST; p.vx = 0; p.vy = 0;
+            if input & INPUT_SKILL  != 0 && p.mp >= pcfg.skill_cost {
+                p.state = STATE_SKILL; p.timer = 40; p.mp -= pcfg.skill_cost; p.vx = 0; p.vy = 0;
             }
         }
 
-        // 法師在技能第 5 幀（timer==35）生成投擲物
         if p.state == STATE_SKILL && p.timer == MAGE_SPAWN_TIMER && p.character_type == CHAR_TYPE_MAGE {
             let vx = if p.facing_right { PROJECTILE_VX } else { -PROJECTILE_VX };
             spawn_queue.push(Entity {
@@ -204,7 +259,6 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)]) {
         p.update();
     }
 
-    // 2. 現有實體移動並倒數生命週期，移除過期實體
     state.entities.retain_mut(|e| {
         e.x += e.vx;
         e.y += e.vy;
@@ -212,10 +266,9 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)]) {
         e.lifetime > 0
     });
 
-    // 3. 加入本幀新生成的實體
     state.entities.extend(spawn_queue);
 
-    // 4. 實體與玩家碰撞判定
+    // 投擲物與玩家碰撞
     struct EntityHit { victim: usize, vx: i32 }
     let mut entity_hits: Vec<EntityHit> = Vec::new();
     for e in &state.entities {
@@ -227,7 +280,6 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)]) {
             let dy = (e.y - victim.y).abs();
             if dx < ENTITY_HIT_RADIUS + CHAR_WIDTH / 2
                 && dy < ENTITY_HIT_RADIUS + CHAR_DEPTH / 2 {
-                // 擊飛方向與投擲物行進方向一致
                 let kb_vx = if e.vx >= 0 { 6000i32 } else { -6000i32 };
                 entity_hits.push(EntityHit { victim: j, vx: kb_vx });
             }
@@ -242,7 +294,7 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)]) {
         victim.hp -= 8000;
     }
 
-    // 5. 玩家近戰判定，帶方向性 knockback
+    // 玩家近戰判定（使用 CharConfig）
     let num_players = state.players.len();
     for i in 0..num_players {
         let atk_info = state.players[i].clone();
@@ -252,19 +304,19 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)]) {
             && atk_info.timer > 10;
         if !is_attack && !is_skill { continue; }
 
-        // 不同招式的擊飛參數
-        let (kb_vz, kb_timer, kb_dmg) = if is_skill {
-            (6000i32, 40u32, 15000i32)  // 技能：高飛、長硬直、高傷
+        let cfg = get_cfg(configs, atk_info.character_type);
+        let (kb_vz, kb_timer, kb_dmg, kb_vx_mag) = if is_skill {
+            (cfg.skl_kb_vz, cfg.skl_kb_timer, cfg.skill_dmg, cfg.skl_kb_vx)
         } else {
-            (4000i32, 30u32, 10000i32)  // 普攻
+            (cfg.atk_kb_vz, cfg.atk_kb_timer, cfg.atk_dmg, cfg.atk_kb_vx)
         };
-        let kb_vx = if atk_info.facing_right { 8000i32 } else { -8000i32 };
+        let kb_vx = if atk_info.facing_right { kb_vx_mag } else { -kb_vx_mag };
 
         for j in 0..num_players {
             if i == j { continue; }
             let victim = &mut state.players[j];
             if victim.state == STATE_HURT { continue; }
-            if atk_info.check_attack_hit(victim) {
+            if check_attack_hit_cfg(&atk_info, victim, &cfg) {
                 victim.state = STATE_HURT;
                 victim.timer = kb_timer;
                 victim.vx = kb_vx;
@@ -275,11 +327,12 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)]) {
     }
 }
 
-// --- 5. 離線 Session ---
+// --- 6. 離線 Session ---
 
 #[pyclass]
 pub struct OfflineSession {
     state: GameState,
+    char_configs: Vec<CharConfig>,
 }
 
 #[pymethods]
@@ -292,13 +345,46 @@ impl OfflineSession {
             if i < spawn_points.len() { p.x = spawn_points[i].0; p.y = spawn_points[i].1; }
             p
         }).collect();
-        OfflineSession { state: GameState { players, frame: 0, entities: Vec::new() } }
+        let mut configs = Vec::new();
+        configs.push(CharConfig::default()); // Knight (0)
+        configs.push(CharConfig::default()); // Mage   (1)
+        OfflineSession { state: GameState { players, frame: 0, entities: Vec::new() }, char_configs: configs }
+    }
+
+    /// 設定指定角色種類的所有碰撞與數值參數。
+    /// 所有距離單位為遊戲單位（像素 × 1000）。
+    /// 呼叫時機：session 建立後、第一次 advance 前。
+    fn set_char_config(
+        &mut self, char_type: usize,
+        max_hp: i32, max_mp: i32, skill_cost: i32,
+        atk_dmg: i32, skill_dmg: i32,
+        atk_front: i32, atk_half_w: i32, atk_depth: i32, atk_half_h: i32,
+        skl_front: i32, skl_half_w: i32, skl_depth: i32, skl_half_h: i32,
+        atk_kb_vx: i32, atk_kb_vz: i32, atk_kb_timer: u32,
+        skl_kb_vx: i32, skl_kb_vz: i32, skl_kb_timer: u32,
+    ) {
+        while self.char_configs.len() <= char_type {
+            self.char_configs.push(CharConfig::default());
+        }
+        self.char_configs[char_type] = CharConfig {
+            max_hp, max_mp, skill_cost, atk_dmg, skill_dmg,
+            atk_front, atk_half_w, atk_depth, atk_half_h,
+            skl_front, skl_half_w, skl_depth, skl_half_h,
+            atk_kb_vx, atk_kb_vz, atk_kb_timer,
+            skl_kb_vx, skl_kb_vz, skl_kb_timer,
+        };
+        for p in &mut self.state.players {
+            if p.character_type as usize == char_type {
+                p.hp = max_hp;
+                p.mp = max_mp;
+            }
+        }
     }
 
     fn advance(&mut self, inputs: Vec<u8>) {
         let ggrs_style: Vec<(u8, InputStatus)> = inputs.into_iter()
             .map(|i| (i, InputStatus::Confirmed)).collect();
-        perform_tick(&mut self.state, &ggrs_style);
+        perform_tick(&mut self.state, &ggrs_style, &self.char_configs);
     }
 
     fn get_player(&self, id: usize) -> PyResult<Player> {
@@ -322,13 +408,14 @@ impl OfflineSession {
     fn is_synchronized(&self) -> bool { true }
 }
 
-// --- 6. GGRS 連線 Session ---
+// --- 7. GGRS 連線 Session ---
 
 #[pyclass(unsendable)]
 pub struct GGRSSession {
     session: P2PSession<BattleConfig>,
     current_state: GameState,
     local_player_id: usize,
+    char_configs: Vec<CharConfig>,
 }
 
 #[pymethods]
@@ -355,11 +442,42 @@ impl GGRSSession {
             if i < spawn_points.len() { p.x = spawn_points[i].0; p.y = spawn_points[i].1; }
             p
         }).collect();
+        let mut configs = Vec::new();
+        configs.push(CharConfig::default());
+        configs.push(CharConfig::default());
         Ok(GGRSSession {
             session,
             current_state: GameState { players, frame: 0, entities: Vec::new() },
             local_player_id,
+            char_configs: configs,
         })
+    }
+
+    fn set_char_config(
+        &mut self, char_type: usize,
+        max_hp: i32, max_mp: i32, skill_cost: i32,
+        atk_dmg: i32, skill_dmg: i32,
+        atk_front: i32, atk_half_w: i32, atk_depth: i32, atk_half_h: i32,
+        skl_front: i32, skl_half_w: i32, skl_depth: i32, skl_half_h: i32,
+        atk_kb_vx: i32, atk_kb_vz: i32, atk_kb_timer: u32,
+        skl_kb_vx: i32, skl_kb_vz: i32, skl_kb_timer: u32,
+    ) {
+        while self.char_configs.len() <= char_type {
+            self.char_configs.push(CharConfig::default());
+        }
+        self.char_configs[char_type] = CharConfig {
+            max_hp, max_mp, skill_cost, atk_dmg, skill_dmg,
+            atk_front, atk_half_w, atk_depth, atk_half_h,
+            skl_front, skl_half_w, skl_depth, skl_half_h,
+            atk_kb_vx, atk_kb_vz, atk_kb_timer,
+            skl_kb_vx, skl_kb_vz, skl_kb_timer,
+        };
+        for p in &mut self.current_state.players {
+            if p.character_type as usize == char_type {
+                p.hp = max_hp;
+                p.mp = max_mp;
+            }
+        }
     }
 
     fn advance(&mut self, local_input: u8) -> PyResult<()> {
@@ -397,10 +515,11 @@ impl GGRSSession {
 
 impl GGRSSession {
     fn handle_requests(&mut self, requests: Vec<GgrsRequest<BattleConfig>>) {
+        let configs = self.char_configs.clone();
         for req in requests {
             match req {
                 GgrsRequest::AdvanceFrame { inputs } => {
-                    perform_tick(&mut self.current_state, &inputs);
+                    perform_tick(&mut self.current_state, &inputs, &configs);
                 }
                 GgrsRequest::SaveGameState { cell, frame } => {
                     cell.save(frame, Some(self.current_state.clone()), None);
@@ -413,7 +532,7 @@ impl GGRSSession {
     }
 }
 
-// --- 7. 模組註冊 ---
+// --- 8. 模組註冊 ---
 
 #[pyfunction]
 fn decrypt_payload(payload: String, key: &[u8]) -> PyResult<String> {
