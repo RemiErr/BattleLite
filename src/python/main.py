@@ -155,12 +155,15 @@ def run_game():
             draw_status_bar(screen, blit_x, blit_y, p.hp, p.mp)
 
             # 判定框視覺輔助 (僅用於開發者 Debug)
-            if p.state == STATE_ATTACK:
-                off = sw // 2 if p.facing_right else -(sw // 2 + 30)
-                pygame.draw.rect(screen, (255, 0, 0), (int(sx) + off, blit_y + sh // 3, 30, 30), 1)
-            elif p.state == STATE_SKILL:
-                off = sw // 2 if p.facing_right else -(sw // 2 + 50)
-                pygame.draw.rect(screen, (0, 255, 255), (int(sx) + off, blit_y + sh // 4, 50, 70), 1)
+            if debug_manager.enabled:
+                hurt_def = knight_asset.get_hurt_box(p.state)
+                if hurt_def:
+                    pygame.draw.rect(screen, (0, 255, 0),
+                                     hurt_def.to_screen_rect(sx, sy, p.facing_right), 1)
+                hit_def = knight_asset.get_hit_box(p.state)
+                if hit_def:
+                    pygame.draw.rect(screen, (255, 50, 50),
+                                     hit_def.to_screen_rect(sx, sy, p.facing_right), 1)
 
         debug_manager.draw(screen, session, [p for _, p in render_list], clock.get_fps())
 
