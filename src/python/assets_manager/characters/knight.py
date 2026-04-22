@@ -33,6 +33,8 @@ class Knight(BaseCharacter):
         surf = self.get_sprite_rect(state, elapsed_frames)
         if surf is None:
             surf = self.get_sprite_rect(0, 0)
-        if not facing_right:
+        assert surf is not None
+        # 原始 sheet 角色朝左，facing_right 時需水平翻轉
+        if facing_right:
             return pygame.transform.flip(surf, True, False)
         return surf

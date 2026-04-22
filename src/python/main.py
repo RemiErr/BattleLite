@@ -137,23 +137,30 @@ def run_game():
 
         for original_idx, p in render_list:
             sx, sy = get_screen_pos(p)
-            pygame.draw.ellipse(screen, (10, 10, 10), (p.x/1000.0, p.y/1000.0 + 40, 50, 20))
             sprite = knight_asset.get_sprite(p.state, player_elapsed_frames[original_idx], p.facing_right)
-            screen.blit(sprite, (sx, sy))
-            
+            sw, sh = sprite.get_width(), sprite.get_height()
+            # 以圖像中心對齊角色物理位置
+            blit_x = int(sx - sw // 2)
+            blit_y = int(sy - sh // 2)
+            # 陰影跟隨圖像底部中心
+            shadow_x = int(sx - 25)
+            shadow_y = int(sy + sh // 2 - 8)
+            pygame.draw.ellipse(screen, (10, 10, 10), (shadow_x, shadow_y, 50, 14))
+            screen.blit(sprite, (blit_x, blit_y))
+
             # 如果是離線模式，高亮當前操作的角色
             if is_offline and original_idx == controlled_idx:
-                pygame.draw.rect(screen, (255, 255, 255), (sx, sy, 40, 50), 1)
-            
-            draw_status_bar(screen, sx, sy, p.hp, p.mp)
-            
+                pygame.draw.rect(screen, (255, 255, 255), (blit_x, blit_y, sw, sh), 1)
+
+            draw_status_bar(screen, blit_x, blit_y, p.hp, p.mp)
+
             # 判定框視覺輔助 (僅用於開發者 Debug)
             if p.state == STATE_ATTACK:
-                off = 30 if p.facing_right else -20
-                pygame.draw.rect(screen, (255, 0, 0), (sx + off, sy + 10, 30, 30), 1)
+                off = sw // 2 if p.facing_right else -(sw // 2 + 30)
+                pygame.draw.rect(screen, (255, 0, 0), (int(sx) + off, blit_y + sh // 3, 30, 30), 1)
             elif p.state == STATE_SKILL:
-                off = 35 if p.facing_right else -45
-                pygame.draw.rect(screen, (0, 255, 255), (sx + (30 if p.facing_right else -40), sy - 10, 50, 70), 1)
+                off = sw // 2 if p.facing_right else -(sw // 2 + 50)
+                pygame.draw.rect(screen, (0, 255, 255), (int(sx) + off, blit_y + sh // 4, 50, 70), 1)
 
         debug_manager.draw(screen, session, [p for _, p in render_list], clock.get_fps())
 
