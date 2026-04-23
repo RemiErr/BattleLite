@@ -15,6 +15,7 @@ const WALK_SPEED_Y: i32 = 3000;
 const CHAR_WIDTH: i32 = 30000;
 const CHAR_DEPTH: i32 = 15000;
 const ATK_DEPTH_REACH: i32 = 25000;
+const HITSTOP_FRAMES: u32 = 4;
 
 const MAX_HP: i32 = 100000;
 const MAX_MP: i32 = 50000;
@@ -132,6 +133,7 @@ pub struct Player {
     #[pyo3(get, set)] pub hp: i32,
     #[pyo3(get, set)] pub mp: i32,
     #[pyo3(get, set)] pub character_type: u8,
+    #[pyo3(get, set)] pub hitstop: u32,
 }
 
 #[pymethods]
@@ -151,6 +153,10 @@ impl Player {
     }
 
     fn update(&mut self) {
+        if self.hitstop > 0 {
+            self.hitstop -= 1;
+            return;
+        }
         if self.timer > 0 {
             self.timer -= 1;
             if self.timer == 0 { self.state = STATE_IDLE; }
@@ -335,6 +341,7 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
         };
         let kb_vx = if atk_info.facing_right { kb_vx_mag } else { -kb_vx_mag };
 
+        let mut hit_landed = false;
         for j in 0..num_players {
             if i == j { continue; }
             if state.players[j].state == STATE_HURT { continue; }
@@ -346,7 +353,12 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
                 victim.vx = kb_vx;
                 victim.vz = kb_vz;
                 victim.hp -= kb_dmg;
+                victim.hitstop = HITSTOP_FRAMES;
+                hit_landed = true;
             }
+        }
+        if hit_landed {
+            state.players[i].hitstop = HITSTOP_FRAMES;
         }
     }
 }

@@ -199,7 +199,7 @@ def run_game():
             if p.state != last_states[i]:
                 player_elapsed_frames[i] = 0
                 last_states[i] = p.state
-            else:
+            elif p.hitstop == 0:
                 player_elapsed_frames[i] += 1
             render_list.append((i, p))
 
