@@ -61,16 +61,22 @@ struct CharConfig {
     atk_half_w:   i32,
     atk_depth:    i32,
     atk_half_h:   i32,
+    atk_z_offset: i32,
     skl_front:    i32,
     skl_half_w:   i32,
     skl_depth:    i32,
     skl_half_h:   i32,
+    skl_z_offset: i32,
     atk_kb_vx:    i32,
     atk_kb_vz:    i32,
     atk_kb_timer: u32,
     skl_kb_vx:    i32,
     skl_kb_vz:    i32,
     skl_kb_timer: u32,
+    hurt_front:   i32,
+    hurt_half_w:  i32,
+    hurt_half_h:  i32,
+    hurt_z_offset: i32,
 }
 
 impl Default for CharConfig {
@@ -85,16 +91,22 @@ impl Default for CharConfig {
             atk_half_w:   20000,
             atk_depth:    ATK_DEPTH_REACH,
             atk_half_h:   5000,
+            atk_z_offset: 0,
             skl_front:    45000,
             skl_half_w:   35000,
             skl_depth:    40000,
             skl_half_h:   40000,
+            skl_z_offset: 0,
             atk_kb_vx:    8000,
             atk_kb_vz:    4000,
             atk_kb_timer: 30,
             skl_kb_vx:    8000,
             skl_kb_vz:    6000,
             skl_kb_timer: 40,
+            hurt_front:   0,
+            hurt_half_w:  CHAR_WIDTH / 2,
+            hurt_half_h:  50000,
+            hurt_z_offset: 0,
         }
     }
 }
@@ -135,7 +147,7 @@ impl Player {
 
     // 保留 Python 可呼叫版本，使用預設 config（測試相容用）
     fn check_attack_hit(&self, other: &Player) -> bool {
-        check_attack_hit_cfg(self, other, &CharConfig::default())
+        check_attack_hit_cfg(self, other, &CharConfig::default(), &CharConfig::default())
     }
 
     fn update(&mut self) {
@@ -169,21 +181,28 @@ impl Player {
 }
 
 // 使用 CharConfig 的碰撞判定（perform_tick 內部使用）
-fn check_attack_hit_cfg(attacker: &Player, victim: &Player, cfg: &CharConfig) -> bool {
+// atk_cfg：攻擊者設定（決定攻擊框大小與位置）
+// vic_cfg：受害者設定（決定 hurt_box 大小）
+fn check_attack_hit_cfg(attacker: &Player, victim: &Player, atk_cfg: &CharConfig, vic_cfg: &CharConfig) -> bool {
     let is_skill = attacker.state == STATE_SKILL;
-    let (front, half_w, depth, half_h) = if is_skill {
-        (cfg.skl_front, cfg.skl_half_w, cfg.skl_depth, cfg.skl_half_h)
+    let (front, half_w, depth, half_h, atk_zo) = if is_skill {
+        (atk_cfg.skl_front, atk_cfg.skl_half_w, atk_cfg.skl_depth, atk_cfg.skl_half_h, atk_cfg.skl_z_offset)
     } else {
-        (cfg.atk_front, cfg.atk_half_w, cfg.atk_depth, cfg.atk_half_h)
+        (atk_cfg.atk_front, atk_cfg.atk_half_w, atk_cfg.atk_depth, atk_cfg.atk_half_h, atk_cfg.atk_z_offset)
     };
-    let offset_x = if attacker.facing_right { front } else { -front };
-    let dx = (attacker.x + offset_x - victim.x).abs();
+    // 攻擊框中心：攻擊者位置 + 面向偏移（ox 決定）
+    let atk_offset_x = if attacker.facing_right { front } else { -front };
+    let atk_center_x = attacker.x + atk_offset_x;
+    let atk_center_z = attacker.z + atk_zo;
+    // 受害者身體框中心：受害者位置 + hurt_front 偏移（hurt ox 決定）
+    let vic_offset_x = if victim.facing_right { vic_cfg.hurt_front } else { -vic_cfg.hurt_front };
+    let vic_center_x = victim.x + vic_offset_x;
+    let vic_center_z = victim.z + vic_cfg.hurt_z_offset;
+
+    let dx = (atk_center_x - vic_center_x).abs();
     let dy = (attacker.y - victim.y).abs();
-    let dz = (attacker.z - victim.z).abs();
-    // 紅框(攻擊) overlap 綠框(受害者身體)時觸發：
-    //   dx < atk_half_w + victim_body_half
-    //   victim_body_half ≈ CHAR_WIDTH/2 = 15 px
-    dx < (half_w + CHAR_WIDTH / 2) && dy < depth && dz < half_h
+    let dz = (atk_center_z - vic_center_z).abs();
+    dx < (half_w + vic_cfg.hurt_half_w) && dy < depth && dz < (half_h + vic_cfg.hurt_half_h)
 }
 
 // --- 4. 實體系統 ---
@@ -301,7 +320,8 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
     let num_players = state.players.len();
     for i in 0..num_players {
         let atk_info = state.players[i].clone();
-        let is_attack = atk_info.state == STATE_ATTACK && atk_info.timer == 15;
+        let is_attack = atk_info.state == STATE_ATTACK
+            && atk_info.timer >= 5 && atk_info.timer <= 15;
         let is_skill  = atk_info.state == STATE_SKILL
             && atk_info.character_type == CHAR_TYPE_KNIGHT
             && atk_info.timer > 10;
@@ -317,9 +337,10 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
 
         for j in 0..num_players {
             if i == j { continue; }
-            let victim = &mut state.players[j];
-            if victim.state == STATE_HURT { continue; }
-            if check_attack_hit_cfg(&atk_info, victim, &cfg) {
+            if state.players[j].state == STATE_HURT { continue; }
+            let vic_cfg = get_cfg(configs, state.players[j].character_type);
+            if check_attack_hit_cfg(&atk_info, &state.players[j], &cfg, &vic_cfg) {
+                let victim = &mut state.players[j];
                 victim.state = STATE_HURT;
                 victim.timer = kb_timer;
                 victim.vx = kb_vx;
@@ -361,20 +382,22 @@ impl OfflineSession {
         &mut self, char_type: usize,
         max_hp: i32, max_mp: i32, skill_cost: i32,
         atk_dmg: i32, skill_dmg: i32,
-        atk_front: i32, atk_half_w: i32, atk_depth: i32, atk_half_h: i32,
-        skl_front: i32, skl_half_w: i32, skl_depth: i32, skl_half_h: i32,
+        atk_front: i32, atk_half_w: i32, atk_depth: i32, atk_half_h: i32, atk_z_offset: i32,
+        skl_front: i32, skl_half_w: i32, skl_depth: i32, skl_half_h: i32, skl_z_offset: i32,
         atk_kb_vx: i32, atk_kb_vz: i32, atk_kb_timer: u32,
         skl_kb_vx: i32, skl_kb_vz: i32, skl_kb_timer: u32,
+        hurt_front: i32, hurt_half_w: i32, hurt_half_h: i32, hurt_z_offset: i32,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
         }
         self.char_configs[char_type] = CharConfig {
             max_hp, max_mp, skill_cost, atk_dmg, skill_dmg,
-            atk_front, atk_half_w, atk_depth, atk_half_h,
-            skl_front, skl_half_w, skl_depth, skl_half_h,
+            atk_front, atk_half_w, atk_depth, atk_half_h, atk_z_offset,
+            skl_front, skl_half_w, skl_depth, skl_half_h, skl_z_offset,
             atk_kb_vx, atk_kb_vz, atk_kb_timer,
             skl_kb_vx, skl_kb_vz, skl_kb_timer,
+            hurt_front, hurt_half_w, hurt_half_h, hurt_z_offset,
         };
         for p in &mut self.state.players {
             if p.character_type as usize == char_type {
@@ -460,20 +483,22 @@ impl GGRSSession {
         &mut self, char_type: usize,
         max_hp: i32, max_mp: i32, skill_cost: i32,
         atk_dmg: i32, skill_dmg: i32,
-        atk_front: i32, atk_half_w: i32, atk_depth: i32, atk_half_h: i32,
-        skl_front: i32, skl_half_w: i32, skl_depth: i32, skl_half_h: i32,
+        atk_front: i32, atk_half_w: i32, atk_depth: i32, atk_half_h: i32, atk_z_offset: i32,
+        skl_front: i32, skl_half_w: i32, skl_depth: i32, skl_half_h: i32, skl_z_offset: i32,
         atk_kb_vx: i32, atk_kb_vz: i32, atk_kb_timer: u32,
         skl_kb_vx: i32, skl_kb_vz: i32, skl_kb_timer: u32,
+        hurt_front: i32, hurt_half_w: i32, hurt_half_h: i32, hurt_z_offset: i32,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
         }
         self.char_configs[char_type] = CharConfig {
             max_hp, max_mp, skill_cost, atk_dmg, skill_dmg,
-            atk_front, atk_half_w, atk_depth, atk_half_h,
-            skl_front, skl_half_w, skl_depth, skl_half_h,
+            atk_front, atk_half_w, atk_depth, atk_half_h, atk_z_offset,
+            skl_front, skl_half_w, skl_depth, skl_half_h, skl_z_offset,
             atk_kb_vx, atk_kb_vz, atk_kb_timer,
             skl_kb_vx, skl_kb_vz, skl_kb_timer,
+            hurt_front, hurt_half_w, hurt_half_h, hurt_z_offset,
         };
         for p in &mut self.current_state.players {
             if p.character_type as usize == char_type {

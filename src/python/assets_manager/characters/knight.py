@@ -37,8 +37,8 @@ _STATE_ROWS = [
 #     → ox = 40-91 = -51, oy = 15-61 = -46, w=60, h=75
 # ---------------------------------------------------------------------------
 
-_HURT_BODY = HitboxDef(ox=-35, oy=-41, w=110, h=100)
-_HURT_HURT = HitboxDef(ox=-15, oy=-41, w=90, h=90)   # HURT 狀態身體縮小
+_HURT_BODY = HitboxDef(ox=-35, oy=-41, w=80, h=100)
+_HURT_HURT = HitboxDef(ox=-15, oy=-41, w=70, h=90)   # HURT 狀態身體縮小
 
 _HIT_ATTACK = HitboxDef(ox=-86, oy=-53, w=75, h=110)
 _HIT_SKILL = HitboxDef(ox=-50, oy=-33, w=66, h=85)

@@ -27,37 +27,40 @@ STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = range(5)
 
 def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
     """
-    將 Python 角色定義（HitboxDef + CharStats）轉換為 Rust 遊戲單位，
-    並傳入 session.set_char_config()，讓 Rust 使用這些參數做碰撞判定與傷害計算。
-
-    HitboxDef → Rust 轉換：
-      hit_box 定義在預設朝向（朝左）下：
-        front_offset = -(ox + w//2)  →  × 1000 → game units
-        half_w       = w // 2        →  × 1000
-        half_h       = h // 2        →  × 1000
+    HitboxDef → Rust 轉換（全欄位，單位 px × 1000）：
+      front     = -(ox + w//2)   攻擊/身體框中心距角色中心（朝面向方向為正）
+      half_w    = w // 2         框半寬（x 軸）
+      half_h    = h // 2         框半高（z 軸）
+      z_offset  = -(oy + h//2)   框中心距角色 z 的偏移（screen-y 向下 → z 向上取反）
     """
     s = asset.stats
 
-    def hb_to_rust(state: int):
-        hb = asset.hit_boxes.get(state)
+    def hb_to_rust(state: int, box_map):
+        hb = box_map.get(state)
         if hb is None:
-            return 0, 0, 0
-        front   = -(hb.ox + hb.w // 2) * 1000
-        half_w  = (hb.w // 2) * 1000
-        half_h  = (hb.h // 2) * 1000
-        return front, half_w, half_h
+            return 0, 0, 0, 0
+        front    = -(hb.ox + hb.w // 2) * 1000
+        half_w   = (hb.w // 2) * 1000
+        half_h   = (hb.h // 2) * 1000
+        z_offset = -(hb.oy + hb.h // 2) * 1000
+        return front, half_w, half_h, z_offset
 
-    atk_f, atk_hw, atk_hh = hb_to_rust(STATE_ATTACK)
-    skl_f, skl_hw, skl_hh = hb_to_rust(STATE_SKILL)
+    atk_f, atk_hw, atk_hh, atk_zo = hb_to_rust(STATE_ATTACK, asset.hit_boxes)
+    skl_f, skl_hw, skl_hh, skl_zo = hb_to_rust(STATE_SKILL,  asset.hit_boxes)
+
+    hurt_f, hurt_hw, hurt_hh, hurt_zo = hb_to_rust(STATE_IDLE, asset.hurt_boxes)
+    if not asset.hurt_boxes.get(STATE_IDLE):
+        hurt_hw, hurt_hh = 15_000, 50_000
 
     session.set_char_config(
         char_type,
         s.max_hp, s.max_mp, s.skill_cost,
         s.atk_dmg, s.skill_dmg,
-        atk_f, atk_hw, s.atk_depth, atk_hh,
-        skl_f, skl_hw, s.skl_depth, skl_hh,
+        atk_f, atk_hw, s.atk_depth, atk_hh, atk_zo,
+        skl_f, skl_hw, s.skl_depth, skl_hh, skl_zo,
         s.atk_kb_vx, s.atk_kb_vz, s.atk_kb_timer,
         s.skl_kb_vx, s.skl_kb_vz, s.skl_kb_timer,
+        hurt_f, hurt_hw, hurt_hh, hurt_zo,
     )
 
 
