@@ -63,6 +63,12 @@ facing_right=False（預設朝向）    facing_right=True（鏡像）
 | `hurt_boxes` | state（int） | 綠色           | 角色「被打到」的身體範圍                                  |
 | `hit_boxes`  | state（int） | 紅色           | 攻擊動作「可命中敵人」的範圍；`None` 表示此狀態不造成傷害 |
 
+**觸發條件（視覺語意）：紅框與敵人綠框重疊時觸發命中。**
+
+Rust 碰撞公式為 `dx < atk_half_w + CHAR_WIDTH/2`，其中 `CHAR_WIDTH/2 = 15px` 代表受害者身體半寬補正。
+換句話說：紅框邊緣需真正進入敵人身體（綠框）約 15px 才觸發；若紅框只是「剛剛碰到」綠框外緣，尚未判定為命中。
+若想讓「恰好碰到就命中」，可將 `hit_box.w` 再加大約 30px（`CHAR_WIDTH`）。
+
 ---
 
 ## 新增角色步驟

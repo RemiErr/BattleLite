@@ -37,8 +37,8 @@ _STATE_ROWS = [
 #     → ox = 40-91 = -51, oy = 15-61 = -46, w=60, h=75
 # ---------------------------------------------------------------------------
 
-_HURT_BODY = HitboxDef(ox=-35, oy=-41, w=90, h=100)
-_HURT_HURT = HitboxDef(ox=-15, oy=-41, w=70, h=90)   # HURT 狀態身體縮小
+_HURT_BODY = HitboxDef(ox=-35, oy=-41, w=110, h=100)
+_HURT_HURT = HitboxDef(ox=-15, oy=-41, w=90, h=90)   # HURT 狀態身體縮小
 
 _HIT_ATTACK = HitboxDef(ox=-86, oy=-53, w=75, h=110)
 _HIT_SKILL = HitboxDef(ox=-50, oy=-33, w=66, h=85)
@@ -56,19 +56,19 @@ class Knight(BaseCharacter):
         )
 
         self.stats = CharStats(
-            max_hp       = 100_000,
-            max_mp       =  50_000,
-            skill_cost   =  20_000,
-            atk_dmg      =  10_000,
-            skill_dmg    =  15_000,
-            atk_depth    =  25_000,
-            skl_depth    =  40_000,
-            atk_kb_vx    =   8_000,
-            atk_kb_vz    =   4_000,
-            atk_kb_timer =      30,
-            skl_kb_vx    =   8_000,
-            skl_kb_vz    =   6_000,
-            skl_kb_timer =      40,
+            max_hp=100_000,
+            max_mp=50_000,
+            skill_cost=20_000,
+            atk_dmg=10_000,
+            skill_dmg=15_000,
+            atk_depth=25_000,
+            skl_depth=40_000,
+            atk_kb_vx=8_000,
+            atk_kb_vz=4_000,
+            atk_kb_timer=30,
+            skl_kb_vx=8_000,
+            skl_kb_vz=6_000,
+            skl_kb_timer=40,
         )
 
         self.hurt_boxes = {

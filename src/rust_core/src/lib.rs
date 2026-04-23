@@ -180,6 +180,9 @@ fn check_attack_hit_cfg(attacker: &Player, victim: &Player, cfg: &CharConfig) ->
     let dx = (attacker.x + offset_x - victim.x).abs();
     let dy = (attacker.y - victim.y).abs();
     let dz = (attacker.z - victim.z).abs();
+    // 紅框(攻擊) overlap 綠框(受害者身體)時觸發：
+    //   dx < atk_half_w + victim_body_half
+    //   victim_body_half ≈ CHAR_WIDTH/2 = 15 px
     dx < (half_w + CHAR_WIDTH / 2) && dy < depth && dz < half_h
 }
 
