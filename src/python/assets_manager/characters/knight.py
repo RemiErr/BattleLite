@@ -7,6 +7,11 @@ _SHEET_PATH = os.path.join(
     "src", "assets", "char", "knight", "sprite-sheet-183-123.png"
 )
 
+_FACE_PATH = os.path.normpath(os.path.join(
+    os.path.dirname(__file__), "..", "..", "..", "..",
+    "src", "assets", "char", "knight", "faceset.png"
+))
+
 _FRAME_W = 182
 _FRAME_H = 122
 
@@ -49,6 +54,7 @@ STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
 class Knight(BaseCharacter):
     def __init__(self):
         super().__init__("Knight")
+        self.faceset_path = _FACE_PATH
         self.load_sheet(
             os.path.normpath(_SHEET_PATH),
             _FRAME_W, _FRAME_H,

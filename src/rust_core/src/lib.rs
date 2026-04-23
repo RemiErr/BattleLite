@@ -363,7 +363,7 @@ pub struct OfflineSession {
 impl OfflineSession {
     #[new]
     fn new(num_players: usize) -> Self {
-        let spawn_points = [(200000, 300000), (600000, 300000), (200000, 450000), (600000, 450000)];
+        let spawn_points = [(200000, 300000), (824000, 300000), (200000, 450000), (824000, 450000)];
         let players = (0..num_players).map(|i| {
             let mut p = Player::new();
             if i < spawn_points.len() { p.x = spawn_points[i].0; p.y = spawn_points[i].1; }
@@ -462,7 +462,7 @@ impl GGRSSession {
         }
         let session = builder.start_p2p_session(socket)
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-        let spawn_points = [(200000, 300000), (600000, 300000), (200000, 450000), (600000, 450000)];
+        let spawn_points = [(200000, 300000), (824000, 300000), (200000, 450000), (824000, 450000)];
         let players = (0..num_players).map(|i| {
             let mut p = Player::new();
             if i < spawn_points.len() { p.x = spawn_points[i].0; p.y = spawn_points[i].1; }

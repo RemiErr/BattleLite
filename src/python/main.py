@@ -15,6 +15,7 @@ try:
     from battlelite_core import Player, OfflineSession, GGRSSession
     from src.python.renderer import get_screen_pos
     from src.python.debug_manager import DebugManager
+    from src.python.hud import HUD, SCREEN_W, SCREEN_H, HUD_H
     from src.python.assets_manager.characters.knight import Knight
     from src.python.assets_manager.base_character import BaseCharacter
     from src.python.crypto_utils import SHARED_SECRET
@@ -95,16 +96,6 @@ def get_input_mask():
     return mask
 
 
-def draw_status_bar(screen, x, y, hp, mp):
-    # HP Bar
-    pygame.draw.rect(screen, (100, 0, 0), (x, y - 15, 40, 5))
-    pygame.draw.rect(screen, (0, 255, 0),
-                     (x, y - 15, max(0, (hp/100000.0)*40), 5))
-    # MP Bar
-    pygame.draw.rect(screen, (0, 0, 100), (x, y - 8, 40, 5))
-    pygame.draw.rect(screen, (0, 200, 255),
-                     (x, y - 8, max(0, (mp/50000.0)*40), 5))
-
 
 def run_game():
     args = parse_args()
@@ -129,11 +120,18 @@ def run_game():
             sys.exit(1)
 
     pygame.init()
-    screen = pygame.display.set_mode((800, 600))
+    screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
     pygame.display.set_caption(f"BattleLite - {config['nickname']}")
     clock = pygame.time.Clock()
     debug_manager = DebugManager()
     char_asset = Knight()
+
+    # 建立玩家名稱對照表（使用者名稱優先，否則 HUD 自動 fallback 職業名）
+    player_names: dict[int, str] = {config["local_id"]: config.get("nickname", "Player")}
+    for p_info in config.get("players", []):
+        if "nickname" in p_info:
+            player_names[p_info["id"]] = p_info["nickname"]
+    hud = HUD({0: char_asset}, player_names=player_names)
 
     # --- Session 工廠：組合模式的核心實作 ---
     is_offline = config["is_offline"]
@@ -173,8 +171,10 @@ def run_game():
                     debug_manager.toggle()
                 if event.key == pygame.K_F2 and is_offline:
                     # 離線模式切換控制角色（僅供測試）
+                    player_names.pop(controlled_idx, None)
                     switch_player = (switch_player + 1) % num_players
                     controlled_idx = switch_player
+                    player_names[controlled_idx] = config.get("nickname", "Player")
 
         # 1. 邏輯推進 (不論模式，介面完全對等)
         input_mask = get_input_mask()
@@ -190,8 +190,8 @@ def run_game():
 
         # 2. 渲染處理 (根據 Y 軸排序)
         screen.fill((30, 30, 30))
-        pygame.draw.line(screen, (60, 60, 60), (0, 300), (800, 300), 1)
-        pygame.draw.line(screen, (60, 60, 60), (0, 450), (800, 450), 1)
+        pygame.draw.line(screen, (60, 60, 60), (0, 300 + HUD_H), (SCREEN_W, 300 + HUD_H), 1)
+        pygame.draw.line(screen, (60, 60, 60), (0, 450 + HUD_H), (SCREEN_W, 450 + HUD_H), 1)
 
         render_list = []
         for i in range(num_players):
@@ -227,8 +227,6 @@ def run_game():
                 pygame.draw.rect(screen, (255, 255, 255),
                                  (blit_x, blit_y, sw, sh), 1)
 
-            draw_status_bar(screen, blit_x, blit_y, p.hp, p.mp)
-
             # 判定框視覺輔助 (僅用於開發者 Debug)
             if debug_manager.enabled:
                 hurt_def = char_asset.get_hurt_box(p.state)
@@ -240,6 +238,7 @@ def run_game():
                     pygame.draw.rect(screen, (255, 50, 50),
                                      hit_def.to_screen_rect(sx, sy, p.facing_right), 1)
 
+        hud.draw(screen, render_list)
         debug_manager.draw(screen, session, render_list, clock.get_fps())
 
         # 同步等待提示
@@ -251,13 +250,14 @@ def run_game():
                 print(
                     f"[SYNC] waiting... {sync_wait_frames//60}s  my_port={config['local_port']}  remotes={remotes}")
 
-            overlay = pygame.Surface((800, 600), pygame.SRCALPHA)
+            overlay = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
             overlay.fill((0, 0, 0, 150))
             screen.blit(overlay, (0, 0))
+            cx, cy = SCREEN_W // 2, SCREEN_H // 2
             wait_font = pygame.font.SysFont("Arial", 36, bold=True)
             text_surf = wait_font.render(
                 "WAITING FOR SYNC...", True, (255, 255, 0))
-            screen.blit(text_surf, text_surf.get_rect(center=(400, 300)))
+            screen.blit(text_surf, text_surf.get_rect(center=(cx, cy)))
 
             info_font = pygame.font.SysFont("Arial", 16)
             remotes_str = "  ".join(f"id={p['id']} {p['ip']}:{p['port']}" for p in config.get(
@@ -268,9 +268,9 @@ def run_game():
                 f"Remote: {remotes_str}", True, (200, 200, 200))
             info3 = info_font.render(
                 f"Waiting {sync_wait_frames // 60}s", True, (150, 150, 150))
-            screen.blit(info1, info1.get_rect(center=(400, 350)))
-            screen.blit(info2, info2.get_rect(center=(400, 375)))
-            screen.blit(info3, info3.get_rect(center=(400, 400)))
+            screen.blit(info1, info1.get_rect(center=(cx, cy + 50)))
+            screen.blit(info2, info2.get_rect(center=(cx, cy + 75)))
+            screen.blit(info3, info3.get_rect(center=(cx, cy + 100)))
 
         pygame.display.flip()
         clock.tick(60)

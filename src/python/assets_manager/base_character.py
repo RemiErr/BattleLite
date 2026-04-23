@@ -63,6 +63,7 @@ class BaseCharacter:
 
     def __init__(self, name: str):
         self.name = name
+        self.faceset_path: str = ""
         # { state: [pygame.Surface, ...] }
         self.animations: dict[int, list[pygame.Surface]] = {}
         # { state: bool }  True=循環, False=播放一次停在最後
