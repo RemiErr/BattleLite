@@ -1,5 +1,4 @@
 import os
-import pygame
 from src.python.assets_manager.base_character import BaseCharacter, HitboxDef, CharStats
 
 _SHEET_PATH = os.path.join(
@@ -93,12 +92,3 @@ class Knight(BaseCharacter):
             STATE_HURT:   None,
         }
 
-    def get_sprite(self, state: int, elapsed_frames: int, facing_right: bool = True) -> pygame.Surface:
-        surf = self.get_sprite_rect(state, elapsed_frames)
-        if surf is None:
-            surf = self.get_sprite_rect(0, 0)
-        assert surf is not None
-        # 原始 sheet 角色朝左，facing_right 時需水平翻轉
-        if facing_right:
-            return pygame.transform.flip(surf, True, False)
-        return surf
