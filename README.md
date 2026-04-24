@@ -1,6 +1,6 @@
 # BattleLite — 開發者完整說明手冊
 
-BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透過 P2P 連線對戰，延遲對策採用 Rollback Netcode (GG)。
+BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透過 P2P 連線對戰，延遲對策採用 GGRS (Rollback Netcode) 回滾機制。
 
 ---
 
@@ -40,6 +40,7 @@ BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透�
     - [環境安裝（Ubuntu）](#環境安裝ubuntu)
     - [常用指令](#常用指令)
     - [遊戲內快捷鍵](#遊戲內快捷鍵)
+  - [引用資源](#引用資源)
 
 ---
 
@@ -585,12 +586,21 @@ pytest tests/test_physics.py -v
 
 ### 遊戲內快捷鍵
 
-| 按鍵  | 功能                         |
-| ----- | ---------------------------- |
-| F1    | 切換 Debug Overlay（判定框） |
-| F2    | 切換離線沙盒 / P2P 模式      |
-| TAB   | 切換受控角色（沙盒模式）     |
-| WASD  | 移動                         |
-| J     | 攻擊                         |
-| K     | 技能                         |
-| Space | 跳躍                         |
+| 按鍵     | 功能                     |
+| -------- | ------------------------ |
+| F1       | 切換 Debug Overlay       |
+| F2       | 切換受控角色（沙盒模式） |
+| F3       | 切換角色職業（沙盒模式） |
+| 上下左右 | 移動                     |
+| Z        | 攻擊                     |
+| X        | 技能                     |
+| Space    | 跳躍                     |
+
+---
+
+## 引用資源
+
+- Superpowers Asset Packs
+  - 來源：<https://github.com/sparklinlabs/superpowers-asset-packs>
+  - 授權：Creative Commons Zero v1.0 Universal (CC0-1.0)
+  - 說明：本專案使用其中部分美術素材作為遊戲資源，感謝 Sparklin Labs 與素材作者 Pixel-boy。
