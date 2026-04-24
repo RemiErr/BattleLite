@@ -1,81 +1,94 @@
-import pygame
-from src.python.assets_manager.base_character import BaseCharacter
+import os
+from src.python.assets_manager.base_character import BaseCharacter, HitboxDef, CharStats
+
+_SHEET_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "..", "..", "..",
+    "src", "assets", "char", "knight", "sprite-sheet-183-123.png"
+)
+
+_FACE_PATH = os.path.normpath(os.path.join(
+    os.path.dirname(__file__), "..", "..", "..", "..",
+    "src", "assets", "char", "knight", "faceset.png"
+))
+
+_FRAME_W = 182
+_FRAME_H = 122
+
+# (state, row, num_frames, loop, speed)
+_STATE_ROWS = [
+    (0, 0, 1, True,  6),  # IDLE:   Row0, 1 frame
+    (1, 0, 6, True,  6),  # WALK:   Row0, 6 frames
+    (2, 1, 6, False, 4),  # ATTACK: Row1
+    (4, 2, 6, False, 4),  # SKILL:  Row2 (Guard)
+    (3, 3, 6, False, 4),  # HURT:   Row3
+]
+
+# ---------------------------------------------------------------------------
+# 判定框（以 Sprite 中心為原點，單位 px，預設 sheet 角色朝左）
+#
+#   Sprite 中心 = (91, 61)（183//2, 123//2）
+#
+#   hurt_box（身體被打到的範圍）
+#     Row0 量測：角色身體大約 frame x=18–85, y=10–108
+#     → ox = 18-91 = -73, oy = 10-61 = -51, w=67, h=98
+#
+#   hit_box（攻擊傷害範圍）
+#     ATTACK Row1 幀2–3 的弧形特效大約 frame x=0–55, y=8–82
+#     （角色朝左，弧形出現在 frame 左側 = 角色前方）
+#     → ox = 0-91 = -91, oy = 8-61 = -53, w=55, h=74
+#
+#     SKILL Row2 幀4–5 的盾牌光暈大約 frame x=40–100, y=15–90
+#     → ox = 40-91 = -51, oy = 15-61 = -46, w=60, h=75
+# ---------------------------------------------------------------------------
+
+_HURT_BODY = HitboxDef(ox=-35, oy=-41, w=80, h=100)
+_HURT_HURT = HitboxDef(ox=-15, oy=-41, w=70, h=90)   # HURT 狀態身體縮小
+
+_HIT_ATTACK = HitboxDef(ox=-86, oy=-53, w=75, h=110)
+_HIT_SKILL = HitboxDef(ox=-50, oy=-33, w=66, h=85)
+
+STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
+
 
 class Knight(BaseCharacter):
-    """
-    騎士角色類別。
-    定義了騎士的各項動畫幀數與視覺表現。
-    """
     def __init__(self):
         super().__init__("Knight")
-        
-        # 1. 定義動畫幀數 (狀態碼需與 Rust 對齊)
-        # 格式: { state: [Surface] }
-        self.animation_surfaces = {}
-        
-        # 模擬動畫定義 (狀態碼: 0=IDLE, 1=WALK, 2=ATTACK, 3=HURT, 4=SKILL)
-        # 在這裡我們用不同的顏色明度來模擬動畫
-        self._create_placeholder_animation(0, 4, (255, 50, 50))   # IDLE: 4幀
-        self._create_placeholder_animation(1, 6, (200, 50, 50))   # WALK: 6幀
-        self._create_placeholder_animation(2, 5, (255, 255, 255)) # ATTACK: 5幀
-        self._create_placeholder_animation(3, 2, (100, 100, 100)) # HURT: 2幀
-        self._create_placeholder_animation(4, 8, (0, 255, 255))   # SKILL: 8幀
+        self.faceset_path = _FACE_PATH
+        self.load_sheet(
+            os.path.normpath(_SHEET_PATH),
+            _FRAME_W, _FRAME_H,
+            _STATE_ROWS,
+        )
 
-        # 2. 定義循環模式
-        self.loop_map = {
-            0: True,  # IDLE 循環
-            1: True,  # WALK 循環
-            2: False, # ATTACK 播放一次
-            3: False, # HURT 播放一次
-            4: False  # SKILL 播放一次
+        self.stats = CharStats(
+            max_hp=100_000,
+            max_mp=50_000,
+            skill_cost=20_000,
+            atk_dmg=10_000,
+            skill_dmg=15_000,
+            atk_depth=25_000,
+            skl_depth=40_000,
+            atk_kb_vx=8_000,
+            atk_kb_vz=4_000,
+            atk_kb_timer=30,
+            skl_kb_vx=8_000,
+            skl_kb_vz=6_000,
+            skl_kb_timer=40,
+        )
+
+        self.hurt_boxes = {
+            STATE_IDLE:   _HURT_BODY,
+            STATE_WALK:   _HURT_BODY,
+            STATE_ATTACK: _HURT_BODY,
+            STATE_SKILL:  _HURT_BODY,
+            STATE_HURT:   _HURT_HURT,
         }
 
-    def _create_placeholder_animation(self, state, num_frames, base_color):
-        """
-        建立占位用的色塊動畫。
-        """
-        frames = []
-        for i in range(num_frames):
-            # 透過改變顏色亮度來模擬動畫感
-            brightness = 1.0 - (i * 0.1)
-            color = tuple(max(0, min(255, int(c * brightness))) for c in base_color)
-            
-            surf = pygame.Surface((40, 50))
-            surf.fill(color)
-            # 在方塊上畫一個簡單的臉來區分面向
-            pygame.draw.rect(surf, (0, 0, 0), (25, 10, 5, 5)) 
-            frames.append(surf)
-        
-        self.animation_surfaces[state] = frames
+        self.hit_boxes = {
+            STATE_IDLE:   None,
+            STATE_WALK:   None,
+            STATE_ATTACK: _HIT_ATTACK,
+            STATE_SKILL:  _HIT_SKILL,
+            STATE_HURT:   None,
+        }
 
-    def get_sprite(self, state, elapsed_frames, facing_right=True):
-        """
-        獲取當前應顯示的 Sprite Surface。
-        """
-        # 1. 根據狀態與經過幀數計算索引
-        frames = self.animation_surfaces.get(state, self.animation_surfaces[0])
-        idx = self.get_frame_index(state, elapsed_frames)
-        
-        # 2. 取得對應的 Surface (安全檢查)
-        if idx >= len(frames):
-            idx = 0
-        sprite = frames[idx]
-        
-        # 3. 處理左右鏡像翻轉
-        if not facing_right:
-            return pygame.transform.flip(sprite, True, False)
-        return sprite
-
-    def get_frame_index(self, state, elapsed_frames):
-        """
-        覆寫基類邏輯：處理動畫播放一次的情況。
-        """
-        frames = self.animation_surfaces.get(state, self.animation_surfaces[0])
-        num_frames = len(frames)
-        
-        if self.loop_map.get(state, True):
-            # 每一幀動畫持續 6 幀遊戲時間 (讓動畫慢一點)
-            return (elapsed_frames // 6) % num_frames
-        else:
-            # 攻擊等狀態通常動畫速度較快 (每 4 幀切換一次)
-            return min(elapsed_frames // 4, num_frames - 1)

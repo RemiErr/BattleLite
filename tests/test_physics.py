@@ -1,5 +1,5 @@
 import pytest
-from battlelite_core import Player
+from battlelite_core import Player, OfflineSession
 
 # --- 常數對齊 ---
 STATE_IDLE = 0
@@ -64,11 +64,13 @@ def test_attack_hit_detection():
 
 # --- 4. 數值系統測試 ---
 def test_mp_regeneration():
-    player = Player()
-    player.mp = 10000
-    player.update()
+    session = OfflineSession(1)
+    p = session.get_player(0)
+    p.mp = 10000
+    session.set_player(0, p)
+    session.advance([0])
     # 預期 MP 回復 (常數 MP_REGEN = 50)
-    assert player.mp == 10050
+    assert session.get_player(0).mp == 10050
 
 def test_state_timer_recovery():
     player = Player()

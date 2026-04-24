@@ -17,10 +17,12 @@ def test_animation_frame_selection():
     # 模擬 3 幀的待機動畫 (循環)
     char.animations[0] = [1, 2, 3] # IDLE
     char.loop_map[0] = True
-    
+    char.speed_map[0] = 1  # speed=1 讓每個遊戲幀切換一次動畫幀
+
     # 模擬 2 幀的死亡動畫 (不循環)
     char.animations[5] = [10, 20] # DEAD
     char.loop_map[5] = False
+    char.speed_map[5] = 1
 
     # 1. 測試 IDLE 循環
     assert char.get_frame_index(state=0, elapsed_frames=0) == 0
