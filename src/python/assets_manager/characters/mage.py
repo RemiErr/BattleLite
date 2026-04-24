@@ -51,7 +51,7 @@ class Mage(BaseCharacter):
         self.stats = CharStats(
             max_hp=70_000,
             max_mp=80_000,
-            skill_cost=0,
+            skill_cost=15_000,
             atk_dmg=8_000,
             skill_dmg=20_000,
             atk_depth=25_000,
@@ -63,9 +63,10 @@ class Mage(BaseCharacter):
             skl_kb_vz=5_000,
             skl_kb_timer=30,
             # 投射物參數 (For Rust)
-            projectile_vx=1_000,  # 速度，改大加速（×1000）
-            projectile_lifetime=600,  # 存活幀數，改大射程更遠
-            spawn_timer=25,          # Skill 動作第幾幀發射
+            projectile_vx=1_500,  # 速度，改大加速（×1000）
+            projectile_lifetime=300,  # 存活幀數，改大射程更遠
+            spawn_timer=35,          # Skill 動作第幾幀發射
+            entity_hit_radius=25_000,  # 預設 20px（×1000）
         )
 
         self.hurt_boxes = {
@@ -97,7 +98,7 @@ class Mage(BaseCharacter):
         self.skl_fx = FxDef(
             path=os.path.join(_FX_DIR, "1.png"),
             frame_w=112, frame_h=100,
-            offset_x=45,
+            offset_x=70,
             offset_y=0,
             scale=0.5,
             speed=5,
