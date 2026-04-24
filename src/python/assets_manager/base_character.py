@@ -81,12 +81,47 @@ class HitboxDef:
     h: int
 
     def to_screen_rect(self, cx: float, cy: float, facing_right: bool) -> pygame.Rect:
-        """轉換為螢幕 Rect，facing_right 時自動水平鏡像。"""
+        """角色近戰 debug 框。cx/cy 為 Sprite 中心（物理位置投影），facing_right 時水平鏡像。"""
         if facing_right:
             left = int(cx) - self.ox - self.w
         else:
             left = int(cx) + self.ox
         return pygame.Rect(left, int(cy) + self.oy, self.w, self.h)
+
+    def to_entity_screen_rect(self, ex: float, ey: float) -> pygame.Rect:
+        """投射物 entity debug 框。
+        Rust entity 碰撞以 e.x 為中心左右對稱（不套 front），X 軸故居中。
+        Y 軸：ey + oy，與 to_rust_params() 的 z_offset 推導一致。
+        """
+        return pygame.Rect(int(ex) - self.w // 2, int(ey) + self.oy, self.w, self.h)
+
+    def screen_center(self, cx: float, cy: float, facing_right: bool) -> tuple[float, float]:
+        """回傳角色 hit box 中心的螢幕座標，用於定位近戰 FX 特效。"""
+        if facing_right:
+            center_x = cx - self.ox - self.w + self.w // 2
+        else:
+            center_x = cx + self.ox + self.w // 2
+        center_y = cy + self.oy + self.h // 2
+        return center_x, center_y
+
+    def entity_screen_center(self, ex: float, ey: float) -> tuple[float, float]:
+        """回傳 entity hit box 中心的螢幕座標，用於定位投射物 FX 特效。"""
+        return ex, ey + self.oy + self.h // 2
+
+    def to_rust_params(self) -> tuple[int, int, int, int]:
+        """回傳傳入 Rust set_char_config 所需的四個值（單位 game unit = px × 1000）：
+        (front, half_w, half_h, z_offset)
+
+        front    = -(ox + w//2) × 1000  框中心距角色中心的距離（朝面向方向為正）
+        half_w   = (w // 2) × 1000      框半寬（X 軸）
+        half_h   = (h // 2) × 1000      框半高（Z 軸）
+        z_offset = -(oy + h//2) × 1000  框中心距角色 z 的偏移（screen-y 向下取反）
+        """
+        front    = -(self.ox + self.w // 2) * 1000
+        half_w   = (self.w // 2) * 1000
+        half_h   = (self.h // 2) * 1000
+        z_offset = -(self.oy + self.h // 2) * 1000
+        return front, half_w, half_h, z_offset
 
 
 class BaseCharacter:
