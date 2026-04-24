@@ -17,7 +17,9 @@ try:
     from src.python.debug_manager import DebugManager
     from src.python.hud import HUD, SCREEN_W, SCREEN_H, HUD_H
     from src.python.assets_manager.characters.knight import Knight
+    from src.python.assets_manager.characters.mage import Mage
     from src.python.assets_manager.base_character import BaseCharacter
+    from src.python.fx_manager import FxManager
     from src.python.crypto_utils import SHARED_SECRET
 except ImportError as e:
     print(f"❌ 匯入失敗: {e}")
@@ -27,6 +29,12 @@ except ImportError as e:
 INPUT_RIGHT, INPUT_LEFT, INPUT_UP, INPUT_DOWN, INPUT_JUMP, INPUT_ATTACK, INPUT_SKILL = [
     1 << i for i in range(7)]
 STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = range(5)
+CHAR_TYPE_MAGE = 1
+
+# --- 特效素材路徑 ---
+_FX_DIR = os.path.join(PROJECT_ROOT, 'src', 'assets', 'fx')
+_MAGE_ATK_FX = os.path.join(_FX_DIR, '8-b.png')   # 落石：11 幀 193×190
+_MAGE_SKL_FX = os.path.join(_FX_DIR, '1.png')      # 火環：7 幀 96×100
 
 
 def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
@@ -124,14 +132,15 @@ def run_game():
     pygame.display.set_caption(f"BattleLite - {config['nickname']}")
     clock = pygame.time.Clock()
     debug_manager = DebugManager()
-    char_asset = Knight()
+    fx_manager = FxManager()
+    char_assets: dict[int, BaseCharacter] = {0: Knight(), 1: Mage()}
 
     # 建立玩家名稱對照表（使用者名稱優先，否則 HUD 自動 fallback 職業名）
     player_names: dict[int, str] = {config["local_id"]: config.get("nickname", "Player")}
     for p_info in config.get("players", []):
         if "nickname" in p_info:
             player_names[p_info["id"]] = p_info["nickname"]
-    hud = HUD({0: char_asset}, player_names=player_names)
+    hud = HUD(char_assets, player_names=player_names)
 
     # --- Session 工廠：組合模式的核心實作 ---
     is_offline = config["is_offline"]
@@ -141,7 +150,8 @@ def run_game():
     if is_offline:
         print("🕹 Mode: Offline Sandbox (Pure Rust Simulation)")
         session = OfflineSession(num_players)
-        apply_char_config(session, 0, char_asset)   # Knight = char_type 0
+        for char_type, asset in char_assets.items():
+            apply_char_config(session, char_type, asset)
     else:
         print("🌐 Mode: Online P2P (GGRS Rollback)")
         print(
@@ -154,7 +164,8 @@ def run_game():
                 print(f"  player id={p['id']}  {p['ip']}:{p['port']}  {tag}")
         session = GGRSSession(controlled_idx, num_players,
                               config["local_port"], remote_players_list)
-        apply_char_config(session, 0, char_asset)
+        for char_type, asset in char_assets.items():
+            apply_char_config(session, char_type, asset)
 
     player_elapsed_frames = [0] * num_players
     last_states = [STATE_IDLE] * num_players
@@ -175,6 +186,17 @@ def run_game():
                     switch_player = (switch_player + 1) % num_players
                     controlled_idx = switch_player
                     player_names[controlled_idx] = config.get("nickname", "Player")
+                if event.key == pygame.K_F3 and is_offline:
+                    # 離線模式切換角色種類（僅供測試）
+                    p = session.get_player(controlled_idx)
+                    new_type = (p.character_type + 1) % len(char_assets)
+                    p.character_type = new_type
+                    asset = char_assets[new_type]
+                    p.hp = asset.stats.max_hp
+                    p.mp = asset.stats.max_mp
+                    session.set_player(controlled_idx, p)
+                    player_elapsed_frames[controlled_idx] = 0
+                    last_states[controlled_idx] = STATE_IDLE
 
         # 1. 邏輯推進 (不論模式，介面完全對等)
         input_mask = get_input_mask()
@@ -193,10 +215,12 @@ def run_game():
         pygame.draw.line(screen, (60, 60, 60), (0, 300 + HUD_H), (SCREEN_W, 300 + HUD_H), 1)
         pygame.draw.line(screen, (60, 60, 60), (0, 450 + HUD_H), (SCREEN_W, 450 + HUD_H), 1)
 
+        state_changed: dict[int, bool] = {}
         render_list = []
         for i in range(num_players):
             p = session.get_player(i)
-            if p.state != last_states[i]:
+            state_changed[i] = (p.state != last_states[i])
+            if state_changed[i]:
                 player_elapsed_frames[i] = 0
                 last_states[i] = p.state
             elif p.hitstop == 0:
@@ -207,7 +231,8 @@ def run_game():
 
         for original_idx, p in render_list:
             sx, sy = get_screen_pos(p)
-            sprite = char_asset.get_sprite(
+            asset = char_assets.get(p.character_type, char_assets[0])
+            sprite = asset.get_sprite(
                 p.state, player_elapsed_frames[original_idx], p.facing_right)
             sw, sh = sprite.get_width(), sprite.get_height()
             # 以圖像中心對齊角色物理位置
@@ -227,17 +252,27 @@ def run_game():
                 pygame.draw.rect(screen, (255, 255, 255),
                                  (blit_x, blit_y, sw, sh), 1)
 
+            # Mage 特效：狀態剛切換時生成
+            if state_changed.get(original_idx) and p.character_type == CHAR_TYPE_MAGE:
+                fx_x = int(sx + (70 if p.facing_right else -70))
+                fx_y = int(sy + 30)
+                if p.state == STATE_ATTACK:
+                    fx_manager.spawn(_MAGE_ATK_FX, 193, 190, fx_x, fx_y, speed=2)
+                elif p.state == STATE_SKILL:
+                    fx_manager.spawn(_MAGE_SKL_FX, 96, 100, int(sx), int(sy), speed=5)
+
             # 判定框視覺輔助 (僅用於開發者 Debug)
             if debug_manager.enabled:
-                hurt_def = char_asset.get_hurt_box(p.state)
+                hurt_def = asset.get_hurt_box(p.state)
                 if hurt_def:
                     pygame.draw.rect(screen, (0, 255, 0),
                                      hurt_def.to_screen_rect(sx, sy, p.facing_right), 1)
-                hit_def = char_asset.get_hit_box(p.state)
+                hit_def = asset.get_hit_box(p.state)
                 if hit_def:
                     pygame.draw.rect(screen, (255, 50, 50),
                                      hit_def.to_screen_rect(sx, sy, p.facing_right), 1)
 
+        fx_manager.update_and_draw(screen)
         hud.draw(screen, render_list)
         debug_manager.draw(screen, session, render_list, clock.get_fps())
 
