@@ -1,6 +1,6 @@
-# 角色資源模組說明
+# 角色資源設定說明手冊
 
-`characters/` 目錄存放每個角色的 Python 類別，負責 Sprite 動畫與判定框定義。
+`characters/` 目錄存放每個角色的 Python 類別，負責 Sprite 動畫、判定框與戰鬥參數定義。
 底層由 `base_character.py` 提供共用基礎設施，子類別只需填入各自的數值。
 
 ---
@@ -9,18 +9,109 @@
 
 ```
 assets_manager/
-├── base_character.py        # BaseCharacter、HitboxDef 定義
+├── base_character.py        # BaseCharacter、HitboxDef、CharStats、FxDef 定義
 └── characters/
     ├── README.md            # 本文件
-    ├── knight.py            # 騎士
-    └── (mage.py, ...)       # 其他角色
+    ├── knight.py            # 騎士（近戰）
+    ├── mage.py              # 法師（技能投射物）
+    └── archer.py            # 弓箭手（攻擊＋技能均為投射物）
 ```
 
 ---
 
-## 核心類別
+## 角色結構圖
 
-### `HitboxDef`
+```
+BaseCharacter
+├── name                   str
+├── faceset_path           str
+├── animations             dict[state → list[Surface]]
+├── loop_map               dict[state → bool]
+├── speed_map              dict[state → int]
+├── stats                  CharStats          ← 戰鬥數值
+├── hurt_boxes             dict[state → HitboxDef]
+├── hit_boxes              dict[state → HitboxDef | None]
+├── atk_fx                 FxDef | None       ← 近戰攻擊特效
+├── atk_proj_fx            FxDef | None       ← 攻擊投射物視覺
+└── skl_fx                 FxDef | None       ← 技能投射物視覺（或技能特效）
+```
+
+---
+
+## I. CharStats — 戰鬥參數表
+
+```python
+@dataclass
+class CharStats:
+    ...
+```
+
+### 基礎屬性
+
+| 欄位          | 型別 | 單位   | 說明                                    |
+| ------------- | ---- | ------ | --------------------------------------- |
+| `max_hp`      | int  | ×1000  | 最大血量（e.g. 100_000 → 100 HP）       |
+| `max_mp`      | int  | ×1000  | 最大魔力                                |
+| `skill_cost`  | int  | ×1000  | 施放技能耗費的 MP                       |
+
+### 普通攻擊（ATTACK）
+
+| 欄位               | 型別 | 單位  | 說明                                           |
+| ------------------ | ---- | ----- | ---------------------------------------------- |
+| `atk_dmg`          | int  | ×1000 | 近戰攻擊傷害基礎值                             |
+| `atk_depth`        | int  | ×1000 | 攻擊縱深（Y 軸寬容範圍）                       |
+| `atk_kb_vx`        | int  | ×1000 | 攻擊擊飛橫向初速                               |
+| `atk_kb_vz`        | int  | ×1000 | 攻擊擊飛縱向初速（垂直）                       |
+| `atk_kb_timer`     | int  | frames | 受擊持續幀數                                  |
+| `atk_timer`        | int  | frames | ATTACK 動作總時長（等於 幀數 × speed）         |
+| `atk_melee_enabled`| bool | —     | True=啟用近戰 hit_box；False=僅靠投射物造成傷害 |
+| `atk_projectile_vx`| int  | ×1000 | 攻擊投射物速度（0=不產生投射物）               |
+| `atk_projectile_lifetime`| int | frames | 攻擊投射物存活幀數                    |
+| `atk_spawn_timer`  | int  | frames | 距離 ATTACK 結束幾幀前發射投射物               |
+
+### 技能（SKILL）
+
+| 欄位               | 型別 | 單位  | 說明                                           |
+| ------------------ | ---- | ----- | ---------------------------------------------- |
+| `skill_dmg`        | int  | ×1000 | 技能傷害基礎值（投射物也用此值）               |
+| `skl_depth`        | int  | ×1000 | 技能縱深                                       |
+| `skl_kb_vx`        | int  | ×1000 | 技能擊飛橫向初速                               |
+| `skl_kb_vz`        | int  | ×1000 | 技能擊飛縱向初速                               |
+| `skl_kb_timer`     | int  | frames | 技能受擊持續幀數                              |
+| `skl_timer`        | int  | frames | SKILL 動作總時長                               |
+| `skl_melee_enabled`| bool | —     | True=啟用近戰 hit_box；False=僅靠投射物造成傷害 |
+| `projectile_vx`    | int  | ×1000 | 技能投射物速度（0=不產生投射物）               |
+| `projectile_lifetime`| int | frames | 技能投射物存活幀數                           |
+| `spawn_timer`      | int  | frames | 距離 SKILL 結束幾幀前發射投射物（見下方說明）  |
+
+### spawn_timer 計算方式
+
+`spawn_timer` 是從 **動作結束倒數** 的幀數。Rust timer 從 `skl_timer` 倒數到 0：
+
+```
+timer=skl_timer → ... → timer=spawn_timer → [此幀發射] → ... → timer=0 → 結束
+```
+
+**計算公式：**
+```
+spawn_timer = skl_timer - (要在第幾幀發射 × speed)
+```
+
+**例（Mage）：**
+```
+skl_timer = 4幀 × speed8 = 32
+想在第3幀（動作中段）發射 → spawn_timer = 32 - (3 × 8) = 8（從結束倒數8幀前）
+```
+
+**例（Archer）：**
+```
+skl_timer = 24幀 × speed4 = 96
+想在第15幀放箭 → spawn_timer = 96 - (15 × 4) = 36
+```
+
+---
+
+## II. HitboxDef — 判定框
 
 ```python
 @dataclass
@@ -31,171 +122,224 @@ class HitboxDef:
     h:  int   # 框高（px）
 ```
 
-**座標系統**：
+### 座標系統
 
 ```
     Sprite 中心 (0, 0)
-ox 負值 ←─── 0 ───→ ox 正值
-            │
-            oy 正值 
+     ←── ox 負值  │  ox 正值 ──→
+                  │
+                  ↓ oy 正值
 ```
 
-**左右翻轉規則**：判定框定義以 **sheet 預設朝向** 為基準。
-呼叫 `to_screen_rect(cx, cy, facing_right)` 時，若 `facing_right=True`，
-框會自動水平鏡像，不需要為兩個方向各寫一份。
+**量測方式（圖片編輯器）：**
+```python
+center_x = frame_w // 2
+center_y = frame_h // 2
 
+ox = x1 - center_x   # x1 = 框左邊在單幀內的 x 座標
+oy = y1 - center_y   # y1 = 框上邊在單幀內的 y 座標
+w  = x2 - x1
+h  = y2 - y1
 ```
-facing_right=False（預設朝向）    facing_right=True（鏡像）
-  ┌──────┐                            ┌──────┐
-  │ hurt │ 身體                  身體  │ hurt │
-  └──────┘                            └──────┘
-┌────┐                                      ┌────┐
-│hit │ 攻擊（前方）               攻擊（前方）│hit │
-└────┘                                      └────┘
-```
+
+### 判定框類型
+
+| 屬性         | key          | Debug 色 | 用途                                   |
+| ------------ | ------------ | -------- | -------------------------------------- |
+| `hurt_boxes` | state（int） | 綠色     | 角色「被打到」的身體範圍               |
+| `hit_boxes`  | state（int） | 紅色     | 攻擊「可命中」範圍；`None` 表示不傷人  |
+
+**左右翻轉：** 框以 sheet 預設朝向定義，`facing_right` 時自動鏡像，不需手動寫兩份。
+
+**近戰命中觸發條件：** 紅框與敵人綠框重疊，Rust 公式為  
+`dx < atk_half_w + 15`（15 = CHAR_WIDTH/2，受害者身體補正）。
 
 ---
 
-## 判定框類型
-
-| 屬性         | 字典 key     | Debug 顯示顏色 | 用途                                                      |
-| ------------ | ------------ | -------------- | --------------------------------------------------------- |
-| `hurt_boxes` | state（int） | 綠色           | 角色「被打到」的身體範圍                                  |
-| `hit_boxes`  | state（int） | 紅色           | 攻擊動作「可命中敵人」的範圍；`None` 表示此狀態不造成傷害 |
-
-**觸發條件（視覺語意）：紅框與敵人綠框重疊時觸發命中。**
-
-Rust 碰撞公式為 `dx < atk_half_w + CHAR_WIDTH/2`，其中 `CHAR_WIDTH/2 = 15px` 代表受害者身體半寬補正。
-換句話說：紅框邊緣需真正進入敵人身體（綠框）約 15px 才觸發；若紅框只是「剛剛碰到」綠框外緣，尚未判定為命中。
-若想讓「恰好碰到就命中」，可將 `hit_box.w` 再加大約 30px（`CHAR_WIDTH`）。
-
----
-
-## 新增角色步驟
-
-### 1. 建立類別檔案
+## III. FxDef — 特效定義
 
 ```python
-# characters/mage.py
-import os
-import pygame
-from src.python.assets_manager.base_character import BaseCharacter, HitboxDef
+@dataclass
+class FxDef:
+    path:     str    # 特效 sprite sheet 路徑
+    frame_w:  int    # 單幀寬（px）
+    frame_h:  int    # 單幀高（px）
+    offset_x: int    # 相對角色前方（面向方向）偏移（px）；投射物從此處產生
+    offset_y: int    # 向下偏移（px）
+    scale:    float  # 縮放比例（1.0 = 原始大小）
+    speed:    int    # 每幀持續 game tick（越小動畫越快）
+```
 
-_SHEET_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "..", "..", "..",
-    "src", "assets", "char", "mage", "sprite-sheet-W-H.png"
-)
+### 三個 FX 屬性
 
-_FRAME_W = ???   # 每幀寬（px）
-_FRAME_H = ???   # 每幀高（px）
+| 屬性           | 使用時機                    | 跟隨對象        |
+| -------------- | --------------------------- | --------------- |
+| `atk_fx`       | ATTACK 狀態（近戰特效）     | 固定在角色位置  |
+| `atk_proj_fx`  | ATTACK 投射物飛行中         | 跟隨投射物實體  |
+| `skl_fx`       | SKILL 投射物飛行中 / 技能特效 | 跟隨投射物實體 |
 
+**邏輯：**
+- `atk_melee_enabled=True` → 使用 `atk_fx`（近戰揮砍特效）
+- `atk_projectile_vx > 0` → 使用 `atk_proj_fx`（跟隨 ATTACK 投射物）
+- `skl_melee_enabled=True` → 使用 `skl_fx`（近戰技能特效，固定在角色）
+- `projectile_vx > 0` → 使用 `skl_fx`（跟隨 SKILL 投射物）
+
+---
+
+## IV. 動畫切幀方法
+
+### load_sheet（每列一個動作）
+
+適用於每個動作占用完整一列的 sprite sheet：
+
+```python
+# (state, row, num_frames, loop, speed)
 _STATE_ROWS = [
-    # (state, row, num_frames, loop, speed)
-    (0, 0, 4, True,  6),   # IDLE
-    (1, 1, 6, True,  6),   # WALK
-    (2, 2, 5, False, 4),   # ATTACK
-    (4, 3, 6, False, 4),   # SKILL
-    (3, 4, 4, False, 4),   # HURT
+    (0, 0, 1, True,  6),   # IDLE:   第 0 列，1 幀，循環
+    (1, 0, 5, True,  6),   # WALK:   第 0 列，5 幀，循環
+    (2, 1, 5, False, 4),   # ATTACK: 第 1 列，5 幀，不循環
+    (4, 2, 4, False, 8),   # SKILL:  第 2 列，4 幀，不循環
+    (3, 3, 1, False, 4),   # HURT:   第 3 列，1 幀
 ]
-
-STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
-
-class Mage(BaseCharacter):
-    def __init__(self):
-        super().__init__("Mage")
-        self.load_sheet(os.path.normpath(_SHEET_PATH), _FRAME_W, _FRAME_H, _STATE_ROWS)
-
-        _body = HitboxDef(ox=???, oy=???, w=???, h=???)
-        self.hurt_boxes = {
-            STATE_IDLE:   _body,
-            STATE_WALK:   _body,
-            STATE_ATTACK: _body,
-            STATE_SKILL:  _body,
-            STATE_HURT:   HitboxDef(...),
-        }
-        self.hit_boxes = {
-            STATE_IDLE:   None,
-            STATE_WALK:   None,
-            STATE_ATTACK: HitboxDef(...),
-            STATE_SKILL:  HitboxDef(...),
-            STATE_HURT:   None,
-        }
-
-    def get_sprite(self, state, elapsed_frames, facing_right=True):
-        surf = self.get_sprite_rect(state, elapsed_frames)
-        if surf is None:
-            surf = self.get_sprite_rect(0, 0)
-        assert surf is not None
-        # 依 sheet 預設朝向決定是否翻轉
-        if facing_right:                          # sheet 朝左時翻轉
-            return pygame.transform.flip(surf, True, False)
-        return surf
+self.load_sheet(sheet_path, frame_w, frame_h, _STATE_ROWS)
 ```
 
-### 2. 量測判定框數值
+### load_sheet_linear（跨列線性索引）
 
-啟動遊戲後按 **F1** 開啟 Debug Overlay，可看到綠框（hurt）和紅框（hit）疊在 Sprite 上。
-對照畫面調整角色數值 `ox / oy / w / h` (e.g. `knight.py`)直到框覆蓋正確位置。
-
-```
-# 每個 HitboxDef 只有 4 個數字可調：
-HitboxDef(ox=-73, oy=-51, w=67, h=98)
-#             ↑       ↑     ↑     ↑
-#           左偏移  上偏移   寬    高
-```
-
-**量測方式（不用 Debug 模式）**：
-
-1. 用圖片編輯器（GIMP、Photoshop、Aseprite）開啟 sprite sheet。
-2. 在單幀（frame_w × frame_h）中，框出角色身體的矩形，記錄：
-   - 左邊距 `x1`、上邊距 `y1`、右邊距 `x2`、下邊距 `y2`（相對單幀左上角）
-3. 換算為相對 Sprite 中心的偏移：
-   ```
-   center_x = frame_w // 2
-   center_y = frame_h // 2
-   
-   ox = x1 - center_x
-   oy = y1 - center_y
-   w  = x2 - x1
-   h  = y2 - y1
-   ```
-
-### 3. 翻轉方向判斷
-
-| Sheet 預設朝向 | `get_sprite` 中翻轉條件     |
-| -------------- | --------------------------- |
-| 朝左（常見）   | `if facing_right: flip`     |
-| 朝右           | `if not facing_right: flip` |
-
----
-
-## Knight 判定框參考值
-
-Sprite 尺寸：183 × 123 px，中心 (91, 61)，sheet 預設**朝左**。
+適用於動畫幀跨越多列的 sprite sheet，以全局幀編號指定起始位置：
 
 ```python
-# hurt_box（一般站立/行走/攻擊狀態）
-HitboxDef(ox=-73, oy=-51, w=67, h=98)
-# 對應 frame 絕對座標：x=18–85, y=10–108
+_COLS = 8   # 每列有幾欄
 
-# hurt_box（HURT 受擊狀態，身體略縮）
-HitboxDef(ox=-60, oy=-40, w=55, h=80)
+# (state, start_frame, num_frames, loop, speed)
+_STATE_FRAMES = [
+    (0,  0,  1, True,  6),   # IDLE:   從第 0 幀起，1 幀
+    (1,  0,  8, True,  6),   # WALK:   從第 0 幀起，8 幀（整列）
+    (2,  8, 11, False, 4),   # ATTACK: 從第 8 幀起（第1列第0格），11 幀（跨兩列）
+    (4, 19, 24, False, 4),   # SKILL:  從第 19 幀起，24 幀（跨多列）
+    (3, 45,  3, False, 4),   # HURT:   從第 45 幀起，3 幀
+]
+self.load_sheet_linear(sheet_path, frame_w, frame_h, _COLS, _STATE_FRAMES)
+```
 
-# hit_box（ATTACK：斬擊弧，Row1 幀2–3，朝左延伸）
-HitboxDef(ox=-91, oy=-53, w=55, h=74)
-# 對應 frame 絕對座標：x=0–55, y=8–82
-
-# hit_box（SKILL：盾牌光暈，Row2 幀4–5）
-HitboxDef(ox=-51, oy=-46, w=60, h=75)
-# 對應 frame 絕對座標：x=40–100, y=15–90
+**幀編號換算：**
+```
+全局幀編號 = 列索引 × COLS + 欄索引
+列索引     = 全局幀編號 // COLS
+欄索引     = 全局幀編號 % COLS
 ```
 
 ---
 
-## Debug 模式
+## V. 完整角色範例
+
+### 範例 A：純近戰角色（如騎士）
+
+```python
+self.stats = CharStats(
+    max_hp=120_000,
+    max_mp=50_000,
+    skill_cost=20_000,
+    atk_dmg=12_000,
+    skill_dmg=18_000,
+    atk_depth=30_000,
+    skl_depth=35_000,
+    atk_kb_vx=6_000,   atk_kb_vz=4_000,   atk_kb_timer=20,
+    skl_kb_vx=10_000,  skl_kb_vz=6_000,   skl_kb_timer=30,
+    atk_timer=20,      skl_timer=40,
+    atk_melee_enabled=True,   # 啟用近戰 hit_box
+    skl_melee_enabled=True,   # 啟用近戰 hit_box
+    # 不設定 projectile_vx → 無投射物
+)
+self.atk_fx = FxDef(path=..., frame_w=200, frame_h=200,
+                    offset_x=60, offset_y=10, scale=0.5, speed=3)
+self.skl_fx = FxDef(path=..., frame_w=200, frame_h=200,
+                    offset_x=50, offset_y=0,  scale=0.7, speed=4)
+```
+
+### 範例 B：純投射物角色（如弓箭手）
+
+```python
+self.stats = CharStats(
+    max_hp=60_000,
+    max_mp=60_000,
+    skill_cost=30_000,
+    atk_dmg=15_000,
+    skill_dmg=35_000,
+    atk_depth=25_000,
+    skl_depth=40_000,
+    atk_kb_vx=6_000,   atk_kb_vz=4_000,   atk_kb_timer=25,
+    skl_kb_vx=10_000,  skl_kb_vz=6_000,   skl_kb_timer=35,
+    atk_timer=44,      skl_timer=96,
+    atk_melee_enabled=False,          # 關閉近戰，傷害全由投射物負責
+    skl_melee_enabled=False,
+    atk_projectile_vx=1_000,          # 攻擊產生投射物
+    atk_projectile_lifetime=40,
+    atk_spawn_timer=15,
+    projectile_vx=1_000,              # 技能產生投射物
+    projectile_lifetime=150,
+    spawn_timer=36,
+)
+self.atk_proj_fx = FxDef(path=..., frame_w=100, frame_h=100,
+                          offset_x=55, offset_y=0, scale=0.6, speed=3)
+self.skl_fx = FxDef(path=..., frame_w=127, frame_h=97,
+                    offset_x=50, offset_y=30, scale=0.8, speed=3)
+```
+
+### 範例 C：近戰攻擊＋技能投射物（如法師）
+
+```python
+self.stats = CharStats(
+    max_hp=70_000,
+    max_mp=80_000,
+    skill_cost=15_000,
+    atk_dmg=8_000,
+    skill_dmg=20_000,
+    atk_depth=25_000,
+    skl_depth=40_000,
+    atk_kb_vx=5_000,   atk_kb_vz=3_000,   atk_kb_timer=20,
+    skl_kb_vx=7_000,   skl_kb_vz=5_000,   skl_kb_timer=30,
+    atk_timer=20,      skl_timer=32,
+    atk_melee_enabled=True,           # 攻擊用近戰 hit_box
+    skl_melee_enabled=False,          # 技能靠投射物，不用近戰
+    projectile_vx=1_500,              # 技能投射物
+    projectile_lifetime=300,
+    spawn_timer=8,
+)
+self.atk_fx = FxDef(path=..., frame_w=193, frame_h=190,
+                    offset_x=68, offset_y=10, scale=0.4, speed=3)
+self.skl_fx = FxDef(path=..., frame_w=112, frame_h=100,
+                    offset_x=70, offset_y=0, scale=0.5, speed=5)
+```
+
+---
+
+## VI. 新增角色步驟
+
+1. **建立 `characters/<name>.py`**，繼承 `BaseCharacter`
+2. **定義切幀**：依 sheet 排布選擇 `load_sheet` 或 `load_sheet_linear`
+3. **填入 `CharStats`**：參考上方參數表設定戰鬥數值
+4. **設定 `hurt_boxes` / `hit_boxes`**：每個 state 各一個 HitboxDef（或 None）
+5. **設定 FxDef**：依需求設定 `atk_fx`、`atk_proj_fx`、`skl_fx`
+6. **在 `main.py` 註冊**：
+   ```python
+   from src.python.assets_manager.characters.<name> import <ClassName>
+   char_assets = {0: Knight(), 1: Mage(), 2: Archer(), 3: <ClassName>()}
+   ```
+   並在 Rust 側新增對應的 `CharConfig::default()` slot
+
+---
+
+## VII. Debug 模式
 
 遊戲中按 **F1** 切換 Debug Overlay：
-- **綠色框**：`hurt_box`（被命中範圍）
-- **紅色框**：`hit_box`（攻擊傷害範圍）；無攻擊的狀態不顯示
 
-判定框僅為視覺參考，實際遊戲物理碰撞由 Rust 核心（`src/rust_core/src/lib.rs`）的固定點座標計算負責。
+| 顯示元素     | 顏色 | 說明                                     |
+| ------------ | ---- | ---------------------------------------- |
+| 角色 hurt 框 | 綠色 | `hurt_boxes[state]`                      |
+| 角色 hit 框  | 紅色 | `hit_boxes[state]`（None 時不顯示）      |
+| 投射物框     | 紅色 | 以 `_HIT_SKILL` 或 `_HIT_ATTACK` 為基準 |
+| 投射物影子   | 灰色 | 顯示投射物在地面的投影                   |
+
+判定框僅為視覺參考，實際碰撞由 Rust 核心的固定點座標計算負責，
+Python 端的 `HitboxDef` 數值須與 `CharConfig` 中對應的 `half_w/h/depth` 保持一致。
