@@ -292,6 +292,13 @@ def run_game():
             owner_asset = char_assets.get(session.get_player(
                 e.owner_id).character_type, char_assets[0])
             fxdef = owner_asset.skl_fx
+
+            # 影子貼地（z 加回去還原地面 y，不隨高度上浮）
+            ey_ground = ey + int(e.z / 1000.0)
+            shadow_w = max(8, int(30 * (fxdef.scale if fxdef is not None else 1.0)))
+            pygame.draw.ellipse(screen, (10, 10, 10),
+                                (ex - shadow_w // 2, ey_ground - 4, shadow_w, 8))
+
             if fxdef is not None:
                 total = owner_asset.stats.projectile_lifetime
                 elapsed = max(0, total - e.lifetime)
