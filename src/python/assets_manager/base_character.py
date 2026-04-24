@@ -29,13 +29,15 @@ class CharStats:
     projectile_vx:       int =      0   # 投射物每幀速度（×1000）
     projectile_lifetime: int =     60   # 投射物存活幀數
     spawn_timer:         int =     35   # SKILL 動作第幾幀發射（timer 倒數值）
-    entity_hit_radius:   int =  20_000  # 投射物碰撞半徑（px × 1000）
     atk_timer:           int =      20  # ATTACK 狀態持續 tick 數
     skl_timer:           int =      40  # SKILL 狀態持續 tick 數
     # ATTACK 投射物（0 = 此角色的 ATTACK 是近戰）
     atk_projectile_vx:       int =      0   # ATTACK 投射物速度（×1000）
     atk_projectile_lifetime: int =     30   # ATTACK 投射物存活幀數
     atk_spawn_timer:         int =     10   # ATTACK 動作第幾 tick 發射
+    # 近戰啟用旗標（可與投射物獨立設定）
+    atk_melee_enabled: bool = True   # False = ATTACK 不走近戰判定
+    skl_melee_enabled: bool = True   # False = SKILL 不走近戰判定
 
 
 @dataclass

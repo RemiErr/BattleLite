@@ -82,7 +82,6 @@ struct CharConfig {
     projectile_vx:       i32,
     projectile_lifetime: u32,
     spawn_timer:         u32,
-    entity_hit_radius:   i32,
     entity_spawn_offset: i32,
     atk_timer:           u32,
     skl_timer:           u32,
@@ -90,6 +89,9 @@ struct CharConfig {
     atk_projectile_vx:       i32,
     atk_projectile_lifetime: u32,
     atk_spawn_timer:         u32,
+    // 近戰啟用旗標（可與投射物獨立設定）
+    atk_melee_enabled: bool,
+    skl_melee_enabled: bool,
 }
 
 impl Default for CharConfig {
@@ -123,13 +125,14 @@ impl Default for CharConfig {
             projectile_vx:       0,
             projectile_lifetime: 60,
             spawn_timer:         35,
-            entity_hit_radius:   20000,
             entity_spawn_offset: 0,
             atk_timer:           20,
             skl_timer:           40,
             atk_projectile_vx:       0,
             atk_projectile_lifetime: 30,
             atk_spawn_timer:         10,
+            atk_melee_enabled: true,
+            skl_melee_enabled: true,
         }
     }
 }
@@ -345,12 +348,18 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
             let victim = &state.players[j];
             if victim.state == STATE_HURT { continue; }
             let vic_cfg = get_cfg(configs, victim.character_type);
-            let dx = (e.x - victim.x).abs();
+            let (entity_half_w, entity_depth, entity_half_h, entity_z_off) = if e.is_skill {
+                (atk_cfg.skl_half_w, atk_cfg.skl_depth, atk_cfg.skl_half_h, atk_cfg.skl_z_offset)
+            } else {
+                (atk_cfg.atk_half_w, atk_cfg.atk_depth, atk_cfg.atk_half_h, atk_cfg.atk_z_offset)
+            };
+            let vic_off_x = if victim.facing_right { vic_cfg.hurt_front } else { -vic_cfg.hurt_front };
+            let dx = (e.x - (victim.x + vic_off_x)).abs();
             let dy = (e.y - victim.y).abs();
-            let dz = (e.z - (victim.z + vic_cfg.hurt_z_offset)).abs();
-            if dx < atk_cfg.entity_hit_radius + vic_cfg.hurt_half_w
-                && dy < atk_cfg.entity_hit_radius + CHAR_DEPTH / 2
-                && dz < atk_cfg.entity_hit_radius + vic_cfg.hurt_half_h {
+            let dz = (e.z + entity_z_off - (victim.z + vic_cfg.hurt_z_offset)).abs();
+            if dx < entity_half_w + vic_cfg.hurt_half_w
+                && dy < entity_depth
+                && dz < entity_half_h + vic_cfg.hurt_half_h {
                 let (kb_vx_mag, kb_vz, kb_timer, dmg_base, total_lifetime) = if e.is_skill {
                     (atk_cfg.skl_kb_vx, atk_cfg.skl_kb_vz, atk_cfg.skl_kb_timer,
                      atk_cfg.skill_dmg, atk_cfg.projectile_lifetime)
@@ -388,10 +397,10 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
         let atk_info = state.players[i].clone();
         let atk_cfg = get_cfg(configs, atk_info.character_type);
         let is_attack = atk_info.state == STATE_ATTACK
-            && atk_cfg.atk_projectile_vx == 0
+            && atk_cfg.atk_melee_enabled
             && atk_info.timer >= 5 && atk_info.timer <= 15;
         let is_skill  = atk_info.state == STATE_SKILL
-            && atk_cfg.projectile_vx == 0   // 無投射物技能才走近戰判定
+            && atk_cfg.skl_melee_enabled
             && atk_info.timer > 10;
         if !is_attack && !is_skill { continue; }
 
@@ -463,9 +472,10 @@ impl OfflineSession {
         skl_kb_vx: i32, skl_kb_vz: i32, skl_kb_timer: u32,
         hurt_front: i32, hurt_half_w: i32, hurt_half_h: i32, hurt_z_offset: i32,
         projectile_vx: i32, projectile_lifetime: u32, spawn_timer: u32,
-        entity_hit_radius: i32, entity_spawn_offset: i32,
+        entity_spawn_offset: i32,
         atk_timer: u32, skl_timer: u32,
         atk_projectile_vx: i32, atk_projectile_lifetime: u32, atk_spawn_timer: u32,
+        atk_melee_enabled: bool, skl_melee_enabled: bool,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
@@ -478,9 +488,10 @@ impl OfflineSession {
             skl_kb_vx, skl_kb_vz, skl_kb_timer,
             hurt_front, hurt_half_w, hurt_half_h, hurt_z_offset,
             projectile_vx, projectile_lifetime, spawn_timer,
-            entity_hit_radius, entity_spawn_offset,
+            entity_spawn_offset,
             atk_timer, skl_timer,
             atk_projectile_vx, atk_projectile_lifetime, atk_spawn_timer,
+            atk_melee_enabled, skl_melee_enabled,
         };
         for p in &mut self.state.players {
             if p.character_type as usize == char_type {
@@ -573,9 +584,10 @@ impl GGRSSession {
         skl_kb_vx: i32, skl_kb_vz: i32, skl_kb_timer: u32,
         hurt_front: i32, hurt_half_w: i32, hurt_half_h: i32, hurt_z_offset: i32,
         projectile_vx: i32, projectile_lifetime: u32, spawn_timer: u32,
-        entity_hit_radius: i32, entity_spawn_offset: i32,
+        entity_spawn_offset: i32,
         atk_timer: u32, skl_timer: u32,
         atk_projectile_vx: i32, atk_projectile_lifetime: u32, atk_spawn_timer: u32,
+        atk_melee_enabled: bool, skl_melee_enabled: bool,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
@@ -588,9 +600,10 @@ impl GGRSSession {
             skl_kb_vx, skl_kb_vz, skl_kb_timer,
             hurt_front, hurt_half_w, hurt_half_h, hurt_z_offset,
             projectile_vx, projectile_lifetime, spawn_timer,
-            entity_hit_radius, entity_spawn_offset,
+            entity_spawn_offset,
             atk_timer, skl_timer,
             atk_projectile_vx, atk_projectile_lifetime, atk_spawn_timer,
+            atk_melee_enabled, skl_melee_enabled,
         };
         for p in &mut self.current_state.players {
             if p.character_type as usize == char_type {

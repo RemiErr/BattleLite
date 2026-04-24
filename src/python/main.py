@@ -72,10 +72,10 @@ def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
         s.skl_kb_vx, s.skl_kb_vz, s.skl_kb_timer,
         hurt_f, hurt_hw, hurt_hh, hurt_zo,
         s.projectile_vx, s.projectile_lifetime, s.spawn_timer,
-        s.entity_hit_radius,
         (asset.skl_fx.offset_x * 1000) if asset.skl_fx else 0,
         s.atk_timer, s.skl_timer,
         s.atk_projectile_vx, s.atk_projectile_lifetime, s.atk_spawn_timer,
+        s.atk_melee_enabled, s.skl_melee_enabled,
     )
 
 
@@ -278,11 +278,12 @@ def run_game():
                 if hurt_def:
                     pygame.draw.rect(screen, (0, 255, 0),
                                      hurt_def.to_screen_rect(sx, sy, p.facing_right), 1)
-                # SKILL 有投射物時傷害來自 Entity，不顯示近戰 hit_box
-                skill_is_projectile = (
-                    p.state == STATE_SKILL and asset.stats.projectile_vx != 0)
+                melee_on = (
+                    (p.state == STATE_ATTACK and asset.stats.atk_melee_enabled) or
+                    (p.state == STATE_SKILL  and asset.stats.skl_melee_enabled)
+                )
                 hit_def = asset.get_hit_box(p.state)
-                if hit_def and not skill_is_projectile:
+                if hit_def and melee_on:
                     pygame.draw.rect(screen, (255, 50, 50),
                                      hit_def.to_screen_rect(sx, sy, p.facing_right), 1)
 
@@ -304,7 +305,8 @@ def run_game():
                                 (ex - shadow_w // 2, ey_ground - 4, shadow_w, 8))
 
             if fxdef is not None:
-                total = owner_asset.stats.projectile_lifetime
+                total = owner_asset.stats.projectile_lifetime if e.is_skill \
+                    else owner_asset.stats.atk_projectile_lifetime
                 elapsed = max(0, total - e.lifetime)
                 frames = fx_manager._load(
                     fxdef.path, fxdef.frame_w, fxdef.frame_h)
@@ -321,10 +323,12 @@ def run_game():
                 pygame.draw.circle(screen, (255, 220, 60), (ex, ey), 6)
 
             if debug_manager.enabled:
-                hit_r = owner_asset.stats.entity_hit_radius // 1000
-                pygame.draw.rect(screen, (255, 50, 50),
-                                 (ex - hit_r, ey - hit_r,
-                                  hit_r * 2, hit_r * 2), 1)
+                state_key = STATE_SKILL if e.is_skill else STATE_ATTACK
+                hit_def = owner_asset.hit_boxes.get(state_key)
+                if hit_def:
+                    pygame.draw.rect(screen, (255, 50, 50),
+                                     (ex - hit_def.w // 2, ey - hit_def.h // 2,
+                                      hit_def.w, hit_def.h), 1)
 
         fx_manager.update_and_draw(screen)
         hud.draw(screen, render_list)
