@@ -29,6 +29,7 @@ class CharStats:
     projectile_vx:       int =      0   # 投射物每幀速度（×1000）
     projectile_lifetime: int =     60   # 投射物存活幀數
     spawn_timer:         int =     35   # SKILL 動作第幾幀發射（timer 倒數值）
+    entity_hit_radius:   int =  20_000  # 投射物碰撞半徑（px × 1000）
 
 
 @dataclass

@@ -82,6 +82,7 @@ struct CharConfig {
     projectile_vx:       i32,
     projectile_lifetime: u32,
     spawn_timer:         u32,
+    entity_hit_radius:   i32,
 }
 
 impl Default for CharConfig {
@@ -115,6 +116,7 @@ impl Default for CharConfig {
             projectile_vx:       0,
             projectile_lifetime: 60,
             spawn_timer:         35,
+            entity_hit_radius:   20000,
         }
     }
 }
@@ -307,6 +309,7 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
     struct EntityHit { victim: usize, vx: i32 }
     let mut entity_hits: Vec<EntityHit> = Vec::new();
     for e in &state.entities {
+        let atk_cfg = get_cfg(configs, state.players[e.owner_id].character_type);
         for j in 0..state.players.len() {
             if e.owner_id == j { continue; }
             let victim = &state.players[j];
@@ -314,8 +317,8 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
             let vic_cfg = get_cfg(configs, victim.character_type);
             let dx = (e.x - victim.x).abs();
             let dy = (e.y - victim.y).abs();
-            if dx < ENTITY_HIT_RADIUS + vic_cfg.hurt_half_w
-                && dy < ENTITY_HIT_RADIUS + CHAR_DEPTH / 2 {
+            if dx < atk_cfg.entity_hit_radius + vic_cfg.hurt_half_w
+                && dy < atk_cfg.entity_hit_radius + CHAR_DEPTH / 2 {
                 let kb_vx = if e.vx >= 0 { 6000i32 } else { -6000i32 };
                 entity_hits.push(EntityHit { victim: j, vx: kb_vx });
             }
@@ -409,6 +412,7 @@ impl OfflineSession {
         skl_kb_vx: i32, skl_kb_vz: i32, skl_kb_timer: u32,
         hurt_front: i32, hurt_half_w: i32, hurt_half_h: i32, hurt_z_offset: i32,
         projectile_vx: i32, projectile_lifetime: u32, spawn_timer: u32,
+        entity_hit_radius: i32,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
@@ -421,6 +425,7 @@ impl OfflineSession {
             skl_kb_vx, skl_kb_vz, skl_kb_timer,
             hurt_front, hurt_half_w, hurt_half_h, hurt_z_offset,
             projectile_vx, projectile_lifetime, spawn_timer,
+            entity_hit_radius,
         };
         for p in &mut self.state.players {
             if p.character_type as usize == char_type {
@@ -512,6 +517,7 @@ impl GGRSSession {
         skl_kb_vx: i32, skl_kb_vz: i32, skl_kb_timer: u32,
         hurt_front: i32, hurt_half_w: i32, hurt_half_h: i32, hurt_z_offset: i32,
         projectile_vx: i32, projectile_lifetime: u32, spawn_timer: u32,
+        entity_hit_radius: i32,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
@@ -524,6 +530,7 @@ impl GGRSSession {
             skl_kb_vx, skl_kb_vz, skl_kb_timer,
             hurt_front, hurt_half_w, hurt_half_h, hurt_z_offset,
             projectile_vx, projectile_lifetime, spawn_timer,
+            entity_hit_radius,
         };
         for p in &mut self.current_state.players {
             if p.character_type as usize == char_type {

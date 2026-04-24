@@ -70,6 +70,7 @@ def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
         s.skl_kb_vx, s.skl_kb_vz, s.skl_kb_timer,
         hurt_f, hurt_hw, hurt_hh, hurt_zo,
         s.projectile_vx, s.projectile_lifetime, s.spawn_timer,
+        s.entity_hit_radius,
     )
 
 
@@ -281,7 +282,6 @@ def run_game():
                                      hit_def.to_screen_rect(sx, sy, p.facing_right), 1)
 
         # 渲染投擲物實體
-        _ENTITY_HIT_R = 20  # 對應 Rust ENTITY_HIT_RADIUS / 1000
         for eid in range(session.get_entity_count()):
             e = session.get_entity(eid)
             ex = int(e.x / 1000.0)
@@ -309,10 +309,10 @@ def run_game():
                 pygame.draw.circle(screen, (255, 220, 60), (ex, ey), 6)
 
             if debug_manager.enabled:
-                # ENTITY_HIT_RADIUS 紅框範圍
+                hit_r = owner_asset.stats.entity_hit_radius // 1000
                 pygame.draw.rect(screen, (255, 50, 50),
-                                 (ex - _ENTITY_HIT_R, ey - _ENTITY_HIT_R,
-                                  _ENTITY_HIT_R * 2, _ENTITY_HIT_R * 2), 1)
+                                 (ex - hit_r, ey - hit_r,
+                                  hit_r * 2, hit_r * 2), 1)
 
         fx_manager.update_and_draw(screen)
         hud.draw(screen, render_list)
