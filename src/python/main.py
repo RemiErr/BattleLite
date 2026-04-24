@@ -75,6 +75,7 @@ def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
         s.entity_hit_radius,
         (asset.skl_fx.offset_x * 1000) if asset.skl_fx else 0,
         s.atk_timer, s.skl_timer,
+        s.atk_projectile_vx, s.atk_projectile_lifetime, s.atk_spawn_timer,
     )
 
 
@@ -260,7 +261,7 @@ def run_game():
             # 投射物技能的 skl_fx 改由 Entity 位置驅動，不在此生成
             if state_changed.get(original_idx):
                 fxdef = None
-                if p.state == STATE_ATTACK:
+                if p.state == STATE_ATTACK and asset.stats.atk_projectile_vx == 0:
                     fxdef = asset.atk_fx
                 elif p.state == STATE_SKILL and asset.stats.projectile_vx == 0:
                     fxdef = asset.skl_fx
@@ -294,7 +295,7 @@ def run_game():
             # 以 owner 的 skl_fx 動畫渲染，elapsed 由 lifetime 反推
             owner_asset = char_assets.get(session.get_player(
                 e.owner_id).character_type, char_assets[0])
-            fxdef = owner_asset.skl_fx
+            fxdef = owner_asset.skl_fx if e.is_skill else owner_asset.atk_proj_fx
 
             # 影子貼地（z 加回去還原地面 y，不隨高度上浮）
             ey_ground = ey + int(e.z / 1000.0)

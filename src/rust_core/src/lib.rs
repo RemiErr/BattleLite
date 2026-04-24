@@ -86,6 +86,10 @@ struct CharConfig {
     entity_spawn_offset: i32,
     atk_timer:           u32,
     skl_timer:           u32,
+    // ATTACK 投射物（atk_projectile_vx == 0 表示此角色的 ATTACK 是近戰）
+    atk_projectile_vx:       i32,
+    atk_projectile_lifetime: u32,
+    atk_spawn_timer:         u32,
 }
 
 impl Default for CharConfig {
@@ -123,6 +127,9 @@ impl Default for CharConfig {
             entity_spawn_offset: 0,
             atk_timer:           20,
             skl_timer:           40,
+            atk_projectile_vx:       0,
+            atk_projectile_lifetime: 30,
+            atk_spawn_timer:         10,
         }
     }
 }
@@ -234,6 +241,7 @@ pub struct Entity {
     pub vx: i32,
     pub vy: i32,
     pub lifetime: u32,
+    pub is_skill: bool,
 }
 
 #[pyclass]
@@ -244,6 +252,7 @@ pub struct EntityView {
     #[pyo3(get)] pub y: i32,
     #[pyo3(get)] pub z: i32,
     #[pyo3(get)] pub lifetime: u32,
+    #[pyo3(get)] pub is_skill: bool,
 }
 
 // --- 5. 遊戲狀態與共用邏輯 ---
@@ -294,6 +303,18 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
                 x: spawn_x, y: p.y, z: p.z,
                 vx, vy: 0,
                 lifetime: pcfg.projectile_lifetime,
+                is_skill: true,
+            });
+        }
+        if p.state == STATE_ATTACK && p.timer == pcfg.atk_spawn_timer && pcfg.atk_projectile_vx != 0 {
+            let vx = if p.facing_right { pcfg.atk_projectile_vx } else { -pcfg.atk_projectile_vx };
+            let spawn_x = if p.facing_right { p.x + pcfg.entity_spawn_offset } else { p.x - pcfg.entity_spawn_offset };
+            spawn_queue.push(Entity {
+                owner_id: i,
+                x: spawn_x, y: p.y, z: p.z,
+                vx, vy: 0,
+                lifetime: pcfg.atk_projectile_lifetime,
+                is_skill: false,
             });
         }
 
@@ -330,15 +351,22 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
             if dx < atk_cfg.entity_hit_radius + vic_cfg.hurt_half_w
                 && dy < atk_cfg.entity_hit_radius + CHAR_DEPTH / 2
                 && dz < atk_cfg.entity_hit_radius + vic_cfg.hurt_half_h {
-                let kb_vx = if e.vx >= 0 { atk_cfg.skl_kb_vx } else { -atk_cfg.skl_kb_vx };
+                let (kb_vx_mag, kb_vz, kb_timer, dmg_base, total_lifetime) = if e.is_skill {
+                    (atk_cfg.skl_kb_vx, atk_cfg.skl_kb_vz, atk_cfg.skl_kb_timer,
+                     atk_cfg.skill_dmg, atk_cfg.projectile_lifetime)
+                } else {
+                    (atk_cfg.atk_kb_vx, atk_cfg.atk_kb_vz, atk_cfg.atk_kb_timer,
+                     atk_cfg.atk_dmg, atk_cfg.atk_projectile_lifetime)
+                };
+                let kb_vx = if e.vx >= 0 { kb_vx_mag } else { -kb_vx_mag };
                 // 距離衰減：lifetime 愈少 = 飛愈遠 = 傷害愈低
-                let ratio = e.lifetime as i32 * 1000 / atk_cfg.projectile_lifetime as i32;
-                let damage = atk_cfg.skill_dmg * ratio / 1000;
+                let ratio = e.lifetime as i32 * 1000 / total_lifetime as i32;
+                let damage = dmg_base * ratio / 1000;
                 entity_hits.push(EntityHit {
                     victim: j,
                     vx: kb_vx,
-                    vz: atk_cfg.skl_kb_vz,
-                    timer: atk_cfg.skl_kb_timer,
+                    vz: kb_vz,
+                    timer: kb_timer,
                     damage,
                 });
             }
@@ -360,6 +388,7 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
         let atk_info = state.players[i].clone();
         let atk_cfg = get_cfg(configs, atk_info.character_type);
         let is_attack = atk_info.state == STATE_ATTACK
+            && atk_cfg.atk_projectile_vx == 0
             && atk_info.timer >= 5 && atk_info.timer <= 15;
         let is_skill  = atk_info.state == STATE_SKILL
             && atk_cfg.projectile_vx == 0   // 無投射物技能才走近戰判定
@@ -436,6 +465,7 @@ impl OfflineSession {
         projectile_vx: i32, projectile_lifetime: u32, spawn_timer: u32,
         entity_hit_radius: i32, entity_spawn_offset: i32,
         atk_timer: u32, skl_timer: u32,
+        atk_projectile_vx: i32, atk_projectile_lifetime: u32, atk_spawn_timer: u32,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
@@ -450,6 +480,7 @@ impl OfflineSession {
             projectile_vx, projectile_lifetime, spawn_timer,
             entity_hit_radius, entity_spawn_offset,
             atk_timer, skl_timer,
+            atk_projectile_vx, atk_projectile_lifetime, atk_spawn_timer,
         };
         for p in &mut self.state.players {
             if p.character_type as usize == char_type {
@@ -478,7 +509,7 @@ impl OfflineSession {
 
     fn get_entity(&self, id: usize) -> PyResult<EntityView> {
         self.state.entities.get(id).map(|e| EntityView {
-            owner_id: e.owner_id, x: e.x, y: e.y, z: e.z, lifetime: e.lifetime,
+            owner_id: e.owner_id, x: e.x, y: e.y, z: e.z, lifetime: e.lifetime, is_skill: e.is_skill,
         }).ok_or_else(|| PyIndexError::new_err("Entity OOR"))
     }
 
@@ -544,6 +575,7 @@ impl GGRSSession {
         projectile_vx: i32, projectile_lifetime: u32, spawn_timer: u32,
         entity_hit_radius: i32, entity_spawn_offset: i32,
         atk_timer: u32, skl_timer: u32,
+        atk_projectile_vx: i32, atk_projectile_lifetime: u32, atk_spawn_timer: u32,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
@@ -558,6 +590,7 @@ impl GGRSSession {
             projectile_vx, projectile_lifetime, spawn_timer,
             entity_hit_radius, entity_spawn_offset,
             atk_timer, skl_timer,
+            atk_projectile_vx, atk_projectile_lifetime, atk_spawn_timer,
         };
         for p in &mut self.current_state.players {
             if p.character_type as usize == char_type {
@@ -592,7 +625,7 @@ impl GGRSSession {
 
     fn get_entity(&self, id: usize) -> PyResult<EntityView> {
         self.current_state.entities.get(id).map(|e| EntityView {
-            owner_id: e.owner_id, x: e.x, y: e.y, z: e.z, lifetime: e.lifetime,
+            owner_id: e.owner_id, x: e.x, y: e.y, z: e.z, lifetime: e.lifetime, is_skill: e.is_skill,
         }).ok_or_else(|| PyIndexError::new_err("Entity OOR"))
     }
 

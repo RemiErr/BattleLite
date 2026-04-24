@@ -32,6 +32,10 @@ class CharStats:
     entity_hit_radius:   int =  20_000  # 投射物碰撞半徑（px × 1000）
     atk_timer:           int =      20  # ATTACK 狀態持續 tick 數
     skl_timer:           int =      40  # SKILL 狀態持續 tick 數
+    # ATTACK 投射物（0 = 此角色的 ATTACK 是近戰）
+    atk_projectile_vx:       int =      0   # ATTACK 投射物速度（×1000）
+    atk_projectile_lifetime: int =     30   # ATTACK 投射物存活幀數
+    atk_spawn_timer:         int =     10   # ATTACK 動作第幾 tick 發射
 
 
 @dataclass
@@ -101,8 +105,9 @@ class BaseCharacter:
         self.stats: CharStats = CharStats()
 
         # 特效設定（None = 此動作無特效）
-        self.atk_fx: FxDef | None = None
-        self.skl_fx: FxDef | None = None
+        self.atk_fx: FxDef | None = None       # ATTACK 狀態切換時在角色位置播放
+        self.atk_proj_fx: FxDef | None = None  # ATTACK 投射物實體視覺（飛行中循環）
+        self.skl_fx: FxDef | None = None       # SKILL 投射物實體視覺（飛行中循環）
 
     def load_sheet(self, path: str, frame_w: int, frame_h: int,
                    state_rows: list[tuple]) -> None:
