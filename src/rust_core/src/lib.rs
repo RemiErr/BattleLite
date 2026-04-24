@@ -334,14 +334,15 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
     let num_players = state.players.len();
     for i in 0..num_players {
         let atk_info = state.players[i].clone();
+        let atk_cfg = get_cfg(configs, atk_info.character_type);
         let is_attack = atk_info.state == STATE_ATTACK
             && atk_info.timer >= 5 && atk_info.timer <= 15;
         let is_skill  = atk_info.state == STATE_SKILL
-            && atk_info.character_type == CHAR_TYPE_KNIGHT
+            && atk_cfg.projectile_vx == 0   // 無投射物技能才走近戰判定
             && atk_info.timer > 10;
         if !is_attack && !is_skill { continue; }
 
-        let cfg = get_cfg(configs, atk_info.character_type);
+        let cfg = atk_cfg;
         let (kb_vz, kb_timer, kb_dmg, kb_vx_mag) = if is_skill {
             (cfg.skl_kb_vz, cfg.skl_kb_timer, cfg.skill_dmg, cfg.skl_kb_vx)
         } else {

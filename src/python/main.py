@@ -100,7 +100,6 @@ def get_input_mask():
     return mask
 
 
-
 def run_game():
     args = parse_args()
 
@@ -132,7 +131,8 @@ def run_game():
     char_assets: dict[int, BaseCharacter] = {0: Knight(), 1: Mage()}
 
     # 建立玩家名稱對照表（使用者名稱優先，否則 HUD 自動 fallback 職業名）
-    player_names: dict[int, str] = {config["local_id"]: config.get("nickname", "Player")}
+    player_names: dict[int, str] = {
+        config["local_id"]: config.get("nickname", "Player")}
     for p_info in config.get("players", []):
         if "nickname" in p_info:
             player_names[p_info["id"]] = p_info["nickname"]
@@ -181,7 +181,8 @@ def run_game():
                     player_names.pop(controlled_idx, None)
                     switch_player = (switch_player + 1) % num_players
                     controlled_idx = switch_player
-                    player_names[controlled_idx] = config.get("nickname", "Player")
+                    player_names[controlled_idx] = config.get(
+                        "nickname", "Player")
                 if event.key == pygame.K_F3 and is_offline:
                     # 離線模式切換角色種類（僅供測試）
                     p = session.get_player(controlled_idx)
@@ -208,8 +209,10 @@ def run_game():
 
         # 2. 渲染處理 (根據 Y 軸排序)
         screen.fill((30, 30, 30))
-        pygame.draw.line(screen, (60, 60, 60), (0, 300 + HUD_H), (SCREEN_W, 300 + HUD_H), 1)
-        pygame.draw.line(screen, (60, 60, 60), (0, 450 + HUD_H), (SCREEN_W, 450 + HUD_H), 1)
+        pygame.draw.line(screen, (60, 60, 60), (0, 300 + HUD_H),
+                         (SCREEN_W, 300 + HUD_H), 1)
+        pygame.draw.line(screen, (60, 60, 60), (0, 450 + HUD_H),
+                         (SCREEN_W, 450 + HUD_H), 1)
 
         state_changed: dict[int, bool] = {}
         render_list = []
@@ -249,14 +252,16 @@ def run_game():
                                  (blit_x, blit_y, sw, sh), 1)
 
             # 特效：狀態剛切換時，依角色設定生成
+            # 投射物技能的 skl_fx 改由 Entity 位置驅動，不在此生成
             if state_changed.get(original_idx):
                 fxdef = None
                 if p.state == STATE_ATTACK:
                     fxdef = asset.atk_fx
-                elif p.state == STATE_SKILL:
+                elif p.state == STATE_SKILL and asset.stats.projectile_vx == 0:
                     fxdef = asset.skl_fx
                 if fxdef is not None:
-                    fx_x = int(sx + (fxdef.offset_x if p.facing_right else -fxdef.offset_x))
+                    fx_x = int(
+                        sx + (fxdef.offset_x if p.facing_right else -fxdef.offset_x))
                     fx_y = int(sy + fxdef.offset_y)
                     fx_manager.spawn(fxdef.path, fxdef.frame_w, fxdef.frame_h,
                                      fx_x, fx_y, speed=fxdef.speed, scale=fxdef.scale)
@@ -267,8 +272,11 @@ def run_game():
                 if hurt_def:
                     pygame.draw.rect(screen, (0, 255, 0),
                                      hurt_def.to_screen_rect(sx, sy, p.facing_right), 1)
+                # SKILL 有投射物時傷害來自 Entity，不顯示近戰 hit_box
+                skill_is_projectile = (
+                    p.state == STATE_SKILL and asset.stats.projectile_vx != 0)
                 hit_def = asset.get_hit_box(p.state)
-                if hit_def:
+                if hit_def and not skill_is_projectile:
                     pygame.draw.rect(screen, (255, 50, 50),
                                      hit_def.to_screen_rect(sx, sy, p.facing_right), 1)
 
@@ -278,12 +286,33 @@ def run_game():
             e = session.get_entity(eid)
             ex = int(e.x / 1000.0)
             ey = int((e.y / 1000.0) - (e.z / 1000.0) + HUD_H)
-            pygame.draw.circle(screen, (255, 100, 0), (ex, ey), 10)
-            pygame.draw.circle(screen, (255, 220, 60), (ex, ey), 6)
+
+            # 以 owner 的 skl_fx 動畫渲染，elapsed 由 lifetime 反推
+            owner_asset = char_assets.get(session.get_player(
+                e.owner_id).character_type, char_assets[0])
+            fxdef = owner_asset.skl_fx
+            if fxdef is not None:
+                total = owner_asset.stats.projectile_lifetime
+                elapsed = max(0, total - e.lifetime)
+                frames = fx_manager._load(
+                    fxdef.path, fxdef.frame_w, fxdef.frame_h)
+                idx = (elapsed // max(1, fxdef.speed)) % len(frames)
+                frame = frames[idx]
+                if fxdef.scale != 1.0:
+                    fw = max(1, int(frame.get_width() * fxdef.scale))
+                    fh = max(1, int(frame.get_height() * fxdef.scale))
+                    frame = pygame.transform.scale(frame, (fw, fh))
+                screen.blit(frame, (ex - frame.get_width() //
+                            2, ey - frame.get_height() // 2))
+            else:
+                pygame.draw.circle(screen, (255, 100, 0), (ex, ey), 10)
+                pygame.draw.circle(screen, (255, 220, 60), (ex, ey), 6)
+
             if debug_manager.enabled:
-                # 黃圈：ENTITY_HIT_RADIUS（實體自身碰撞半徑）
-                # 實際觸發距離 = 此半徑 + 受擊者 hurt_half_w
-                pygame.draw.circle(screen, (255, 220, 0), (ex, ey), _ENTITY_HIT_R, 1)
+                # ENTITY_HIT_RADIUS 紅框範圍
+                pygame.draw.rect(screen, (255, 50, 50),
+                                 (ex - _ENTITY_HIT_R, ey - _ENTITY_HIT_R,
+                                  _ENTITY_HIT_R * 2, _ENTITY_HIT_R * 2), 1)
 
         fx_manager.update_and_draw(screen)
         hud.draw(screen, render_list)
