@@ -18,6 +18,7 @@ try:
     from src.python.hud import HUD, SCREEN_W, SCREEN_H, HUD_H
     from src.python.assets_manager.characters.knight import Knight
     from src.python.assets_manager.characters.mage import Mage
+    from src.python.assets_manager.characters.archer import Archer
     from src.python.assets_manager.base_character import BaseCharacter
     from src.python.fx_manager import FxManager
     from src.python.crypto_utils import SHARED_SECRET
@@ -29,7 +30,8 @@ except ImportError as e:
 INPUT_RIGHT, INPUT_LEFT, INPUT_UP, INPUT_DOWN, INPUT_JUMP, INPUT_ATTACK, INPUT_SKILL = [
     1 << i for i in range(7)]
 STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = range(5)
-CHAR_TYPE_MAGE = 1
+CHAR_TYPE_MAGE   = 1
+CHAR_TYPE_ARCHER = 2
 
 
 def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
@@ -72,6 +74,7 @@ def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
         s.projectile_vx, s.projectile_lifetime, s.spawn_timer,
         s.entity_hit_radius,
         (asset.skl_fx.offset_x * 1000) if asset.skl_fx else 0,
+        s.atk_timer, s.skl_timer,
     )
 
 
@@ -130,7 +133,7 @@ def run_game():
     clock = pygame.time.Clock()
     debug_manager = DebugManager()
     fx_manager = FxManager()
-    char_assets: dict[int, BaseCharacter] = {0: Knight(), 1: Mage()}
+    char_assets: dict[int, BaseCharacter] = {0: Knight(), 1: Mage(), 2: Archer()}
 
     # 建立玩家名稱對照表（使用者名稱優先，否則 HUD 自動 fallback 職業名）
     player_names: dict[int, str] = {

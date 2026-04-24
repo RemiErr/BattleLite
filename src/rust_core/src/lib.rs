@@ -84,6 +84,8 @@ struct CharConfig {
     spawn_timer:         u32,
     entity_hit_radius:   i32,
     entity_spawn_offset: i32,
+    atk_timer:           u32,
+    skl_timer:           u32,
 }
 
 impl Default for CharConfig {
@@ -119,6 +121,8 @@ impl Default for CharConfig {
             spawn_timer:         35,
             entity_hit_radius:   20000,
             entity_spawn_offset: 0,
+            atk_timer:           20,
+            skl_timer:           40,
         }
     }
 }
@@ -276,9 +280,9 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
             if input & INPUT_UP    != 0 { p.vy -= WALK_SPEED_Y; p.state = STATE_WALK; }
             if p.vx == 0 && p.vy == 0 { p.state = STATE_IDLE; }
             if input & INPUT_JUMP   != 0 && p.z == 0 { p.vz = JUMP_IMPULSE; }
-            if input & INPUT_ATTACK != 0 { p.state = STATE_ATTACK; p.timer = 20; p.vx = 0; p.vy = 0; }
+            if input & INPUT_ATTACK != 0 { p.state = STATE_ATTACK; p.timer = pcfg.atk_timer; p.vx = 0; p.vy = 0; }
             if input & INPUT_SKILL  != 0 && p.mp >= pcfg.skill_cost {
-                p.state = STATE_SKILL; p.timer = 40; p.mp -= pcfg.skill_cost; p.vx = 0; p.vy = 0;
+                p.state = STATE_SKILL; p.timer = pcfg.skl_timer; p.mp -= pcfg.skill_cost; p.vx = 0; p.vy = 0;
             }
         }
 
@@ -413,6 +417,7 @@ impl OfflineSession {
         let mut configs = Vec::new();
         configs.push(CharConfig::default()); // Knight (0)
         configs.push(CharConfig::default()); // Mage   (1)
+        configs.push(CharConfig::default()); // Archer (2)
         OfflineSession { state: GameState { players, frame: 0, entities: Vec::new() }, char_configs: configs }
     }
 
@@ -430,6 +435,7 @@ impl OfflineSession {
         hurt_front: i32, hurt_half_w: i32, hurt_half_h: i32, hurt_z_offset: i32,
         projectile_vx: i32, projectile_lifetime: u32, spawn_timer: u32,
         entity_hit_radius: i32, entity_spawn_offset: i32,
+        atk_timer: u32, skl_timer: u32,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
@@ -443,6 +449,7 @@ impl OfflineSession {
             hurt_front, hurt_half_w, hurt_half_h, hurt_z_offset,
             projectile_vx, projectile_lifetime, spawn_timer,
             entity_hit_radius, entity_spawn_offset,
+            atk_timer, skl_timer,
         };
         for p in &mut self.state.players {
             if p.character_type as usize == char_type {
@@ -514,8 +521,9 @@ impl GGRSSession {
             p
         }).collect();
         let mut configs = Vec::new();
-        configs.push(CharConfig::default());
-        configs.push(CharConfig::default());
+        configs.push(CharConfig::default()); // Knight (0)
+        configs.push(CharConfig::default()); // Mage   (1)
+        configs.push(CharConfig::default()); // Archer (2)
         Ok(GGRSSession {
             session,
             current_state: GameState { players, frame: 0, entities: Vec::new() },
@@ -535,6 +543,7 @@ impl GGRSSession {
         hurt_front: i32, hurt_half_w: i32, hurt_half_h: i32, hurt_z_offset: i32,
         projectile_vx: i32, projectile_lifetime: u32, spawn_timer: u32,
         entity_hit_radius: i32, entity_spawn_offset: i32,
+        atk_timer: u32, skl_timer: u32,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
@@ -548,6 +557,7 @@ impl GGRSSession {
             hurt_front, hurt_half_w, hurt_half_h, hurt_z_offset,
             projectile_vx, projectile_lifetime, spawn_timer,
             entity_hit_radius, entity_spawn_offset,
+            atk_timer, skl_timer,
         };
         for p in &mut self.current_state.players {
             if p.character_type as usize == char_type {

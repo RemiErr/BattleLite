@@ -30,6 +30,8 @@ class CharStats:
     projectile_lifetime: int =     60   # 投射物存活幀數
     spawn_timer:         int =     35   # SKILL 動作第幾幀發射（timer 倒數值）
     entity_hit_radius:   int =  20_000  # 投射物碰撞半徑（px × 1000）
+    atk_timer:           int =      20  # ATTACK 狀態持續 tick 數
+    skl_timer:           int =      40  # SKILL 狀態持續 tick 數
 
 
 @dataclass
@@ -113,6 +115,28 @@ class BaseCharacter:
         for state, row, num_frames, loop, speed in state_rows:
             frames: list[pygame.Surface] = []
             for col in range(num_frames):
+                src_rect = pygame.Rect(col * frame_w, row * frame_h, frame_w, frame_h)
+                frame = pygame.Surface((frame_w, frame_h), pygame.SRCALPHA)
+                frame.blit(sheet, (0, 0), src_rect)
+                frames.append(frame)
+            self.animations[state] = frames
+            self.loop_map[state]   = loop
+            self.speed_map[state]  = speed
+
+    def load_sheet_linear(self, path: str, frame_w: int, frame_h: int,
+                          cols_per_row: int, state_frames: list[tuple]) -> None:
+        """
+        支援跨列動畫的切幀方法。
+        state_frames: [(state, start_frame, num_frames, loop, speed), ...]
+        start_frame: 線性幀索引（row * cols_per_row + col）
+        """
+        sheet = pygame.image.load(path).convert_alpha()
+        for state, start_frame, num_frames, loop, speed in state_frames:
+            frames: list[pygame.Surface] = []
+            for i in range(num_frames):
+                idx = start_frame + i
+                col = idx % cols_per_row
+                row = idx // cols_per_row
                 src_rect = pygame.Rect(col * frame_w, row * frame_h, frame_w, frame_h)
                 frame = pygame.Surface((frame_w, frame_h), pygame.SRCALPHA)
                 frame.blit(sheet, (0, 0), src_rect)
