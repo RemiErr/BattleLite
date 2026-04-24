@@ -172,10 +172,7 @@ impl Player {
             self.timer -= 1;
             if self.timer == 0 { self.state = STATE_IDLE; }
         }
-        if self.mp < MAX_MP {
-            self.mp += MP_REGEN;
-            if self.mp > MAX_MP { self.mp = MAX_MP; }
-        }
+        // MP regen 上限由 perform_tick 透過 CharConfig 控制，此處不處理
         if self.z > 0 || self.vz > 0 { self.vz -= GRAVITY; }
         if self.state != STATE_ATTACK && self.state != STATE_SKILL {
             self.x += self.vx;
@@ -297,6 +294,11 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
         }
 
         p.update();
+        if p.mp < pcfg.max_mp {
+            p.mp += MP_REGEN;
+            if p.mp > pcfg.max_mp { p.mp = pcfg.max_mp; }
+        }
+        if p.hp > pcfg.max_hp { p.hp = pcfg.max_hp; }
     }
 
     state.entities.retain_mut(|e| {
