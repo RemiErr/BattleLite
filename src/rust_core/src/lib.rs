@@ -320,8 +320,10 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
             let vic_cfg = get_cfg(configs, victim.character_type);
             let dx = (e.x - victim.x).abs();
             let dy = (e.y - victim.y).abs();
+            let dz = (e.z - (victim.z + vic_cfg.hurt_z_offset)).abs();
             if dx < atk_cfg.entity_hit_radius + vic_cfg.hurt_half_w
-                && dy < atk_cfg.entity_hit_radius + CHAR_DEPTH / 2 {
+                && dy < atk_cfg.entity_hit_radius + CHAR_DEPTH / 2
+                && dz < atk_cfg.entity_hit_radius + vic_cfg.hurt_half_h {
                 let kb_vx = if e.vx >= 0 { 6000i32 } else { -6000i32 };
                 entity_hits.push(EntityHit { victim: j, vx: kb_vx });
             }
