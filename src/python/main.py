@@ -31,11 +31,6 @@ INPUT_RIGHT, INPUT_LEFT, INPUT_UP, INPUT_DOWN, INPUT_JUMP, INPUT_ATTACK, INPUT_S
 STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = range(5)
 CHAR_TYPE_MAGE = 1
 
-# --- 特效素材路徑 ---
-_FX_DIR = os.path.join(PROJECT_ROOT, 'src', 'assets', 'fx')
-_MAGE_ATK_FX = os.path.join(_FX_DIR, '8-b.png')   # 落石：11 幀 193×190
-_MAGE_SKL_FX = os.path.join(_FX_DIR, '1.png')      # 火環：7 幀 96×100
-
 
 def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
     """
@@ -74,6 +69,7 @@ def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
         s.atk_kb_vx, s.atk_kb_vz, s.atk_kb_timer,
         s.skl_kb_vx, s.skl_kb_vz, s.skl_kb_timer,
         hurt_f, hurt_hw, hurt_hh, hurt_zo,
+        s.projectile_vx, s.projectile_lifetime, s.spawn_timer,
     )
 
 
@@ -252,14 +248,18 @@ def run_game():
                 pygame.draw.rect(screen, (255, 255, 255),
                                  (blit_x, blit_y, sw, sh), 1)
 
-            # Mage 特效：狀態剛切換時生成
-            if state_changed.get(original_idx) and p.character_type == CHAR_TYPE_MAGE:
-                fx_x = int(sx + (70 if p.facing_right else -70))
-                fx_y = int(sy + 30)
+            # 特效：狀態剛切換時，依角色設定生成
+            if state_changed.get(original_idx):
+                fxdef = None
                 if p.state == STATE_ATTACK:
-                    fx_manager.spawn(_MAGE_ATK_FX, 193, 190, fx_x, fx_y, speed=2)
+                    fxdef = asset.atk_fx
                 elif p.state == STATE_SKILL:
-                    fx_manager.spawn(_MAGE_SKL_FX, 96, 100, int(sx), int(sy), speed=5)
+                    fxdef = asset.skl_fx
+                if fxdef is not None:
+                    fx_x = int(sx + (fxdef.offset_x if p.facing_right else -fxdef.offset_x))
+                    fx_y = int(sy + fxdef.offset_y)
+                    fx_manager.spawn(fxdef.path, fxdef.frame_w, fxdef.frame_h,
+                                     fx_x, fx_y, speed=fxdef.speed, scale=fxdef.scale)
 
             # 判定框視覺輔助 (僅用於開發者 Debug)
             if debug_manager.enabled:
@@ -271,6 +271,19 @@ def run_game():
                 if hit_def:
                     pygame.draw.rect(screen, (255, 50, 50),
                                      hit_def.to_screen_rect(sx, sy, p.facing_right), 1)
+
+        # 渲染投擲物實體
+        _ENTITY_HIT_R = 20  # 對應 Rust ENTITY_HIT_RADIUS / 1000
+        for eid in range(session.get_entity_count()):
+            e = session.get_entity(eid)
+            ex = int(e.x / 1000.0)
+            ey = int((e.y / 1000.0) - (e.z / 1000.0) + HUD_H)
+            pygame.draw.circle(screen, (255, 100, 0), (ex, ey), 10)
+            pygame.draw.circle(screen, (255, 220, 60), (ex, ey), 6)
+            if debug_manager.enabled:
+                # 黃圈：ENTITY_HIT_RADIUS（實體自身碰撞半徑）
+                # 實際觸發距離 = 此半徑 + 受擊者 hurt_half_w
+                pygame.draw.circle(screen, (255, 220, 0), (ex, ey), _ENTITY_HIT_R, 1)
 
         fx_manager.update_and_draw(screen)
         hud.draw(screen, render_list)

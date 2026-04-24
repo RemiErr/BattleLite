@@ -25,6 +25,32 @@ class CharStats:
     skl_kb_vx:    int =   8_000
     skl_kb_vz:    int =   6_000
     skl_kb_timer: int =      40
+    # 投射物（0 = 此角色無投射物）
+    projectile_vx:       int =      0   # 投射物每幀速度（×1000）
+    projectile_lifetime: int =     60   # 投射物存活幀數
+    spawn_timer:         int =     35   # SKILL 動作第幾幀發射（timer 倒數值）
+
+
+@dataclass
+class FxDef:
+    """
+    角色特效定義，由角色 Python 設定、main.py 透過 FxManager 執行。
+
+    path     : 特效 sprite sheet 絕對路徑
+    frame_w  : 每幀寬度（px）
+    frame_h  : 每幀高度（px）
+    offset_x : 特效中心距角色中心的水平偏移（px，正值 = 朝面向方向）
+    offset_y : 特效中心距角色中心的垂直偏移（px，正值 = 向下）
+    scale    : 縮放倍率（1.0 = 原尺寸）
+    speed    : 每張動畫幀持續幾個 game tick
+    """
+    path:     str
+    frame_w:  int
+    frame_h:  int
+    offset_x: int   = 0
+    offset_y: int   = 0
+    scale:    float = 1.0
+    speed:    int   = 3
 
 
 @dataclass
@@ -48,7 +74,6 @@ class HitboxDef:
     def to_screen_rect(self, cx: float, cy: float, facing_right: bool) -> pygame.Rect:
         """轉換為螢幕 Rect，facing_right 時自動水平鏡像。"""
         if facing_right:
-            # 水平鏡像：原本左邊緣 ox → 新左邊緣 = -(ox + w)
             left = int(cx) - self.ox - self.w
         else:
             left = int(cx) + self.ox
@@ -64,20 +89,17 @@ class BaseCharacter:
     def __init__(self, name: str):
         self.name = name
         self.faceset_path: str = ""
-        # { state: [pygame.Surface, ...] }
         self.animations: dict[int, list[pygame.Surface]] = {}
-        # { state: bool }  True=循環, False=播放一次停在最後
-        self.loop_map: dict[int, bool] = {}
-        # { state: int }  每幀動畫持續幾個遊戲幀
-        self.speed_map: dict[int, int] = {}
+        self.loop_map:    dict[int, bool] = {}
+        self.speed_map:   dict[int, int]  = {}
 
-        # 判定框：子類別在 __init__ 填入
-        # hurt_box : 角色被命中的範圍（身體）
         self.hurt_boxes: dict[int, HitboxDef] = {}
-        # hit_box  : 攻擊動作傷害敵人的範圍；None 表示該狀態不造成傷害
-        self.hit_boxes: dict[int, HitboxDef | None] = {}
-        # 角色數值（血量、傷害等），傳入 Rust set_char_config
+        self.hit_boxes:  dict[int, HitboxDef | None] = {}
         self.stats: CharStats = CharStats()
+
+        # 特效設定（None = 此動作無特效）
+        self.atk_fx: FxDef | None = None
+        self.skl_fx: FxDef | None = None
 
     def load_sheet(self, path: str, frame_w: int, frame_h: int,
                    state_rows: list[tuple]) -> None:
@@ -85,11 +107,6 @@ class BaseCharacter:
         載入 Sprite Sheet 並切幀存入 self.animations。
 
         state_rows 格式：[(state, row, num_frames, loop, speed), ...]
-            state      : Rust 狀態碼
-            row        : Sheet 列索引（0-based）
-            num_frames : 該動畫的幀數
-            loop       : True=循環, False=播放一次
-            speed      : 每張動畫圖維持幾個遊戲幀
         """
         sheet = pygame.image.load(path).convert_alpha()
         for state, row, num_frames, loop, speed in state_rows:
@@ -132,9 +149,7 @@ class BaseCharacter:
         return surf
 
     def get_hurt_box(self, state: int) -> HitboxDef | None:
-        """回傳該狀態的 hurt box，找不到時 fallback 到 IDLE(0)。"""
         return self.hurt_boxes.get(state) or self.hurt_boxes.get(0)
 
     def get_hit_box(self, state: int) -> HitboxDef | None:
-        """回傳該狀態的 hit box；None 代表不造成傷害。"""
         return self.hit_boxes.get(state)

@@ -1,5 +1,5 @@
 import os
-from src.python.assets_manager.base_character import BaseCharacter, HitboxDef, CharStats
+from src.python.assets_manager.base_character import BaseCharacter, HitboxDef, CharStats, FxDef
 
 _SHEET_PATH = os.path.normpath(os.path.join(
     os.path.dirname(__file__), "..", "..", "..", "..",
@@ -9,6 +9,11 @@ _SHEET_PATH = os.path.normpath(os.path.join(
 _FACE_PATH = os.path.normpath(os.path.join(
     os.path.dirname(__file__), "..", "..", "..", "..",
     "src", "assets", "char", "mage", "faceset.png"
+))
+
+_FX_DIR = os.path.normpath(os.path.join(
+    os.path.dirname(__file__), "..", "..", "..", "..",
+    "src", "assets", "fx"
 ))
 
 _FRAME_W = 151
@@ -25,24 +30,14 @@ _STATE_ROWS = [
 
 # ---------------------------------------------------------------------------
 # 判定框（以 Sprite 中心為原點，單位 px，sheet 角色朝左）
-#
 #   Sprite 中心 = (75, 50)（151//2, 100//2）
-#
-#   hurt_box：身體從 x≈28~115, y≈5~92
-#     → ox = 28-75 = -47, oy = 5-50 = -45, w=87, h=87
-#
-#   hit_box ATTACK：出拳延伸至 x≈8~68, y≈18~62
-#     → ox = 8-75 = -67, oy = 18-50 = -32, w=60, h=44
-#
-#   hit_box SKILL：飛踢範圍 x≈5~88, y≈22~68
-#     → ox = 5-75 = -70, oy = 22-50 = -28, w=83, h=46
 # ---------------------------------------------------------------------------
 
-_HURT_BODY = HitboxDef(ox=-47, oy=-45, w=87, h=87)
-_HURT_HURT = HitboxDef(ox=-30, oy=-38, w=70, h=78)   # HURT 狀態縮小
+_HURT_BODY = HitboxDef(ox=-25, oy=-45, w=70, h=87)
+_HURT_HURT = HitboxDef(ox=-30, oy=-38, w=70, h=80)
 
-_HIT_ATTACK = HitboxDef(ox=-67, oy=-32, w=60, h=44)
-_HIT_SKILL  = HitboxDef(ox=-70, oy=-28, w=83, h=46)
+_HIT_ATTACK = HitboxDef(ox=-78, oy=-50, w=60, h=108)
+_HIT_SKILL = HitboxDef(ox=-70, oy=-12, w=84, h=36)
 
 STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
 
@@ -51,16 +46,12 @@ class Mage(BaseCharacter):
     def __init__(self):
         super().__init__("Mage")
         self.faceset_path = _FACE_PATH
-        self.load_sheet(
-            _SHEET_PATH,
-            _FRAME_W, _FRAME_H,
-            _STATE_ROWS,
-        )
+        self.load_sheet(_SHEET_PATH, _FRAME_W, _FRAME_H, _STATE_ROWS)
 
         self.stats = CharStats(
             max_hp=70_000,
             max_mp=80_000,
-            skill_cost=25_000,
+            skill_cost=15_000,
             atk_dmg=8_000,
             skill_dmg=20_000,
             atk_depth=25_000,
@@ -71,6 +62,10 @@ class Mage(BaseCharacter):
             skl_kb_vx=7_000,
             skl_kb_vz=5_000,
             skl_kb_timer=30,
+            # 投射物參數 (For Rust)
+            projectile_vx=15_000,  # 速度，改大加速（×1000）
+            projectile_lifetime=60,  # 存活幀數，改大射程更遠
+            spawn_timer=35,          # Skill 動作第幾幀發射
         )
 
         self.hurt_boxes = {
@@ -89,3 +84,21 @@ class Mage(BaseCharacter):
             STATE_HURT:   None,
         }
 
+        # 特效設定（路徑、切幀、位移、縮放、速度均可在此調整）
+        self.atk_fx = FxDef(
+            path=os.path.join(_FX_DIR, "8-b.png"),
+            frame_w=193, frame_h=190,
+            offset_x=70,   # 角色前方距離（px），正值 = 面向方向
+            offset_y=30,   # 向下偏移（px）
+            scale=1.0,     # 縮放（1.0 = 原始大小）
+            speed=2,       # 每幀持續 game tick（越小越快）
+        )
+
+        self.skl_fx = FxDef(
+            path=os.path.join(_FX_DIR, "1.png"),
+            frame_w=96, frame_h=100,
+            offset_x=0,
+            offset_y=0,
+            scale=1.0,
+            speed=5,
+        )

@@ -15,10 +15,20 @@ CHAR_TYPE_MAGE   = 1
 
 
 def make_session_with_mage(mage_idx: int = 0, num_players: int = 2) -> OfflineSession:
-    """建立 session 並把指定玩家設為法師（character_type=1）。"""
+    """建立 session 並把指定玩家設為法師（需設定 projectile_vx 才會生成投擲物）。"""
     session = OfflineSession(num_players)
+    session.set_char_config(
+        CHAR_TYPE_MAGE,
+        70000, 80000, 15000, 8000, 20000,
+        0, 0, 25000, 0, 0,
+        0, 0, 40000, 0, 0,
+        5000, 3000, 20, 7000, 5000, 30,
+        0, 35000, 43500, 0,
+        15000, 60, 35,
+    )
     p = session.get_player(mage_idx)
     p.character_type = CHAR_TYPE_MAGE
+    p.mp = 80000
     session.set_player(mage_idx, p)
     return session
 

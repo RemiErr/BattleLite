@@ -163,11 +163,22 @@ def test_landing_reduces_vx():
 def test_entity_knockback_follows_projectile_direction():
     """向右飛行的投擲物擊中後，受擊者應向右被推（vx > 0）。"""
     session = OfflineSession(2)
+    # 設定 Mage 投射物參數（projectile_vx > 0 才會生成）
+    session.set_char_config(
+        CHAR_TYPE_MAGE,
+        70000, 80000, 15000, 8000, 20000,
+        0, 0, 25000, 0, 0,
+        0, 0, 40000, 0, 0,
+        5000, 3000, 20, 7000, 5000, 30,
+        0, 35000, 43500, 0,
+        15000, 60, 35,
+    )
 
     mage = session.get_player(0)
     mage.x, mage.y, mage.z = 100000, 200000, 0
     mage.facing_right = True
     mage.character_type = CHAR_TYPE_MAGE
+    mage.mp = 80000
     session.set_player(0, mage)
 
     target = session.get_player(1)

@@ -78,6 +78,10 @@ struct CharConfig {
     hurt_half_w:  i32,
     hurt_half_h:  i32,
     hurt_z_offset: i32,
+    // 投射物（projectile_vx == 0 表示此角色無投射物）
+    projectile_vx:       i32,
+    projectile_lifetime: u32,
+    spawn_timer:         u32,
 }
 
 impl Default for CharConfig {
@@ -108,6 +112,9 @@ impl Default for CharConfig {
             hurt_half_w:  CHAR_WIDTH / 2,
             hurt_half_h:  50000,
             hurt_z_offset: 0,
+            projectile_vx:       0,
+            projectile_lifetime: 60,
+            spawn_timer:         35,
         }
     }
 }
@@ -274,13 +281,13 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
             }
         }
 
-        if p.state == STATE_SKILL && p.timer == MAGE_SPAWN_TIMER && p.character_type == CHAR_TYPE_MAGE {
-            let vx = if p.facing_right { PROJECTILE_VX } else { -PROJECTILE_VX };
+        if p.state == STATE_SKILL && p.timer == pcfg.spawn_timer && pcfg.projectile_vx != 0 {
+            let vx = if p.facing_right { pcfg.projectile_vx } else { -pcfg.projectile_vx };
             spawn_queue.push(Entity {
                 owner_id: i,
                 x: p.x, y: p.y, z: p.z,
                 vx, vy: 0,
-                lifetime: PROJECTILE_LIFETIME,
+                lifetime: pcfg.projectile_lifetime,
             });
         }
 
@@ -304,9 +311,10 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
             if e.owner_id == j { continue; }
             let victim = &state.players[j];
             if victim.state == STATE_HURT { continue; }
+            let vic_cfg = get_cfg(configs, victim.character_type);
             let dx = (e.x - victim.x).abs();
             let dy = (e.y - victim.y).abs();
-            if dx < ENTITY_HIT_RADIUS + CHAR_WIDTH / 2
+            if dx < ENTITY_HIT_RADIUS + vic_cfg.hurt_half_w
                 && dy < ENTITY_HIT_RADIUS + CHAR_DEPTH / 2 {
                 let kb_vx = if e.vx >= 0 { 6000i32 } else { -6000i32 };
                 entity_hits.push(EntityHit { victim: j, vx: kb_vx });
@@ -399,6 +407,7 @@ impl OfflineSession {
         atk_kb_vx: i32, atk_kb_vz: i32, atk_kb_timer: u32,
         skl_kb_vx: i32, skl_kb_vz: i32, skl_kb_timer: u32,
         hurt_front: i32, hurt_half_w: i32, hurt_half_h: i32, hurt_z_offset: i32,
+        projectile_vx: i32, projectile_lifetime: u32, spawn_timer: u32,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
@@ -410,6 +419,7 @@ impl OfflineSession {
             atk_kb_vx, atk_kb_vz, atk_kb_timer,
             skl_kb_vx, skl_kb_vz, skl_kb_timer,
             hurt_front, hurt_half_w, hurt_half_h, hurt_z_offset,
+            projectile_vx, projectile_lifetime, spawn_timer,
         };
         for p in &mut self.state.players {
             if p.character_type as usize == char_type {
@@ -500,6 +510,7 @@ impl GGRSSession {
         atk_kb_vx: i32, atk_kb_vz: i32, atk_kb_timer: u32,
         skl_kb_vx: i32, skl_kb_vz: i32, skl_kb_timer: u32,
         hurt_front: i32, hurt_half_w: i32, hurt_half_h: i32, hurt_z_offset: i32,
+        projectile_vx: i32, projectile_lifetime: u32, spawn_timer: u32,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
@@ -511,6 +522,7 @@ impl GGRSSession {
             atk_kb_vx, atk_kb_vz, atk_kb_timer,
             skl_kb_vx, skl_kb_vz, skl_kb_timer,
             hurt_front, hurt_half_w, hurt_half_h, hurt_z_offset,
+            projectile_vx, projectile_lifetime, spawn_timer,
         };
         for p in &mut self.current_state.players {
             if p.character_type as usize == char_type {

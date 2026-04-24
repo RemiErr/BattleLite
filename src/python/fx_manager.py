@@ -3,12 +3,13 @@ import pygame
 
 class FxEffect:
     def __init__(self, frames: list[pygame.Surface], x: int, y: int, speed: int = 3,
-                 flip_x: bool = False):
+                 flip_x: bool = False, scale: float = 1.0):
         self.frames = frames
         self.x = x
         self.y = y
         self.speed = speed
         self.flip_x = flip_x
+        self.scale = scale
         self.elapsed = 0
         self.done = False
 
@@ -24,6 +25,10 @@ class FxEffect:
         frame = self.frames[idx]
         if self.flip_x:
             frame = pygame.transform.flip(frame, True, False)
+        if self.scale != 1.0:
+            w = max(1, int(frame.get_width()  * self.scale))
+            h = max(1, int(frame.get_height() * self.scale))
+            frame = pygame.transform.scale(frame, (w, h))
         blit_x = self.x - frame.get_width() // 2
         blit_y = self.y - frame.get_height() // 2
         screen.blit(frame, (blit_x, blit_y))
@@ -53,9 +58,10 @@ class FxManager:
         return frames
 
     def spawn(self, path: str, frame_w: int, frame_h: int,
-              x: int, y: int, speed: int = 3, flip_x: bool = False) -> None:
+              x: int, y: int, speed: int = 3, flip_x: bool = False,
+              scale: float = 1.0) -> None:
         frames = self._load(path, frame_w, frame_h)
-        self.effects.append(FxEffect(frames, x, y, speed, flip_x))
+        self.effects.append(FxEffect(frames, x, y, speed, flip_x, scale))
 
     def update_and_draw(self, screen: pygame.Surface) -> None:
         for fx in self.effects:
