@@ -37,7 +37,7 @@ _HURT_BODY = HitboxDef(ox=-25, oy=-45, w=70, h=87)
 _HURT_HURT = HitboxDef(ox=-30, oy=-38, w=70, h=80)
 
 _HIT_ATTACK = HitboxDef(ox=-93, oy=-35, w=66, h=86)
-_HIT_SKILL = HitboxDef(ox=-70, oy=-12, w=84, h=36)
+_HIT_SKILL = HitboxDef(ox=-70, oy=-12, w=40, h=40)
 
 STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
 
@@ -62,11 +62,11 @@ class Mage(BaseCharacter):
             skl_kb_vx=7_000,
             skl_kb_vz=5_000,
             skl_kb_timer=30,
+            skl_melee_enabled=False,
             # 投射物參數 (For Rust)
             projectile_vx=1_500,  # 速度，改大加速（×1000）
             projectile_lifetime=300,  # 存活幀數，改大射程更遠
             spawn_timer=35,          # Skill 動作第幾幀發射
-            entity_hit_radius=25_000,  # 預設 20px（×1000）
         )
 
         self.hurt_boxes = {
