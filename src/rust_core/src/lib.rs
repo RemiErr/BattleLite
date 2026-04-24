@@ -311,7 +311,7 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
     state.entities.extend(spawn_queue);
 
     // 投擲物與玩家碰撞
-    struct EntityHit { victim: usize, vx: i32 }
+    struct EntityHit { victim: usize, vx: i32, vz: i32, timer: u32, damage: i32 }
     let mut entity_hits: Vec<EntityHit> = Vec::new();
     for e in &state.entities {
         let atk_cfg = get_cfg(configs, state.players[e.owner_id].character_type);
@@ -326,18 +326,28 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
             if dx < atk_cfg.entity_hit_radius + vic_cfg.hurt_half_w
                 && dy < atk_cfg.entity_hit_radius + CHAR_DEPTH / 2
                 && dz < atk_cfg.entity_hit_radius + vic_cfg.hurt_half_h {
-                let kb_vx = if e.vx >= 0 { 6000i32 } else { -6000i32 };
-                entity_hits.push(EntityHit { victim: j, vx: kb_vx });
+                let kb_vx = if e.vx >= 0 { atk_cfg.skl_kb_vx } else { -atk_cfg.skl_kb_vx };
+                // 距離衰減：lifetime 愈少 = 飛愈遠 = 傷害愈低
+                let ratio = e.lifetime as i32 * 1000 / atk_cfg.projectile_lifetime as i32;
+                let damage = atk_cfg.skill_dmg * ratio / 1000;
+                entity_hits.push(EntityHit {
+                    victim: j,
+                    vx: kb_vx,
+                    vz: atk_cfg.skl_kb_vz,
+                    timer: atk_cfg.skl_kb_timer,
+                    damage,
+                });
             }
         }
     }
     for hit in entity_hits {
         let victim = &mut state.players[hit.victim];
         victim.state = STATE_HURT;
-        victim.timer = 25;
+        victim.timer = hit.timer;
         victim.vx = hit.vx;
-        victim.vz = 3000;
-        victim.hp -= 8000;
+        victim.vz = hit.vz;
+        victim.hp -= hit.damage;
+        if victim.hp < 0 { victim.hp = 0; }
     }
 
     // 玩家近戰判定（使用 CharConfig）
