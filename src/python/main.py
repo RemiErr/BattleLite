@@ -71,6 +71,7 @@ def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
         hurt_f, hurt_hw, hurt_hh, hurt_zo,
         s.projectile_vx, s.projectile_lifetime, s.spawn_timer,
         s.entity_hit_radius,
+        (asset.skl_fx.offset_x * 1000) if asset.skl_fx else 0,
     )
 
 

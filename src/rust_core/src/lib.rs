@@ -83,6 +83,7 @@ struct CharConfig {
     projectile_lifetime: u32,
     spawn_timer:         u32,
     entity_hit_radius:   i32,
+    entity_spawn_offset: i32,
 }
 
 impl Default for CharConfig {
@@ -117,6 +118,7 @@ impl Default for CharConfig {
             projectile_lifetime: 60,
             spawn_timer:         35,
             entity_hit_radius:   20000,
+            entity_spawn_offset: 0,
         }
     }
 }
@@ -285,9 +287,10 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
 
         if p.state == STATE_SKILL && p.timer == pcfg.spawn_timer && pcfg.projectile_vx != 0 {
             let vx = if p.facing_right { pcfg.projectile_vx } else { -pcfg.projectile_vx };
+            let spawn_x = if p.facing_right { p.x + pcfg.entity_spawn_offset } else { p.x - pcfg.entity_spawn_offset };
             spawn_queue.push(Entity {
                 owner_id: i,
-                x: p.x, y: p.y, z: p.z,
+                x: spawn_x, y: p.y, z: p.z,
                 vx, vy: 0,
                 lifetime: pcfg.projectile_lifetime,
             });
@@ -412,7 +415,7 @@ impl OfflineSession {
         skl_kb_vx: i32, skl_kb_vz: i32, skl_kb_timer: u32,
         hurt_front: i32, hurt_half_w: i32, hurt_half_h: i32, hurt_z_offset: i32,
         projectile_vx: i32, projectile_lifetime: u32, spawn_timer: u32,
-        entity_hit_radius: i32,
+        entity_hit_radius: i32, entity_spawn_offset: i32,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
@@ -425,7 +428,7 @@ impl OfflineSession {
             skl_kb_vx, skl_kb_vz, skl_kb_timer,
             hurt_front, hurt_half_w, hurt_half_h, hurt_z_offset,
             projectile_vx, projectile_lifetime, spawn_timer,
-            entity_hit_radius,
+            entity_hit_radius, entity_spawn_offset,
         };
         for p in &mut self.state.players {
             if p.character_type as usize == char_type {
@@ -517,7 +520,7 @@ impl GGRSSession {
         skl_kb_vx: i32, skl_kb_vz: i32, skl_kb_timer: u32,
         hurt_front: i32, hurt_half_w: i32, hurt_half_h: i32, hurt_z_offset: i32,
         projectile_vx: i32, projectile_lifetime: u32, spawn_timer: u32,
-        entity_hit_radius: i32,
+        entity_hit_radius: i32, entity_spawn_offset: i32,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
@@ -530,7 +533,7 @@ impl GGRSSession {
             skl_kb_vx, skl_kb_vz, skl_kb_timer,
             hurt_front, hurt_half_w, hurt_half_h, hurt_z_offset,
             projectile_vx, projectile_lifetime, spawn_timer,
-            entity_hit_radius,
+            entity_hit_radius, entity_spawn_offset,
         };
         for p in &mut self.current_state.players {
             if p.character_type as usize == char_type {
