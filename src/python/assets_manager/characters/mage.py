@@ -24,7 +24,7 @@ _STATE_ROWS = [
     (0, 0, 1, True,  6),  # IDLE:   Row0 frame 0 static
     (1, 0, 5, True,  6),  # WALK:   Row0, 5 frames
     (2, 1, 5, False, 4),  # ATTACK: Row1 近身出拳
-    (4, 2, 5, False, 4),  # SKILL:  Row2 發射投擲物
+    (4, 2, 4, False, 8),  # SKILL:  Row2 發射投擲物
     (3, 3, 1, False, 4),  # HURT:   Row3
 ]
 
@@ -36,7 +36,7 @@ _STATE_ROWS = [
 _HURT_BODY = HitboxDef(ox=-25, oy=-45, w=70, h=87)
 _HURT_HURT = HitboxDef(ox=-30, oy=-38, w=70, h=80)
 
-_HIT_ATTACK = HitboxDef(ox=-78, oy=-50, w=60, h=108)
+_HIT_ATTACK = HitboxDef(ox=-93, oy=-35, w=66, h=86)
 _HIT_SKILL = HitboxDef(ox=-70, oy=-12, w=84, h=36)
 
 STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
@@ -51,7 +51,7 @@ class Mage(BaseCharacter):
         self.stats = CharStats(
             max_hp=70_000,
             max_mp=80_000,
-            skill_cost=15_000,
+            skill_cost=0,
             atk_dmg=8_000,
             skill_dmg=20_000,
             atk_depth=25_000,
@@ -63,9 +63,9 @@ class Mage(BaseCharacter):
             skl_kb_vz=5_000,
             skl_kb_timer=30,
             # 投射物參數 (For Rust)
-            projectile_vx=15_000,  # 速度，改大加速（×1000）
-            projectile_lifetime=60,  # 存活幀數，改大射程更遠
-            spawn_timer=35,          # Skill 動作第幾幀發射
+            projectile_vx=1_000,  # 速度，改大加速（×1000）
+            projectile_lifetime=600,  # 存活幀數，改大射程更遠
+            spawn_timer=25,          # Skill 動作第幾幀發射
         )
 
         self.hurt_boxes = {
@@ -88,17 +88,17 @@ class Mage(BaseCharacter):
         self.atk_fx = FxDef(
             path=os.path.join(_FX_DIR, "8-b.png"),
             frame_w=193, frame_h=190,
-            offset_x=70,   # 角色前方距離（px），正值 = 面向方向
-            offset_y=30,   # 向下偏移（px）
-            scale=1.0,     # 縮放（1.0 = 原始大小）
-            speed=2,       # 每幀持續 game tick（越小越快）
+            offset_x=68,   # 角色前方距離（px），正值 = 面向方向
+            offset_y=10,   # 向下偏移（px）
+            scale=0.4,     # 縮放（1.0 = 原始大小）
+            speed=3,       # 每幀持續 game tick（越小越快）
         )
 
         self.skl_fx = FxDef(
             path=os.path.join(_FX_DIR, "1.png"),
-            frame_w=96, frame_h=100,
-            offset_x=0,
+            frame_w=112, frame_h=100,
+            offset_x=45,
             offset_y=0,
-            scale=1.0,
+            scale=0.5,
             speed=5,
         )
