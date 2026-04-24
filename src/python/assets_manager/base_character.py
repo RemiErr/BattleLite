@@ -122,6 +122,15 @@ class BaseCharacter:
             return frames[idx]
         return None
 
+    def get_sprite(self, state: int, elapsed_frames: int, facing_right: bool = True) -> pygame.Surface:
+        surf = self.get_sprite_rect(state, elapsed_frames)
+        if surf is None:
+            surf = self.get_sprite_rect(0, 0)
+        assert surf is not None
+        if facing_right:
+            return pygame.transform.flip(surf, True, False)
+        return surf
+
     def get_hurt_box(self, state: int) -> HitboxDef | None:
         """回傳該狀態的 hurt box，找不到時 fallback 到 IDLE(0)。"""
         return self.hurt_boxes.get(state) or self.hurt_boxes.get(0)
