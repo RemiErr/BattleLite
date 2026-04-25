@@ -59,7 +59,10 @@ def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
         s.skl_kb_vx, s.skl_kb_vz, s.skl_kb_timer,
         hurt_f, hurt_hw, hurt_hh, hurt_zo,
         s.projectile_vx, s.projectile_lifetime, s.spawn_timer,
-        (asset.skl_fx.offset_x * 1000) if asset.skl_fx else 0,
+        (asset.skl_fx.offset_x      * 1000) if asset.skl_fx      else 0,
+        (asset.skl_fx.offset_y      * 1000) if asset.skl_fx      else 0,
+        (asset.atk_proj_fx.offset_x * 1000) if asset.atk_proj_fx else 0,
+        (asset.atk_proj_fx.offset_y * 1000) if asset.atk_proj_fx else 0,
         s.atk_timer, s.skl_timer,
         s.atk_projectile_vx, s.atk_projectile_lifetime, s.atk_spawn_timer,
         s.atk_melee_enabled, s.skl_melee_enabled,
@@ -283,8 +286,7 @@ def run_game():
             ey = int((e.y / 1000.0) - (e.z / 1000.0) + HUD_H)
 
             # 以 owner 的 skl_fx 動畫渲染，elapsed 由 lifetime 反推
-            owner_asset = char_assets.get(session.get_player(
-                e.owner_id).character_type, char_assets[0])
+            owner_asset = char_assets.get(e.character_type, char_assets[0])
             fxdef = owner_asset.skl_fx if e.is_skill else owner_asset.atk_proj_fx
 
             state_key = STATE_SKILL if e.is_skill else STATE_ATTACK
@@ -311,15 +313,12 @@ def run_game():
                     fxdef.path, fxdef.frame_w, fxdef.frame_h)
                 idx = (elapsed // max(1, fxdef.speed)) % len(frames)
                 frame = frames[idx]
-                # HitboxDef w/h 決定顯示尺寸；無 hit_def 時退回 fxdef.scale
-                if hit_def is not None:
-                    fw, fh = hit_def.w, hit_def.h
-                else:
+                if fxdef.scale != 1.0:
                     fw = max(1, int(frame.get_width() * fxdef.scale))
                     fh = max(1, int(frame.get_height() * fxdef.scale))
-                frame = pygame.transform.scale(frame, (fw, fh))
-                screen.blit(frame, (int(fx_cx) - fw // 2,
-                                    int(fx_cy) - fh // 2))
+                    frame = pygame.transform.scale(frame, (fw, fh))
+                screen.blit(frame, (int(fx_cx) - frame.get_width() // 2,
+                                    int(fx_cy) - frame.get_height() // 2))
             else:
                 pygame.draw.circle(screen, (255, 100, 0), (int(fx_cx), int(fx_cy)), 10)
                 pygame.draw.circle(screen, (255, 220, 60), (int(fx_cx), int(fx_cy)), 6)

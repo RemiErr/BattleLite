@@ -82,7 +82,10 @@ struct CharConfig {
     projectile_vx:       i32,
     projectile_lifetime: u32,
     spawn_timer:         u32,
-    entity_spawn_offset: i32,
+    entity_spawn_offset:     i32,   // SKILL entity X 發射偏移
+    entity_spawn_z_offset:   i32,   // SKILL entity Z 高度偏移
+    atk_entity_spawn_offset:   i32, // ATTACK entity X 發射偏移
+    atk_entity_spawn_z_offset: i32, // ATTACK entity Z 高度偏移
     atk_timer:           u32,
     skl_timer:           u32,
     // ATTACK 投射物（atk_projectile_vx == 0 表示此角色的 ATTACK 是近戰）
@@ -125,8 +128,11 @@ impl Default for CharConfig {
             projectile_vx:       0,
             projectile_lifetime: 60,
             spawn_timer:         35,
-            entity_spawn_offset: 0,
-            atk_timer:           20,
+            entity_spawn_offset:       0,
+            entity_spawn_z_offset:     0,
+            atk_entity_spawn_offset:   0,
+            atk_entity_spawn_z_offset: 0,
+            atk_timer:               20,
             skl_timer:           40,
             atk_projectile_vx:       0,
             atk_projectile_lifetime: 30,
@@ -238,6 +244,7 @@ fn check_attack_hit_cfg(attacker: &Player, victim: &Player, atk_cfg: &CharConfig
 #[derive(Clone, Default, Debug)]
 pub struct Entity {
     pub owner_id: usize,
+    pub character_type: u8,
     pub x: i32,
     pub y: i32,
     pub z: i32,
@@ -251,6 +258,7 @@ pub struct Entity {
 #[derive(Clone, Debug)]
 pub struct EntityView {
     #[pyo3(get)] pub owner_id: usize,
+    #[pyo3(get)] pub character_type: u8,
     #[pyo3(get)] pub x: i32,
     #[pyo3(get)] pub y: i32,
     #[pyo3(get)] pub z: i32,
@@ -303,7 +311,8 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
             let spawn_x = if p.facing_right { p.x + pcfg.entity_spawn_offset } else { p.x - pcfg.entity_spawn_offset };
             spawn_queue.push(Entity {
                 owner_id: i,
-                x: spawn_x, y: p.y, z: p.z,
+                character_type: p.character_type,
+                x: spawn_x, y: p.y, z: p.z + pcfg.entity_spawn_z_offset,
                 vx, vy: 0,
                 lifetime: pcfg.projectile_lifetime,
                 is_skill: true,
@@ -311,10 +320,11 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
         }
         if p.state == STATE_ATTACK && p.timer == pcfg.atk_spawn_timer && pcfg.atk_projectile_vx != 0 {
             let vx = if p.facing_right { pcfg.atk_projectile_vx } else { -pcfg.atk_projectile_vx };
-            let spawn_x = if p.facing_right { p.x + pcfg.entity_spawn_offset } else { p.x - pcfg.entity_spawn_offset };
+            let spawn_x = if p.facing_right { p.x + pcfg.atk_entity_spawn_offset } else { p.x - pcfg.atk_entity_spawn_offset };
             spawn_queue.push(Entity {
                 owner_id: i,
-                x: spawn_x, y: p.y, z: p.z,
+                character_type: p.character_type,
+                x: spawn_x, y: p.y, z: p.z + pcfg.atk_entity_spawn_z_offset,
                 vx, vy: 0,
                 lifetime: pcfg.atk_projectile_lifetime,
                 is_skill: false,
@@ -342,7 +352,7 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
     struct EntityHit { victim: usize, vx: i32, vz: i32, timer: u32, damage: i32 }
     let mut entity_hits: Vec<EntityHit> = Vec::new();
     for e in &state.entities {
-        let atk_cfg = get_cfg(configs, state.players[e.owner_id].character_type);
+        let atk_cfg = get_cfg(configs, e.character_type);
         for j in 0..state.players.len() {
             if e.owner_id == j { continue; }
             let victim = &state.players[j];
@@ -472,7 +482,8 @@ impl OfflineSession {
         skl_kb_vx: i32, skl_kb_vz: i32, skl_kb_timer: u32,
         hurt_front: i32, hurt_half_w: i32, hurt_half_h: i32, hurt_z_offset: i32,
         projectile_vx: i32, projectile_lifetime: u32, spawn_timer: u32,
-        entity_spawn_offset: i32,
+        entity_spawn_offset: i32, entity_spawn_z_offset: i32,
+        atk_entity_spawn_offset: i32, atk_entity_spawn_z_offset: i32,
         atk_timer: u32, skl_timer: u32,
         atk_projectile_vx: i32, atk_projectile_lifetime: u32, atk_spawn_timer: u32,
         atk_melee_enabled: bool, skl_melee_enabled: bool,
@@ -488,7 +499,8 @@ impl OfflineSession {
             skl_kb_vx, skl_kb_vz, skl_kb_timer,
             hurt_front, hurt_half_w, hurt_half_h, hurt_z_offset,
             projectile_vx, projectile_lifetime, spawn_timer,
-            entity_spawn_offset,
+            entity_spawn_offset, entity_spawn_z_offset,
+            atk_entity_spawn_offset, atk_entity_spawn_z_offset,
             atk_timer, skl_timer,
             atk_projectile_vx, atk_projectile_lifetime, atk_spawn_timer,
             atk_melee_enabled, skl_melee_enabled,
@@ -520,7 +532,8 @@ impl OfflineSession {
 
     fn get_entity(&self, id: usize) -> PyResult<EntityView> {
         self.state.entities.get(id).map(|e| EntityView {
-            owner_id: e.owner_id, x: e.x, y: e.y, z: e.z, lifetime: e.lifetime, is_skill: e.is_skill,
+            owner_id: e.owner_id, character_type: e.character_type,
+            x: e.x, y: e.y, z: e.z, lifetime: e.lifetime, is_skill: e.is_skill,
         }).ok_or_else(|| PyIndexError::new_err("Entity OOR"))
     }
 
@@ -584,7 +597,8 @@ impl GGRSSession {
         skl_kb_vx: i32, skl_kb_vz: i32, skl_kb_timer: u32,
         hurt_front: i32, hurt_half_w: i32, hurt_half_h: i32, hurt_z_offset: i32,
         projectile_vx: i32, projectile_lifetime: u32, spawn_timer: u32,
-        entity_spawn_offset: i32,
+        entity_spawn_offset: i32, entity_spawn_z_offset: i32,
+        atk_entity_spawn_offset: i32, atk_entity_spawn_z_offset: i32,
         atk_timer: u32, skl_timer: u32,
         atk_projectile_vx: i32, atk_projectile_lifetime: u32, atk_spawn_timer: u32,
         atk_melee_enabled: bool, skl_melee_enabled: bool,
@@ -600,7 +614,8 @@ impl GGRSSession {
             skl_kb_vx, skl_kb_vz, skl_kb_timer,
             hurt_front, hurt_half_w, hurt_half_h, hurt_z_offset,
             projectile_vx, projectile_lifetime, spawn_timer,
-            entity_spawn_offset,
+            entity_spawn_offset, entity_spawn_z_offset,
+            atk_entity_spawn_offset, atk_entity_spawn_z_offset,
             atk_timer, skl_timer,
             atk_projectile_vx, atk_projectile_lifetime, atk_spawn_timer,
             atk_melee_enabled, skl_melee_enabled,
@@ -638,7 +653,8 @@ impl GGRSSession {
 
     fn get_entity(&self, id: usize) -> PyResult<EntityView> {
         self.current_state.entities.get(id).map(|e| EntityView {
-            owner_id: e.owner_id, x: e.x, y: e.y, z: e.z, lifetime: e.lifetime, is_skill: e.is_skill,
+            owner_id: e.owner_id, character_type: e.character_type,
+            x: e.x, y: e.y, z: e.z, lifetime: e.lifetime, is_skill: e.is_skill,
         }).ok_or_else(|| PyIndexError::new_err("Entity OOR"))
     }
 
