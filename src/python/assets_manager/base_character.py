@@ -25,10 +25,10 @@ class CharStats:
     skl_kb_vx:    int =   8_000
     skl_kb_vz:    int =   6_000
     skl_kb_timer: int =      40
-    # 投射物（0 = 此角色無投射物）
-    projectile_vx:       int =      0   # 投射物每幀速度（×1000）
-    projectile_lifetime: int =     60   # 投射物存活幀數
-    spawn_timer:         int =     35   # SKILL 動作第幾幀發射（timer 倒數值）
+    # SKILL 投射物（0 = 此角色技能無投射物）
+    skl_projectile_vx:       int =      0   # 投射物每幀速度（×1000）
+    skl_projectile_lifetime: int =     60   # 投射物存活幀數
+    skl_spawn_timer:         int =     35   # SKILL 動作第幾幀發射（timer 倒數值）
     atk_timer:           int =      20  # ATTACK 狀態持續 tick 數
     skl_timer:           int =      40  # SKILL 狀態持續 tick 數
     # ATTACK 投射物（0 = 此角色的 ATTACK 是近戰）
@@ -148,9 +148,10 @@ class BaseCharacter:
         self.anchor_y: int = 0
 
         # 特效設定（None = 此動作無特效）
-        self.atk_fx: FxDef | None = None       # ATTACK 狀態切換時在角色位置播放
-        self.atk_proj_fx: FxDef | None = None  # ATTACK 投射物實體視覺（飛行中循環）
-        self.skl_fx: FxDef | None = None       # SKILL 投射物實體視覺（飛行中循環）
+        self.atk_fx: FxDef | None = None           # ATTACK 狀態切換時在角色位置播放（近戰用）
+        self.atk_proj_fx: FxDef | None = None      # ATTACK 投射物實體視覺（飛行中循環）
+        self.skl_fx: FxDef | None = None           # SKILL 狀態切換時在角色位置播放（近戰/非投射物用）
+        self.skl_proj_fx: FxDef | None = None      # SKILL 投射物實體視覺（飛行中循環）
 
     def load_sheet(self, path: str, frame_w: int, frame_h: int,
                    state_rows: list[tuple]) -> None:

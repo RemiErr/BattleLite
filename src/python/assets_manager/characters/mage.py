@@ -65,10 +65,10 @@ class Mage(BaseCharacter):
             skl_kb_vz=5_000,
             skl_kb_timer=30,
             skl_melee_enabled=False,
-            # 投射物參數 (For Rust)
-            projectile_vx=1_500,  # 速度，改大加速（×1000）
-            projectile_lifetime=300,  # 存活幀數，改大射程更遠
-            spawn_timer=35,          # Skill 動作第幾幀發射
+            # SKILL 投射物參數 (For Rust)
+            skl_projectile_vx=1_500,
+            skl_projectile_lifetime=300,
+            skl_spawn_timer=35,
         )
 
         self.hurt_boxes = {
@@ -97,7 +97,7 @@ class Mage(BaseCharacter):
             speed=3,       # 每幀持續 game tick（越小越快）
         )
 
-        self.skl_fx = FxDef(
+        self.skl_proj_fx = FxDef(
             path=os.path.join(_FX_DIR, "1.png"),
             frame_w=112, frame_h=100,
             offset_x=70,

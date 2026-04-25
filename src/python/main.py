@@ -58,9 +58,9 @@ def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
         s.atk_kb_vx, s.atk_kb_vz, s.atk_kb_timer,
         s.skl_kb_vx, s.skl_kb_vz, s.skl_kb_timer,
         hurt_f, hurt_hw, hurt_hh, hurt_zo,
-        s.projectile_vx, s.projectile_lifetime, s.spawn_timer,
-        (asset.skl_fx.offset_x      * 1000) if asset.skl_fx      else 0,
-        (asset.skl_fx.offset_y      * 1000) if asset.skl_fx      else 0,
+        s.skl_projectile_vx, s.skl_projectile_lifetime, s.skl_spawn_timer,
+        (asset.skl_proj_fx.offset_x * 1000) if asset.skl_proj_fx else 0,
+        (asset.skl_proj_fx.offset_y * 1000) if asset.skl_proj_fx else 0,
         (asset.atk_proj_fx.offset_x * 1000) if asset.atk_proj_fx else 0,
         (asset.atk_proj_fx.offset_y * 1000) if asset.atk_proj_fx else 0,
         s.atk_timer, s.skl_timer,
@@ -246,12 +246,12 @@ def run_game():
                                  (blit_x, blit_y, sw, sh), 1)
 
             # 特效：狀態剛切換時，依角色設定生成
-            # 投射物技能的 skl_fx 改由 Entity 位置驅動，不在此生成
+            # 投射物技能的 skl_proj_fx 改由 Entity 位置驅動，不在此生成
             if state_changed.get(original_idx):
                 fxdef = None
                 if p.state == STATE_ATTACK and asset.stats.atk_projectile_vx == 0:
                     fxdef = asset.atk_fx
-                elif p.state == STATE_SKILL and asset.stats.projectile_vx == 0:
+                elif p.state == STATE_SKILL and asset.stats.skl_projectile_vx == 0:
                     fxdef = asset.skl_fx
                 if fxdef is not None:
                     hit_def = asset.hit_boxes.get(p.state)
@@ -285,9 +285,9 @@ def run_game():
             ex = int(e.x / 1000.0)
             ey = int((e.y / 1000.0) - (e.z / 1000.0) + HUD_H)
 
-            # 以 owner 的 skl_fx 動畫渲染，elapsed 由 lifetime 反推
+            # 以 owner 的 skl_proj_fx 動畫渲染，elapsed 由 lifetime 反推
             owner_asset = char_assets.get(e.character_type, char_assets[0])
-            fxdef = owner_asset.skl_fx if e.is_skill else owner_asset.atk_proj_fx
+            fxdef = owner_asset.skl_proj_fx if e.is_skill else owner_asset.atk_proj_fx
 
             state_key = STATE_SKILL if e.is_skill else STATE_ATTACK
             hit_def = owner_asset.hit_boxes.get(state_key)
@@ -306,7 +306,7 @@ def run_game():
                                 (ex - shadow_w // 2, shadow_gy - 4, shadow_w, 8))
 
             if fxdef is not None:
-                total = owner_asset.stats.projectile_lifetime if e.is_skill \
+                total = owner_asset.stats.skl_projectile_lifetime if e.is_skill \
                     else owner_asset.stats.atk_projectile_lifetime
                 elapsed = max(0, total - e.lifetime)
                 frames = fx_manager._load(

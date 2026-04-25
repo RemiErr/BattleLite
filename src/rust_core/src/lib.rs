@@ -78,12 +78,12 @@ struct CharConfig {
     hurt_half_w:  i32,
     hurt_half_h:  i32,
     hurt_z_offset: i32,
-    // 投射物（projectile_vx == 0 表示此角色無投射物）
-    projectile_vx:       i32,
-    projectile_lifetime: u32,
-    spawn_timer:         u32,
-    entity_spawn_offset:     i32,   // SKILL entity X 發射偏移
-    entity_spawn_z_offset:   i32,   // SKILL entity Z 高度偏移
+    // SKILL 投射物（skl_projectile_vx == 0 表示此角色技能無投射物）
+    skl_projectile_vx:       i32,
+    skl_projectile_lifetime: u32,
+    skl_spawn_timer:         u32,
+    skl_entity_spawn_offset:   i32, // SKILL entity X 發射偏移
+    skl_entity_spawn_z_offset: i32, // SKILL entity Z 高度偏移
     atk_entity_spawn_offset:   i32, // ATTACK entity X 發射偏移
     atk_entity_spawn_z_offset: i32, // ATTACK entity Z 高度偏移
     atk_timer:           u32,
@@ -125,11 +125,11 @@ impl Default for CharConfig {
             hurt_half_w:  CHAR_WIDTH / 2,
             hurt_half_h:  50000,
             hurt_z_offset: 0,
-            projectile_vx:       0,
-            projectile_lifetime: 60,
-            spawn_timer:         35,
-            entity_spawn_offset:       0,
-            entity_spawn_z_offset:     0,
+            skl_projectile_vx:       0,
+            skl_projectile_lifetime: 60,
+            skl_spawn_timer:         35,
+            skl_entity_spawn_offset:   0,
+            skl_entity_spawn_z_offset: 0,
             atk_entity_spawn_offset:   0,
             atk_entity_spawn_z_offset: 0,
             atk_timer:               20,
@@ -306,15 +306,15 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
             }
         }
 
-        if p.state == STATE_SKILL && p.timer == pcfg.spawn_timer && pcfg.projectile_vx != 0 {
-            let vx = if p.facing_right { pcfg.projectile_vx } else { -pcfg.projectile_vx };
-            let spawn_x = if p.facing_right { p.x + pcfg.entity_spawn_offset } else { p.x - pcfg.entity_spawn_offset };
+        if p.state == STATE_SKILL && p.timer == pcfg.skl_spawn_timer && pcfg.skl_projectile_vx != 0 {
+            let vx = if p.facing_right { pcfg.skl_projectile_vx } else { -pcfg.skl_projectile_vx };
+            let spawn_x = if p.facing_right { p.x + pcfg.skl_entity_spawn_offset } else { p.x - pcfg.skl_entity_spawn_offset };
             spawn_queue.push(Entity {
                 owner_id: i,
                 character_type: p.character_type,
-                x: spawn_x, y: p.y, z: p.z + pcfg.entity_spawn_z_offset,
+                x: spawn_x, y: p.y, z: p.z + pcfg.skl_entity_spawn_z_offset,
                 vx, vy: 0,
-                lifetime: pcfg.projectile_lifetime,
+                lifetime: pcfg.skl_projectile_lifetime,
                 is_skill: true,
             });
         }
@@ -372,7 +372,7 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
                 && dz < entity_half_h + vic_cfg.hurt_half_h {
                 let (kb_vx_mag, kb_vz, kb_timer, dmg_base, total_lifetime) = if e.is_skill {
                     (atk_cfg.skl_kb_vx, atk_cfg.skl_kb_vz, atk_cfg.skl_kb_timer,
-                     atk_cfg.skill_dmg, atk_cfg.projectile_lifetime)
+                     atk_cfg.skill_dmg, atk_cfg.skl_projectile_lifetime)
                 } else {
                     (atk_cfg.atk_kb_vx, atk_cfg.atk_kb_vz, atk_cfg.atk_kb_timer,
                      atk_cfg.atk_dmg, atk_cfg.atk_projectile_lifetime)
@@ -481,8 +481,8 @@ impl OfflineSession {
         atk_kb_vx: i32, atk_kb_vz: i32, atk_kb_timer: u32,
         skl_kb_vx: i32, skl_kb_vz: i32, skl_kb_timer: u32,
         hurt_front: i32, hurt_half_w: i32, hurt_half_h: i32, hurt_z_offset: i32,
-        projectile_vx: i32, projectile_lifetime: u32, spawn_timer: u32,
-        entity_spawn_offset: i32, entity_spawn_z_offset: i32,
+        skl_projectile_vx: i32, skl_projectile_lifetime: u32, skl_spawn_timer: u32,
+        skl_entity_spawn_offset: i32, skl_entity_spawn_z_offset: i32,
         atk_entity_spawn_offset: i32, atk_entity_spawn_z_offset: i32,
         atk_timer: u32, skl_timer: u32,
         atk_projectile_vx: i32, atk_projectile_lifetime: u32, atk_spawn_timer: u32,
@@ -498,8 +498,8 @@ impl OfflineSession {
             atk_kb_vx, atk_kb_vz, atk_kb_timer,
             skl_kb_vx, skl_kb_vz, skl_kb_timer,
             hurt_front, hurt_half_w, hurt_half_h, hurt_z_offset,
-            projectile_vx, projectile_lifetime, spawn_timer,
-            entity_spawn_offset, entity_spawn_z_offset,
+            skl_projectile_vx, skl_projectile_lifetime, skl_spawn_timer,
+            skl_entity_spawn_offset, skl_entity_spawn_z_offset,
             atk_entity_spawn_offset, atk_entity_spawn_z_offset,
             atk_timer, skl_timer,
             atk_projectile_vx, atk_projectile_lifetime, atk_spawn_timer,
@@ -596,8 +596,8 @@ impl GGRSSession {
         atk_kb_vx: i32, atk_kb_vz: i32, atk_kb_timer: u32,
         skl_kb_vx: i32, skl_kb_vz: i32, skl_kb_timer: u32,
         hurt_front: i32, hurt_half_w: i32, hurt_half_h: i32, hurt_z_offset: i32,
-        projectile_vx: i32, projectile_lifetime: u32, spawn_timer: u32,
-        entity_spawn_offset: i32, entity_spawn_z_offset: i32,
+        skl_projectile_vx: i32, skl_projectile_lifetime: u32, skl_spawn_timer: u32,
+        skl_entity_spawn_offset: i32, skl_entity_spawn_z_offset: i32,
         atk_entity_spawn_offset: i32, atk_entity_spawn_z_offset: i32,
         atk_timer: u32, skl_timer: u32,
         atk_projectile_vx: i32, atk_projectile_lifetime: u32, atk_spawn_timer: u32,
@@ -613,8 +613,8 @@ impl GGRSSession {
             atk_kb_vx, atk_kb_vz, atk_kb_timer,
             skl_kb_vx, skl_kb_vz, skl_kb_timer,
             hurt_front, hurt_half_w, hurt_half_h, hurt_z_offset,
-            projectile_vx, projectile_lifetime, spawn_timer,
-            entity_spawn_offset, entity_spawn_z_offset,
+            skl_projectile_vx, skl_projectile_lifetime, skl_spawn_timer,
+            skl_entity_spawn_offset, skl_entity_spawn_z_offset,
             atk_entity_spawn_offset, atk_entity_spawn_z_offset,
             atk_timer, skl_timer,
             atk_projectile_vx, atk_projectile_lifetime, atk_spawn_timer,

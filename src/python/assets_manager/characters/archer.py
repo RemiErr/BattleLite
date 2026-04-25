@@ -25,15 +25,15 @@ _COLS = 8
 #   Row 0        : IDLE（第0幀）/ WALK（全8幀）
 #   Row 1 + Row2 col0-2 : ATTACK（共11幀，start=8）
 #   Row2 col3-7 + Row3-4 + Row5 col0-2 : SKILL（共24幀，start=19）
-#   Row5 col5-7  : HURT（3幀，start=45）
+#   Row5 col5-7  : HURT（3幀，start=44）
 # (state, start_frame, num_frames, loop, speed)
 # ---------------------------------------------------------------------------
 _STATE_FRAMES = [
     (0,  0,  1, True,  6),   # IDLE
     (1,  0,  8, True,  6),   # WALK
     (2,  8, 11, False, 4),   # ATTACK
-    (4, 19, 24, False, 4),   # SKILL
-    (3, 45,  3, False, 4),   # HURT
+    (4, 18, 24, False, 4),   # SKILL
+    (3, 44,  3, False, 4),   # HURT
 ]
 
 # ---------------------------------------------------------------------------
@@ -66,7 +66,7 @@ class Archer(BaseCharacter):
             max_mp=60_000,
             skill_cost=30_000,
             atk_dmg=15_000,
-            skill_dmg=35_000,
+            skill_dmg=50_000,
             atk_depth=25_000,
             skl_depth=40_000,
             atk_kb_vx=6_000,
@@ -75,9 +75,9 @@ class Archer(BaseCharacter):
             skl_kb_vx=10_000,
             skl_kb_vz=6_000,
             skl_kb_timer=35,
-            projectile_vx=15_000,
-            projectile_lifetime=80,
-            spawn_timer=36,
+            skl_projectile_vx=15_000,
+            skl_projectile_lifetime=80,
+            skl_spawn_timer=12,
             atk_timer=44,
             skl_timer=96,
             atk_projectile_vx=25_000,
@@ -111,8 +111,8 @@ class Archer(BaseCharacter):
             scale=0.6,
             speed=3,
         )
-        # 箭矢實體視覺由 skl_fx 驅動（飛行中持續循環）
-        self.skl_fx = FxDef(
+        # 箭矢實體視覺由 skl_proj_fx 驅動（飛行中持續循環）
+        self.skl_proj_fx = FxDef(
             path=os.path.join(_FX_DIR, "3.png"),
             frame_w=127, frame_h=97,
             offset_x=100,
