@@ -20,6 +20,7 @@ const STATE_WALK: u8 = 1;
 const STATE_ATTACK: u8 = 2;
 const STATE_HURT: u8 = 3;
 const STATE_SKILL: u8 = 4;
+const STATE_DEAD: u8 = 5;
 
 const INPUT_RIGHT: u8  = 1 << 0;
 const INPUT_LEFT: u8   = 1 << 1;
@@ -207,6 +208,12 @@ impl Player {
 
 impl Player {
     fn update_internal(&mut self, gravity: i32) {
+        if self.state == STATE_DEAD {
+            if self.z > 0 || self.vz > 0 { self.vz -= gravity; }
+            self.z += self.vz;
+            if self.z <= 0 { self.z = 0; self.vz = 0; self.vx = 0; self.vy = 0; }
+            return;
+        }
         if self.hitstop > 0 {
             self.hitstop -= 1;
             return;
@@ -315,6 +322,11 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
         let p = &mut state.players[i];
         let pcfg = get_cfg(configs, p.character_type);
 
+        if p.state == STATE_DEAD {
+            p.update_internal(pcfg.gravity);
+            continue;
+        }
+
         if p.state == STATE_IDLE || p.state == STATE_WALK {
             p.vx = 0; p.vy = 0;
             if input & INPUT_RIGHT != 0 { p.vx += pcfg.walk_speed_x; p.state = STATE_WALK; p.facing_right = true; }
@@ -387,7 +399,7 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
         for j in 0..state.players.len() {
             if e.owner_id == j { continue; }
             let victim = &state.players[j];
-            if victim.state == STATE_HURT { continue; }
+            if victim.state == STATE_HURT || victim.state == STATE_DEAD { continue; }
             let vic_cfg = get_cfg(configs, victim.character_type);
             let (entity_half_w, entity_depth, entity_half_h, entity_z_off) = if e.is_skill {
                 (atk_cfg.skl_half_w, atk_cfg.skl_depth, atk_cfg.skl_half_h, atk_cfg.skl_z_offset)
@@ -424,6 +436,7 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
     }
     for hit in entity_hits {
         let victim = &mut state.players[hit.victim];
+        if victim.state == STATE_DEAD { continue; }
         let vic_cfg = get_cfg(configs, victim.character_type);
         if victim.state == STATE_SKILL && vic_cfg.skl_damage_absorb > 0 {
             let dmg = (hit.damage - vic_cfg.skl_damage_absorb).max(0);
@@ -436,6 +449,7 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
             victim.hp -= hit.damage;
             if victim.hp < 0 { victim.hp = 0; }
         }
+        if victim.hp == 0 { victim.state = STATE_DEAD; victim.timer = 0; }
     }
 
     // 玩家近戰判定（使用 CharConfig）
@@ -467,6 +481,7 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
         for j in 0..num_players {
             if i == j { continue; }
             if state.players[j].state == STATE_HURT { continue; }
+            if state.players[j].state == STATE_DEAD  { continue; }
             let vic_cfg = get_cfg(configs, state.players[j].character_type);
             if check_attack_hit_cfg(&atk_info, &state.players[j], &cfg, &vic_cfg) {
                 let victim = &mut state.players[j];
@@ -482,6 +497,7 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
                     victim.hitstop = cfg.hitstop_frames;
                     hit_landed = true;
                 }
+                if victim.hp <= 0 { victim.hp = 0; victim.state = STATE_DEAD; victim.timer = 0; }
             }
         }
         if hit_landed {

@@ -32,6 +32,7 @@ except ImportError as e:
 INPUT_RIGHT, INPUT_LEFT, INPUT_UP, INPUT_DOWN, INPUT_JUMP, INPUT_ATTACK, INPUT_SKILL = [
     1 << i for i in range(7)]
 STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = range(5)
+STATE_DEAD = 5
 CHAR_TYPE_MAGE = 1
 CHAR_TYPE_ARCHER = 2
 
@@ -185,6 +186,33 @@ def run_game():
     last_states = [STATE_IDLE] * num_players
     sync_wait_frames = 0
     switch_player = 0
+    match_result: int | None = None  # None=進行中, -2=平手, 0..n=勝者 idx
+    result_font_big  = pygame.font.SysFont("Arial", 56, bold=True)
+    result_font_small = pygame.font.SysFont("Arial", 24)
+
+    def _check_match(n: int) -> int | None:
+        alive = [i for i in range(n) if session.get_player(i).state != STATE_DEAD]
+        if len(alive) == 1:
+            return alive[0]
+        if len(alive) == 0:
+            return -2
+        return None
+
+    def _restart_offline():
+        nonlocal match_result, player_elapsed_frames, last_states
+        for i in range(num_players):
+            p = session.get_player(i)
+            asset = char_assets.get(p.character_type, char_assets[0])
+            p.hp  = asset.stats.max_hp
+            p.mp  = asset.stats.max_mp
+            p.state = STATE_IDLE
+            p.timer = 0
+            p.vx = p.vy = p.vz = 0
+            p.z  = 0
+            session.set_player(i, p)
+        match_result = None
+        player_elapsed_frames = [0] * num_players
+        last_states = [STATE_IDLE] * num_players
 
     running = True
     while running:
@@ -192,6 +220,12 @@ def run_game():
             if event.type == pygame.QUIT:
                 running = False
             if event.type == pygame.KEYDOWN:
+                if match_result is not None:
+                    if event.key == pygame.K_r and is_offline:
+                        _restart_offline()
+                    elif event.key == pygame.K_ESCAPE:
+                        running = False
+                    continue
                 if event.key == pygame.K_F1:
                     debug_manager.toggle()
                 if event.key == pygame.K_F2 and is_offline:
@@ -216,14 +250,15 @@ def run_game():
         # 1. 邏輯推進 (不論模式，介面完全對等)
         input_mask = get_input_mask()
 
-        if is_offline:
-            # 離線模式傳入所有玩家的輸入陣列
-            inputs = [0] * num_players
-            inputs[controlled_idx] = input_mask
-            session.advance(inputs)
-        else:
-            # 線上模式由 GGRS 處理
-            session.advance(input_mask)
+        if match_result is None:
+            if is_offline:
+                inputs = [0] * num_players
+                inputs[controlled_idx] = input_mask
+                session.advance(inputs)
+            else:
+                session.advance(input_mask)
+            if num_players > 1:
+                match_result = _check_match(num_players)
 
         # 2. 渲染處理 (根據 Y 軸排序)
         screen.fill((30, 30, 30))
@@ -249,8 +284,14 @@ def run_game():
         for original_idx, p in render_list:
             sx, sy = get_screen_pos(p)
             asset = char_assets.get(p.character_type, char_assets[0])
-            sprite = asset.get_sprite(
-                p.state, player_elapsed_frames[original_idx], p.facing_right)
+            # 死亡時用 HURT 最後一幀，50% 透明度顯示
+            if p.state == STATE_DEAD:
+                sprite = asset.get_sprite(STATE_HURT, 9999, p.facing_right)
+                sprite = sprite.copy()
+                sprite.set_alpha(80)
+            else:
+                sprite = asset.get_sprite(
+                    p.state, player_elapsed_frames[original_idx], p.facing_right)
             sw, sh = sprite.get_width(), sprite.get_height()
             # sprite blit：anchor_x/y 將視覺中心對齊物理位置（純渲染偏移）
             # 朝右翻轉後模型偏移方向反轉，anchor_x 符號需隨之翻轉
@@ -406,6 +447,28 @@ def run_game():
             screen.blit(info1, info1.get_rect(center=(cx, cy + 50)))
             screen.blit(info2, info2.get_rect(center=(cx, cy + 75)))
             screen.blit(info3, info3.get_rect(center=(cx, cy + 100)))
+
+        # 結算畫面
+        if match_result is not None:
+            ov = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+            ov.fill((0, 0, 0, 160))
+            screen.blit(ov, (0, 0))
+            cx, cy = SCREEN_W // 2, SCREEN_H // 2
+            if match_result == -2:
+                msg = "DRAW!"
+                color = (200, 200, 200)
+            else:
+                name = player_names.get(match_result, f"Player {match_result + 1}")
+                char_name = char_assets.get(
+                    session.get_player(match_result).character_type,
+                    char_assets[0]).name
+                msg = f"{name}  ({char_name})  WINS!"
+                color = (255, 220, 60)
+            big_surf = result_font_big.render(msg, True, color)
+            screen.blit(big_surf, big_surf.get_rect(center=(cx, cy - 20)))
+            hint = "R: Restart  ESC: Quit" if is_offline else "ESC: Quit"
+            sm_surf = result_font_small.render(hint, True, (180, 180, 180))
+            screen.blit(sm_surf, sm_surf.get_rect(center=(cx, cy + 50)))
 
         pygame.display.flip()
         clock.tick(60)
