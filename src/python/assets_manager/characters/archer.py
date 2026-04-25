@@ -32,8 +32,8 @@ _STATE_FRAMES = [
     (0,  0,  1, True,  6),   # IDLE
     (1,  0,  8, True,  6),   # WALK
     (2,  8, 11, False, 4),   # ATTACK
-    (4, 18, 24, False, 4),   # SKILL
-    (3, 44,  3, False, 4),   # HURT
+    (4, 19, 24, False, 4),   # SKILL
+    (3, 43,  3, False, 3),   # HURT
 ]
 
 # ---------------------------------------------------------------------------
@@ -41,8 +41,8 @@ _STATE_FRAMES = [
 #   Sprite 中心 = (79, 86)（158//2, 173//2）
 # ---------------------------------------------------------------------------
 
-_HURT_BODY = HitboxDef(ox=-20, oy=-82, w=50, h=90)   # bottom=0（腳）
-_HURT_HURT = HitboxDef(ox=-20, oy=-85, w=48, h=80)
+_HURT_BODY = HitboxDef(ox=-24, oy=-82, w=60, h=90)   # bottom=0（腳）
+_HURT_HURT = HitboxDef(ox=-26, oy=-78, w=48, h=78)
 
 _HIT_ATTACK = HitboxDef(ox=0, oy=-30, w=50, h=35)
 _HIT_SKILL = HitboxDef(ox=0, oy=-40, w=80, h=45)
@@ -53,7 +53,7 @@ STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
 class Archer(BaseCharacter):
     def __init__(self):
         super().__init__("Archer")
-        self.anchor_x = -15
+        self.anchor_x = 15
         self.anchor_y = 78
         self.faceset_path = _FACE_PATH
         self.load_sheet_linear(_SHEET_PATH, _FRAME_W,
