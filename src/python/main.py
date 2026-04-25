@@ -20,6 +20,7 @@ try:
     from src.python.assets_manager.characters.mage import Mage
     from src.python.assets_manager.characters.archer import Archer
     from src.python.assets_manager.characters.paladin import Paladin
+    from src.python.assets_manager.characters.wizard import Wizard
     from src.python.assets_manager.base_character import BaseCharacter
     from src.python.fx_manager import FxManager
     from src.python.crypto_utils import SHARED_SECRET
@@ -57,6 +58,11 @@ def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
     skl_hit_start = s.skl_hit_frame_start * skl_spd
     skl_hit_end   = s.skl_hit_frame_end   * skl_spd
     atk_dash_tick = s.atk_dash_frame * atk_spd
+    # 幀索引優先於舊版 timer 倒數值
+    skl_spawn_timer_val = (s.skl_timer - s.skl_spawn_frame * skl_spd
+                           if s.skl_spawn_frame >= 0 else s.skl_spawn_timer)
+    atk_spawn_timer_val = (s.atk_timer - s.atk_spawn_frame * atk_spd
+                           if s.atk_spawn_frame >= 0 else s.atk_spawn_timer)
 
     session.set_char_config(
         char_type,
@@ -68,18 +74,19 @@ def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
         s.atk_kb_vx, s.atk_kb_vz, s.atk_kb_timer,
         s.skl_kb_vx, s.skl_kb_vz, s.skl_kb_timer,
         hurt_f, hurt_hw, hurt_hh, hurt_zo,
-        s.skl_projectile_vx, s.skl_projectile_lifetime, s.skl_spawn_timer,
+        s.skl_projectile_vx, s.skl_projectile_lifetime, skl_spawn_timer_val,
         (asset.skl_proj_fx.offset_x * 1000) if asset.skl_proj_fx else 0,
         (asset.skl_proj_fx.offset_y * 1000) if asset.skl_proj_fx else 0,
         (asset.atk_proj_fx.offset_x * 1000) if asset.atk_proj_fx else 0,
         (asset.atk_proj_fx.offset_y * 1000) if asset.atk_proj_fx else 0,
         s.atk_timer, s.skl_timer,
-        s.atk_projectile_vx, s.atk_projectile_lifetime, s.atk_spawn_timer,
+        s.atk_projectile_vx, s.atk_projectile_lifetime, atk_spawn_timer_val,
         s.atk_melee_enabled, s.skl_melee_enabled,
         s.skl_damage_absorb,
         atk_hit_start, atk_hit_end,
         skl_hit_start, skl_hit_end,
         s.atk_dash_vx, atk_dash_tick,
+        s.skl_spawn_entity,
     )
 
 
@@ -139,7 +146,7 @@ def run_game():
     debug_manager = DebugManager()
     fx_manager = FxManager()
     char_assets: dict[int, BaseCharacter] = {
-        0: Knight(), 1: Mage(), 2: Archer(), 3: Paladin()}
+        0: Knight(), 1: Mage(), 2: Archer(), 3: Paladin(), 4: Wizard()}
 
     # 建立玩家名稱對照表（使用者名稱優先，否則 HUD 自動 fallback 職業名）
     player_names: dict[int, str] = {
@@ -346,6 +353,8 @@ def run_game():
                     fxdef.path, fxdef.frame_w, fxdef.frame_h)
                 idx = (elapsed // max(1, fxdef.speed)) % len(frames)
                 frame = frames[idx]
+                if e.vx < 0:  # 向左飛行時水平翻轉
+                    frame = pygame.transform.flip(frame, True, False)
                 if fxdef.scale != 1.0:
                     fw = max(1, int(frame.get_width() * fxdef.scale))
                     fh = max(1, int(frame.get_height() * fxdef.scale))

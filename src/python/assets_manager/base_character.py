@@ -31,16 +31,19 @@ class CharStats:
     skl_kb_vx:    int =   8_000
     skl_kb_vz:    int =   6_000
     skl_kb_timer: int =      40
-    # SKILL 投射物（0 = 此角色技能無投射物）
+    # SKILL 投射物（0 = 此角色技能無投射物；搭配 skl_spawn_entity=True 可做靜止 AOE）
     skl_projectile_vx:       int =      0   # 投射物每幀速度（×1000）
     skl_projectile_lifetime: int =     60   # 投射物存活幀數
-    skl_spawn_timer:         int =     35   # SKILL 動作第幾幀發射（timer 倒數值）
+    skl_spawn_timer:         int =     35   # 舊版：Rust timer 倒數值（保留相容，優先用 skl_spawn_frame）
+    skl_spawn_frame:         int =     -1   # SKILL 動畫第幾幀觸發生成（0-based；-1 = 用 skl_spawn_timer）
+    skl_spawn_entity:        bool =  False  # True = 強制生成 entity（用於 AOE，vx 可為 0）
     atk_timer:           int =      20  # ATTACK 狀態持續 tick 數
     skl_timer:           int =      40  # SKILL 狀態持續 tick 數
     # ATTACK 投射物（0 = 此角色的 ATTACK 是近戰）
     atk_projectile_vx:       int =      0   # ATTACK 投射物速度（×1000）
     atk_projectile_lifetime: int =     30   # ATTACK 投射物存活幀數
-    atk_spawn_timer:         int =     10   # ATTACK 動作第幾 tick 發射
+    atk_spawn_timer:         int =     10   # 舊版：Rust timer 倒數值（保留相容，優先用 atk_spawn_frame）
+    atk_spawn_frame:         int =     -1   # ATTACK 動畫第幾幀觸發生成（0-based；-1 = 用 atk_spawn_timer）
     # 近戰啟用旗標（可與投射物獨立設定）
     atk_melee_enabled: bool = True   # False = ATTACK 不走近戰判定
     skl_melee_enabled: bool = True   # False = SKILL 不走近戰判定
