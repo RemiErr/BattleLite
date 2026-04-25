@@ -51,6 +51,9 @@ class CharStats:
     atk_hit_frame_end:   int = 999  # ATTACK 判定結束幀（含）
     skl_hit_frame_start: int = 0    # SKILL 判定開始幀（含）
     skl_hit_frame_end:   int = 999  # SKILL 判定結束幀（含）
+    # 衝刺（ATTACK 動畫指定幀瞬間位移，0 = 無衝刺）
+    atk_dash_vx:    int = 0   # 衝刺距離（game unit = px × 1000，正值 = 朝面向方向）
+    atk_dash_frame: int = 0   # 第幾幀觸發衝刺
 
 
 @dataclass

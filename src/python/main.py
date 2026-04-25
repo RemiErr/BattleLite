@@ -56,6 +56,7 @@ def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
     atk_hit_end   = s.atk_hit_frame_end   * atk_spd
     skl_hit_start = s.skl_hit_frame_start * skl_spd
     skl_hit_end   = s.skl_hit_frame_end   * skl_spd
+    atk_dash_tick = s.atk_dash_frame * atk_spd
 
     session.set_char_config(
         char_type,
@@ -78,6 +79,7 @@ def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
         s.skl_damage_absorb,
         atk_hit_start, atk_hit_end,
         skl_hit_start, skl_hit_end,
+        s.atk_dash_vx, atk_dash_tick,
     )
 
 

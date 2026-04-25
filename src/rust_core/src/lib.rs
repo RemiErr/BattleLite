@@ -93,6 +93,9 @@ struct CharConfig {
     atk_hit_end:   u32,
     skl_hit_start: u32,
     skl_hit_end:   u32,
+    // ATTACK 衝刺（0 = 無衝刺）
+    atk_dash_vx:   i32,  // 衝刺距離（game unit，正值 = 朝面向方向）
+    atk_dash_tick: u32,  // elapsed ticks 到此值時觸發
 }
 
 impl Default for CharConfig {
@@ -147,6 +150,8 @@ impl Default for CharConfig {
             atk_hit_end:   9999,
             skl_hit_start: 0,
             skl_hit_end:   9999,
+            atk_dash_vx:   0,
+            atk_dash_tick: 0,
         }
     }
 }
@@ -345,6 +350,14 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
             });
         }
 
+        if p.state == STATE_ATTACK && pcfg.atk_dash_vx != 0 {
+            let elapsed = pcfg.atk_timer.saturating_sub(p.timer);
+            if elapsed == pcfg.atk_dash_tick {
+                let dash = if p.facing_right { pcfg.atk_dash_vx } else { -pcfg.atk_dash_vx };
+                p.x += dash;
+            }
+        }
+
         p.update_internal(pcfg.gravity);
         if p.mp < pcfg.max_mp {
             p.mp += MP_REGEN;
@@ -521,6 +534,7 @@ impl OfflineSession {
         skl_damage_absorb: i32,
         atk_hit_start: u32, atk_hit_end: u32,
         skl_hit_start: u32, skl_hit_end: u32,
+        atk_dash_vx: i32, atk_dash_tick: u32,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
@@ -542,6 +556,7 @@ impl OfflineSession {
             skl_damage_absorb,
             atk_hit_start, atk_hit_end,
             skl_hit_start, skl_hit_end,
+            atk_dash_vx, atk_dash_tick,
         };
         for p in &mut self.state.players {
             if p.character_type as usize == char_type {
@@ -645,6 +660,7 @@ impl GGRSSession {
         skl_damage_absorb: i32,
         atk_hit_start: u32, atk_hit_end: u32,
         skl_hit_start: u32, skl_hit_end: u32,
+        atk_dash_vx: i32, atk_dash_tick: u32,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
@@ -666,6 +682,7 @@ impl GGRSSession {
             skl_damage_absorb,
             atk_hit_start, atk_hit_end,
             skl_hit_start, skl_hit_end,
+            atk_dash_vx, atk_dash_tick,
         };
         for p in &mut self.current_state.players {
             if p.character_type as usize == char_type {
