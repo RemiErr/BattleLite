@@ -41,11 +41,11 @@ _STATE_ROWS = [
 #     → ox = 40-91 = -51, oy = 15-61 = -46, w=60, h=75
 # ---------------------------------------------------------------------------
 
-_HURT_BODY = HitboxDef(ox=-35, oy=-41, w=80, h=100)
-_HURT_HURT = HitboxDef(ox=-15, oy=-41, w=70, h=90)   # HURT 狀態身體縮小
+_HURT_BODY = HitboxDef(ox=-35, oy=-80, w=80, h=100)   # bottom=0（腳）
+_HURT_HURT = HitboxDef(ox=-15, oy=-80, w=70, h=90)
 
-_HIT_ATTACK = HitboxDef(ox=-86, oy=-53, w=75, h=110)
-_HIT_SKILL = HitboxDef(ox=-50, oy=-33, w=66, h=85)
+_HIT_ATTACK = HitboxDef(ox=-86, oy=-92, w=75, h=110)
+_HIT_SKILL = HitboxDef(ox=-60, oy=-72, w=66, h=85)
 
 STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
 
@@ -53,6 +53,7 @@ STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
 class Knight(BaseCharacter):
     def __init__(self):
         super().__init__("Knight")
+        self.anchor_y = 41   # 幀中心偏移量 (向下)
         self.faceset_path = _FACE_PATH
         self.load_sheet(
             os.path.normpath(_SHEET_PATH),
@@ -91,4 +92,3 @@ class Knight(BaseCharacter):
             STATE_SKILL:  _HIT_SKILL,
             STATE_HURT:   None,
         }
-

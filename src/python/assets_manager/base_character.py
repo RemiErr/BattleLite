@@ -141,6 +141,12 @@ class BaseCharacter:
         self.hit_boxes:  dict[int, HitboxDef | None] = {}
         self.stats: CharStats = CharStats()
 
+        # 幀中心到角色視覺中心的偏移（純渲染用，不影響 hitbox 或物理）
+        # anchor_x: 正值 = sprite 向左移（視覺中心在幀中心右方）
+        # anchor_y: 正值 = sprite 向上移（視覺腳在幀中心下方）
+        self.anchor_x: int = 0
+        self.anchor_y: int = 0
+
         # 特效設定（None = 此動作無特效）
         self.atk_fx: FxDef | None = None       # ATTACK 狀態切換時在角色位置播放
         self.atk_proj_fx: FxDef | None = None  # ATTACK 投射物實體視覺（飛行中循環）

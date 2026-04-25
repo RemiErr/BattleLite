@@ -227,14 +227,12 @@ def run_game():
             sprite = asset.get_sprite(
                 p.state, player_elapsed_frames[original_idx], p.facing_right)
             sw, sh = sprite.get_width(), sprite.get_height()
-            # 以圖像中心對齊角色物理位置
-            blit_x = int(sx - sw // 2)
-            blit_y = int(sy - sh // 2)
-            # 陰影跟隨圖像底部中心
+            # sprite blit：anchor_x/y 將視覺中心對齊物理位置（純渲染偏移）
+            blit_x = int(sx - sw // 2 - asset.anchor_x)
+            blit_y = int(sy - sh // 2 - asset.anchor_y)
+            # 影子在腳的地面投影；跳躍時 e.z 抵消 sy 的 z 分量，影子不上浮
             shadow_x = int(sx - 25)
-            # 跳躍時陰影應貼地，不隨角色 z 高度上浮
-            ground_sy = sy + int(getattr(p, "z", 0) / 1000)
-            shadow_y = int(ground_sy + sh // 2 - 20)
+            shadow_y = int(sy + p.z / 1000.0)
             pygame.draw.ellipse(screen, (10, 10, 10),
                                 (shadow_x, shadow_y, 50, 14))
             screen.blit(sprite, (blit_x, blit_y))
@@ -296,11 +294,14 @@ def run_game():
             else:
                 fx_cx, fx_cy = ex, ey
 
-            # 影子貼地（z 加回去還原地面 y，不隨高度上浮；X 跟隨 FX 中心）
-            ey_ground = ey + int(e.z / 1000.0)
+            # 影子錨定 hitbox 底部
+            if hit_def is not None:
+                shadow_gy = int(ey + hit_def.oy + hit_def.h + e.z / 1000.0)
+            else:
+                shadow_gy = int(e.y / 1000.0 + HUD_H)
             shadow_w = max(8, int(30 * (fxdef.scale if fxdef is not None else 1.0)))
             pygame.draw.ellipse(screen, (10, 10, 10),
-                                (int(fx_cx) - shadow_w // 2, ey_ground - 4, shadow_w, 8))
+                                (ex - shadow_w // 2, shadow_gy - 4, shadow_w, 8))
 
             if fxdef is not None:
                 total = owner_asset.stats.projectile_lifetime if e.is_skill \
@@ -310,12 +311,15 @@ def run_game():
                     fxdef.path, fxdef.frame_w, fxdef.frame_h)
                 idx = (elapsed // max(1, fxdef.speed)) % len(frames)
                 frame = frames[idx]
-                if fxdef.scale != 1.0:
+                # HitboxDef w/h 決定顯示尺寸；無 hit_def 時退回 fxdef.scale
+                if hit_def is not None:
+                    fw, fh = hit_def.w, hit_def.h
+                else:
                     fw = max(1, int(frame.get_width() * fxdef.scale))
                     fh = max(1, int(frame.get_height() * fxdef.scale))
-                    frame = pygame.transform.scale(frame, (fw, fh))
-                screen.blit(frame, (int(fx_cx) - frame.get_width() // 2,
-                                    int(fx_cy) - frame.get_height() // 2))
+                frame = pygame.transform.scale(frame, (fw, fh))
+                screen.blit(frame, (int(fx_cx) - fw // 2,
+                                    int(fx_cy) - fh // 2))
             else:
                 pygame.draw.circle(screen, (255, 100, 0), (int(fx_cx), int(fx_cy)), 10)
                 pygame.draw.circle(screen, (255, 220, 60), (int(fx_cx), int(fx_cy)), 6)

@@ -41,11 +41,11 @@ _STATE_FRAMES = [
 #   Sprite 中心 = (79, 86)（158//2, 173//2）
 # ---------------------------------------------------------------------------
 
-_HURT_BODY = HitboxDef(ox=-20, oy=-60, w=50, h=90)
-_HURT_HURT = HitboxDef(ox=-20, oy=-55, w=48, h=80)
+_HURT_BODY = HitboxDef(ox=-20, oy=-82, w=50, h=90)   # bottom=0（腳）
+_HURT_HURT = HitboxDef(ox=-20, oy=-85, w=48, h=80)
 
-_HIT_ATTACK = HitboxDef(ox=-65, oy=-45, w=58, h=95)
-_HIT_SKILL = HitboxDef(ox=-70, oy=-12, w=84, h=36)
+_HIT_ATTACK = HitboxDef(ox=50, oy=-75, w=38, h=35)
+_HIT_SKILL = HitboxDef(ox=100, oy=30, w=84, h=36)
 
 STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
 
@@ -53,6 +53,8 @@ STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
 class Archer(BaseCharacter):
     def __init__(self):
         super().__init__("Archer")
+        self.anchor_x = -15
+        self.anchor_y = 78
         self.faceset_path = _FACE_PATH
         self.load_sheet_linear(_SHEET_PATH, _FRAME_W,
                                _FRAME_H, _COLS, _STATE_FRAMES)
@@ -114,7 +116,7 @@ class Archer(BaseCharacter):
             path=os.path.join(_FX_DIR, "3.png"),
             frame_w=127, frame_h=97,
             offset_x=50,
-            offset_y=30,
+            offset_y=0,
             scale=0.8,
             speed=3,
         )
