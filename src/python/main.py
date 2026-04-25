@@ -19,6 +19,7 @@ try:
     from src.python.assets_manager.characters.knight import Knight
     from src.python.assets_manager.characters.mage import Mage
     from src.python.assets_manager.characters.archer import Archer
+    from src.python.assets_manager.characters.paladin import Paladin
     from src.python.assets_manager.base_character import BaseCharacter
     from src.python.fx_manager import FxManager
     from src.python.crypto_utils import SHARED_SECRET
@@ -67,6 +68,7 @@ def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
         s.atk_timer, s.skl_timer,
         s.atk_projectile_vx, s.atk_projectile_lifetime, s.atk_spawn_timer,
         s.atk_melee_enabled, s.skl_melee_enabled,
+        s.skl_damage_absorb,
     )
 
 
@@ -126,7 +128,7 @@ def run_game():
     debug_manager = DebugManager()
     fx_manager = FxManager()
     char_assets: dict[int, BaseCharacter] = {
-        0: Knight(), 1: Mage(), 2: Archer()}
+        0: Knight(), 1: Mage(), 2: Archer(), 3: Paladin()}
 
     # 建立玩家名稱對照表（使用者名稱優先，否則 HUD 自動 fallback 職業名）
     player_names: dict[int, str] = {
