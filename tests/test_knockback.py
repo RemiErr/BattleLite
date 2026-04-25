@@ -178,6 +178,7 @@ def test_entity_knockback_follows_projectile_direction():
         20, 40,
         0, 30, 10,
         True, True,
+        0,
     )
 
     mage = session.get_player(0)
