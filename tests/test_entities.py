@@ -32,6 +32,8 @@ def make_session_with_mage(mage_idx: int = 0, num_players: int = 2) -> OfflineSe
         0, 30, 10,
         True, True,
         0,
+        0, 9999,
+        0, 9999,
     )
     p = session.get_player(mage_idx)
     p.character_type = CHAR_TYPE_MAGE
