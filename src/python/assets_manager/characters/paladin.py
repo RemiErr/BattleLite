@@ -82,6 +82,8 @@ class Paladin(BaseCharacter):
             skl_hit_frame_start=13,
             skl_hit_frame_end=17,
             skl_damage_absorb=10_000,
+            atk_dash_vx=80_000,   # 衝刺距離 80px
+            atk_dash_frame=4,        # 第 n 幀觸發
         )
 
         self.hurt_boxes = {
