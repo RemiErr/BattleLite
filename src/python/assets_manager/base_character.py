@@ -44,6 +44,8 @@ class CharStats:
     # 近戰啟用旗標（可與投射物獨立設定）
     atk_melee_enabled: bool = True   # False = ATTACK 不走近戰判定
     skl_melee_enabled: bool = True   # False = SKILL 不走近戰判定
+    # 護盾：SKILL 狀態下每次命中吸收的傷害量（0 = 無護盾效果）
+    skl_damage_absorb: int  = 0
 
 
 @dataclass

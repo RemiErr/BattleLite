@@ -86,6 +86,8 @@ struct CharConfig {
     // 近戰啟用旗標（可與投射物獨立設定）
     atk_melee_enabled: bool,
     skl_melee_enabled: bool,
+    // 護盾：每次命中吸收的傷害量（0 = 無護盾）
+    skl_damage_absorb: i32,
 }
 
 impl Default for CharConfig {
@@ -135,6 +137,7 @@ impl Default for CharConfig {
             atk_spawn_timer:         10,
             atk_melee_enabled: true,
             skl_melee_enabled: true,
+            skl_damage_absorb: 0,
         }
     }
 }
@@ -395,12 +398,18 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
     }
     for hit in entity_hits {
         let victim = &mut state.players[hit.victim];
-        victim.state = STATE_HURT;
-        victim.timer = hit.timer;
-        victim.vx = hit.vx;
-        victim.vz = hit.vz;
-        victim.hp -= hit.damage;
-        if victim.hp < 0 { victim.hp = 0; }
+        let vic_cfg = get_cfg(configs, victim.character_type);
+        if victim.state == STATE_SKILL && vic_cfg.skl_damage_absorb > 0 {
+            let dmg = (hit.damage - vic_cfg.skl_damage_absorb).max(0);
+            victim.hp = (victim.hp - dmg).max(0);
+        } else {
+            victim.state = STATE_HURT;
+            victim.timer = hit.timer;
+            victim.vx = hit.vx;
+            victim.vz = hit.vz;
+            victim.hp -= hit.damage;
+            if victim.hp < 0 { victim.hp = 0; }
+        }
     }
 
     // 玩家近戰判定（使用 CharConfig）
@@ -431,13 +440,18 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
             let vic_cfg = get_cfg(configs, state.players[j].character_type);
             if check_attack_hit_cfg(&atk_info, &state.players[j], &cfg, &vic_cfg) {
                 let victim = &mut state.players[j];
-                victim.state = STATE_HURT;
-                victim.timer = kb_timer;
-                victim.vx = kb_vx;
-                victim.vz = kb_vz;
-                victim.hp -= kb_dmg;
-                victim.hitstop = cfg.hitstop_frames;
-                hit_landed = true;
+                if victim.state == STATE_SKILL && vic_cfg.skl_damage_absorb > 0 {
+                    let dmg = (kb_dmg - vic_cfg.skl_damage_absorb).max(0);
+                    victim.hp = (victim.hp - dmg).max(0);
+                } else {
+                    victim.state = STATE_HURT;
+                    victim.timer = kb_timer;
+                    victim.vx = kb_vx;
+                    victim.vz = kb_vz;
+                    victim.hp -= kb_dmg;
+                    victim.hitstop = cfg.hitstop_frames;
+                    hit_landed = true;
+                }
             }
         }
         if hit_landed {
@@ -468,6 +482,7 @@ impl OfflineSession {
         configs.push(CharConfig::default()); // Knight (0)
         configs.push(CharConfig::default()); // Mage   (1)
         configs.push(CharConfig::default()); // Archer (2)
+        configs.push(CharConfig::default()); // Paladin (3)
         OfflineSession { state: GameState { players, frame: 0, entities: Vec::new() }, char_configs: configs }
     }
 
@@ -490,6 +505,7 @@ impl OfflineSession {
         atk_timer: u32, skl_timer: u32,
         atk_projectile_vx: i32, atk_projectile_lifetime: u32, atk_spawn_timer: u32,
         atk_melee_enabled: bool, skl_melee_enabled: bool,
+        skl_damage_absorb: i32,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
@@ -508,6 +524,7 @@ impl OfflineSession {
             atk_timer, skl_timer,
             atk_projectile_vx, atk_projectile_lifetime, atk_spawn_timer,
             atk_melee_enabled, skl_melee_enabled,
+            skl_damage_absorb,
         };
         for p in &mut self.state.players {
             if p.character_type as usize == char_type {
@@ -583,6 +600,7 @@ impl GGRSSession {
         configs.push(CharConfig::default()); // Knight (0)
         configs.push(CharConfig::default()); // Mage   (1)
         configs.push(CharConfig::default()); // Archer (2)
+        configs.push(CharConfig::default()); // Paladin (3)
         Ok(GGRSSession {
             session,
             current_state: GameState { players, frame: 0, entities: Vec::new() },
@@ -607,6 +625,7 @@ impl GGRSSession {
         atk_timer: u32, skl_timer: u32,
         atk_projectile_vx: i32, atk_projectile_lifetime: u32, atk_spawn_timer: u32,
         atk_melee_enabled: bool, skl_melee_enabled: bool,
+        skl_damage_absorb: i32,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
@@ -625,6 +644,7 @@ impl GGRSSession {
             atk_timer, skl_timer,
             atk_projectile_vx, atk_projectile_lifetime, atk_spawn_timer,
             atk_melee_enabled, skl_melee_enabled,
+            skl_damage_absorb,
         };
         for p in &mut self.current_state.players {
             if p.character_type as usize == char_type {
