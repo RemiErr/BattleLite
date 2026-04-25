@@ -24,8 +24,8 @@ _COLS = 6
 # (state, start_frame, num_frames, loop, speed)
 # ---------------------------------------------------------------------------
 _STATE_FRAMES = [
-    (0,  0,  1, True,  6),   # IDLE
-    (1,  0,  8, True,  6),   # WALK
+    (0,  0,  8, True,  8),   # IDLE
+    (1,  0,  8, True,  8),   # WALK
     (2,  8, 11, False, 6),   # ATTACK
     (4, 22, 18, False, 4),   # SKILL
     (3, 19,  3, False, 3),   # HURT

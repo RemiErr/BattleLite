@@ -16,7 +16,7 @@ _FRAME_H = 122
 
 # (state, row, num_frames, loop, speed)
 _STATE_ROWS = [
-    (0, 0, 1, True,  6),  # IDLE:   Row0, 1 frame
+    (0, 0, 6, True,  6),  # IDLE:   Row0, 6 frame
     (1, 0, 6, True,  6),  # WALK:   Row0, 6 frames
     (2, 1, 6, False, 4),  # ATTACK: Row1
     (4, 2, 6, False, 4),  # SKILL:  Row2 (Guard)

@@ -21,8 +21,8 @@ _FRAME_H = 100
 
 # (state, row, num_frames, loop, speed)
 _STATE_ROWS = [
-    (0, 0, 1, True,  6),  # IDLE:   Row0 frame 0 static
-    (1, 0, 5, True,  6),  # WALK:   Row0, 5 frames
+    (0, 0, 5, True,  5),  # IDLE:   Row0 frame 0 static
+    (1, 0, 5, True,  5),  # WALK:   Row0, 5 frames
     (2, 1, 5, False, 4),  # ATTACK: Row1 近身出拳
     (4, 2, 4, False, 8),  # SKILL:  Row2 發射投擲物
     (3, 3, 1, False, 4),  # HURT:   Row3
