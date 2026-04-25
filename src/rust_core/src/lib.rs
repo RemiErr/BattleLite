@@ -96,6 +96,8 @@ struct CharConfig {
     // ATTACK 衝刺（0 = 無衝刺）
     atk_dash_vx:   i32,  // 衝刺距離（game unit，正值 = 朝面向方向）
     atk_dash_tick: u32,  // elapsed ticks 到此值時觸發
+    // 強制生成 SKILL entity（即使 skl_projectile_vx == 0，用於 AOE 技能）
+    skl_spawn_entity: bool,
 }
 
 impl Default for CharConfig {
@@ -152,6 +154,7 @@ impl Default for CharConfig {
             skl_hit_end:   9999,
             atk_dash_vx:   0,
             atk_dash_tick: 0,
+            skl_spawn_entity: false,
         }
     }
 }
@@ -281,6 +284,7 @@ pub struct EntityView {
     #[pyo3(get)] pub x: i32,
     #[pyo3(get)] pub y: i32,
     #[pyo3(get)] pub z: i32,
+    #[pyo3(get)] pub vx: i32,
     #[pyo3(get)] pub lifetime: u32,
     #[pyo3(get)] pub is_skill: bool,
 }
@@ -325,7 +329,7 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
             }
         }
 
-        if p.state == STATE_SKILL && p.timer == pcfg.skl_spawn_timer && pcfg.skl_projectile_vx != 0 {
+        if p.state == STATE_SKILL && p.timer == pcfg.skl_spawn_timer && (pcfg.skl_projectile_vx != 0 || pcfg.skl_spawn_entity) {
             let vx = if p.facing_right { pcfg.skl_projectile_vx } else { -pcfg.skl_projectile_vx };
             let spawn_x = if p.facing_right { p.x + pcfg.skl_entity_spawn_offset } else { p.x - pcfg.skl_entity_spawn_offset };
             spawn_queue.push(Entity {
@@ -509,6 +513,7 @@ impl OfflineSession {
         configs.push(CharConfig::default()); // Mage   (1)
         configs.push(CharConfig::default()); // Archer (2)
         configs.push(CharConfig::default()); // Paladin (3)
+        configs.push(CharConfig::default()); // Wizard  (4)
         OfflineSession { state: GameState { players, frame: 0, entities: Vec::new() }, char_configs: configs }
     }
 
@@ -535,6 +540,7 @@ impl OfflineSession {
         atk_hit_start: u32, atk_hit_end: u32,
         skl_hit_start: u32, skl_hit_end: u32,
         atk_dash_vx: i32, atk_dash_tick: u32,
+        skl_spawn_entity: bool,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
@@ -557,6 +563,7 @@ impl OfflineSession {
             atk_hit_start, atk_hit_end,
             skl_hit_start, skl_hit_end,
             atk_dash_vx, atk_dash_tick,
+            skl_spawn_entity,
         };
         for p in &mut self.state.players {
             if p.character_type as usize == char_type {
@@ -586,7 +593,7 @@ impl OfflineSession {
     fn get_entity(&self, id: usize) -> PyResult<EntityView> {
         self.state.entities.get(id).map(|e| EntityView {
             owner_id: e.owner_id, character_type: e.character_type,
-            x: e.x, y: e.y, z: e.z, lifetime: e.lifetime, is_skill: e.is_skill,
+            x: e.x, y: e.y, z: e.z, vx: e.vx, lifetime: e.lifetime, is_skill: e.is_skill,
         }).ok_or_else(|| PyIndexError::new_err("Entity OOR"))
     }
 
@@ -633,6 +640,7 @@ impl GGRSSession {
         configs.push(CharConfig::default()); // Mage   (1)
         configs.push(CharConfig::default()); // Archer (2)
         configs.push(CharConfig::default()); // Paladin (3)
+        configs.push(CharConfig::default()); // Wizard  (4)
         Ok(GGRSSession {
             session,
             current_state: GameState { players, frame: 0, entities: Vec::new() },
@@ -661,6 +669,7 @@ impl GGRSSession {
         atk_hit_start: u32, atk_hit_end: u32,
         skl_hit_start: u32, skl_hit_end: u32,
         atk_dash_vx: i32, atk_dash_tick: u32,
+        skl_spawn_entity: bool,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
@@ -683,6 +692,7 @@ impl GGRSSession {
             atk_hit_start, atk_hit_end,
             skl_hit_start, skl_hit_end,
             atk_dash_vx, atk_dash_tick,
+            skl_spawn_entity,
         };
         for p in &mut self.current_state.players {
             if p.character_type as usize == char_type {
@@ -718,7 +728,7 @@ impl GGRSSession {
     fn get_entity(&self, id: usize) -> PyResult<EntityView> {
         self.current_state.entities.get(id).map(|e| EntityView {
             owner_id: e.owner_id, character_type: e.character_type,
-            x: e.x, y: e.y, z: e.z, lifetime: e.lifetime, is_skill: e.is_skill,
+            x: e.x, y: e.y, z: e.z, vx: e.vx, lifetime: e.lifetime, is_skill: e.is_skill,
         }).ok_or_else(|| PyIndexError::new_err("Entity OOR"))
     }
 
