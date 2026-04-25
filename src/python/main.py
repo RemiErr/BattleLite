@@ -30,7 +30,7 @@ except ImportError as e:
 INPUT_RIGHT, INPUT_LEFT, INPUT_UP, INPUT_DOWN, INPUT_JUMP, INPUT_ATTACK, INPUT_SKILL = [
     1 << i for i in range(7)]
 STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = range(5)
-CHAR_TYPE_MAGE   = 1
+CHAR_TYPE_MAGE = 1
 CHAR_TYPE_ARCHER = 2
 
 
@@ -124,7 +124,8 @@ def run_game():
     clock = pygame.time.Clock()
     debug_manager = DebugManager()
     fx_manager = FxManager()
-    char_assets: dict[int, BaseCharacter] = {0: Knight(), 1: Mage(), 2: Archer()}
+    char_assets: dict[int, BaseCharacter] = {
+        0: Knight(), 1: Mage(), 2: Archer()}
 
     # 建立玩家名稱對照表（使用者名稱優先，否則 HUD 自動 fallback 職業名）
     player_names: dict[int, str] = {
@@ -231,7 +232,9 @@ def run_game():
                 p.state, player_elapsed_frames[original_idx], p.facing_right)
             sw, sh = sprite.get_width(), sprite.get_height()
             # sprite blit：anchor_x/y 將視覺中心對齊物理位置（純渲染偏移）
-            blit_x = int(sx - sw // 2 - asset.anchor_x)
+            # 朝右翻轉後模型偏移方向反轉，anchor_x 符號需隨之翻轉
+            anchor_x_eff = asset.anchor_x if not p.facing_right else -asset.anchor_x
+            blit_x = int(sx - sw // 2 - anchor_x_eff)
             blit_y = int(sy - sh // 2 - asset.anchor_y)
             # 影子在腳的地面投影；跳躍時 e.z 抵消 sy 的 z 分量，影子不上浮
             shadow_x = int(sx - 25)
@@ -256,10 +259,12 @@ def run_game():
                 if fxdef is not None:
                     hit_def = asset.hit_boxes.get(p.state)
                     if hit_def is not None:
-                        fx_x, fx_y = hit_def.screen_center(sx, sy, p.facing_right)
+                        fx_x, fx_y = hit_def.screen_center(
+                            sx, sy, p.facing_right)
                         fx_x, fx_y = int(fx_x), int(fx_y)
                     else:
-                        fx_x = int(sx + (fxdef.offset_x if p.facing_right else -fxdef.offset_x))
+                        fx_x = int(
+                            sx + (fxdef.offset_x if p.facing_right else -fxdef.offset_x))
                         fx_y = int(sy + fxdef.offset_y)
                     fx_manager.spawn(fxdef.path, fxdef.frame_w, fxdef.frame_h,
                                      fx_x, fx_y, speed=fxdef.speed, scale=fxdef.scale)
@@ -272,7 +277,7 @@ def run_game():
                                      hurt_def.to_screen_rect(sx, sy, p.facing_right), 1)
                 melee_on = (
                     (p.state == STATE_ATTACK and asset.stats.atk_melee_enabled) or
-                    (p.state == STATE_SKILL  and asset.stats.skl_melee_enabled)
+                    (p.state == STATE_SKILL and asset.stats.skl_melee_enabled)
                 )
                 hit_def = asset.get_hit_box(p.state)
                 if hit_def and melee_on:
@@ -301,7 +306,8 @@ def run_game():
                 shadow_gy = int(ey + hit_def.oy + hit_def.h + e.z / 1000.0)
             else:
                 shadow_gy = int(e.y / 1000.0 + HUD_H)
-            shadow_w = max(8, int(30 * (fxdef.scale if fxdef is not None else 1.0)))
+            shadow_w = max(
+                8, int(30 * (fxdef.scale if fxdef is not None else 1.0)))
             pygame.draw.ellipse(screen, (10, 10, 10),
                                 (ex - shadow_w // 2, shadow_gy - 4, shadow_w, 8))
 
@@ -320,8 +326,10 @@ def run_game():
                 screen.blit(frame, (int(fx_cx) - frame.get_width() // 2,
                                     int(fx_cy) - frame.get_height() // 2))
             else:
-                pygame.draw.circle(screen, (255, 100, 0), (int(fx_cx), int(fx_cy)), 10)
-                pygame.draw.circle(screen, (255, 220, 60), (int(fx_cx), int(fx_cy)), 6)
+                pygame.draw.circle(screen, (255, 100, 0),
+                                   (int(fx_cx), int(fx_cy)), 10)
+                pygame.draw.circle(screen, (255, 220, 60),
+                                   (int(fx_cx), int(fx_cy)), 6)
 
             if debug_manager.enabled:
                 if hit_def:
