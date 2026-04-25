@@ -19,6 +19,8 @@ try:
     from src.python.assets_manager.characters.knight import Knight
     from src.python.assets_manager.characters.mage import Mage
     from src.python.assets_manager.characters.archer import Archer
+    from src.python.assets_manager.characters.paladin import Paladin
+    from src.python.assets_manager.characters.wizard import Wizard
     from src.python.assets_manager.base_character import BaseCharacter
     from src.python.fx_manager import FxManager
     from src.python.crypto_utils import SHARED_SECRET
@@ -30,40 +32,41 @@ except ImportError as e:
 INPUT_RIGHT, INPUT_LEFT, INPUT_UP, INPUT_DOWN, INPUT_JUMP, INPUT_ATTACK, INPUT_SKILL = [
     1 << i for i in range(7)]
 STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = range(5)
-CHAR_TYPE_MAGE   = 1
+CHAR_TYPE_MAGE = 1
 CHAR_TYPE_ARCHER = 2
 
 
 def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
-    """
-    HitboxDef → Rust 轉換（全欄位，單位 px × 1000）：
-      front     = -(ox + w//2)   攻擊/身體框中心距角色中心（朝面向方向為正）
-      half_w    = w // 2         框半寬（x 軸）
-      half_h    = h // 2         框半高（z 軸）
-      z_offset  = -(oy + h//2)   框中心距角色 z 的偏移（screen-y 向下 → z 向上取反）
-    """
+    """HitboxDef → Rust CharConfig。座標轉換邏輯由 HitboxDef.to_rust_params() 統一處理。"""
     s = asset.stats
 
-    def hb_to_rust(state: int, box_map):
+    def hb_params(state: int, box_map):
         hb = box_map.get(state)
-        if hb is None:
-            return 0, 0, 0, 0
-        front = -(hb.ox + hb.w // 2) * 1000
-        half_w = (hb.w // 2) * 1000
-        half_h = (hb.h // 2) * 1000
-        z_offset = -(hb.oy + hb.h // 2) * 1000
-        return front, half_w, half_h, z_offset
+        return hb.to_rust_params() if hb is not None else (0, 0, 0, 0)
 
-    atk_f, atk_hw, atk_hh, atk_zo = hb_to_rust(STATE_ATTACK, asset.hit_boxes)
-    skl_f, skl_hw, skl_hh, skl_zo = hb_to_rust(STATE_SKILL,  asset.hit_boxes)
+    atk_f, atk_hw, atk_hh, atk_zo = hb_params(STATE_ATTACK, asset.hit_boxes)
+    skl_f, skl_hw, skl_hh, skl_zo = hb_params(STATE_SKILL,  asset.hit_boxes)
 
-    hurt_f, hurt_hw, hurt_hh, hurt_zo = hb_to_rust(
-        STATE_IDLE, asset.hurt_boxes)
+    hurt_f, hurt_hw, hurt_hh, hurt_zo = hb_params(STATE_IDLE, asset.hurt_boxes)
     if not asset.hurt_boxes.get(STATE_IDLE):
         hurt_hw, hurt_hh = 15_000, 50_000
 
+    atk_spd = asset.speed_map.get(STATE_ATTACK, 4)
+    skl_spd = asset.speed_map.get(STATE_SKILL,  4)
+    atk_hit_start = s.atk_hit_frame_start * atk_spd
+    atk_hit_end   = s.atk_hit_frame_end   * atk_spd
+    skl_hit_start = s.skl_hit_frame_start * skl_spd
+    skl_hit_end   = s.skl_hit_frame_end   * skl_spd
+    atk_dash_tick = s.atk_dash_frame * atk_spd
+    # 幀索引優先於舊版 timer 倒數值
+    skl_spawn_timer_val = (s.skl_timer - s.skl_spawn_frame * skl_spd
+                           if s.skl_spawn_frame >= 0 else s.skl_spawn_timer)
+    atk_spawn_timer_val = (s.atk_timer - s.atk_spawn_frame * atk_spd
+                           if s.atk_spawn_frame >= 0 else s.atk_spawn_timer)
+
     session.set_char_config(
         char_type,
+        s.gravity, s.jump_impulse, s.walk_speed_x, s.walk_speed_y, s.hitstop_frames,
         s.max_hp, s.max_mp, s.skill_cost,
         s.atk_dmg, s.skill_dmg,
         atk_f, atk_hw, s.atk_depth, atk_hh, atk_zo,
@@ -71,11 +74,19 @@ def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
         s.atk_kb_vx, s.atk_kb_vz, s.atk_kb_timer,
         s.skl_kb_vx, s.skl_kb_vz, s.skl_kb_timer,
         hurt_f, hurt_hw, hurt_hh, hurt_zo,
-        s.projectile_vx, s.projectile_lifetime, s.spawn_timer,
-        (asset.skl_fx.offset_x * 1000) if asset.skl_fx else 0,
+        s.skl_projectile_vx, s.skl_projectile_lifetime, skl_spawn_timer_val,
+        (asset.skl_proj_fx.offset_x * 1000) if asset.skl_proj_fx else 0,
+        (asset.skl_proj_fx.offset_y * 1000) if asset.skl_proj_fx else 0,
+        (asset.atk_proj_fx.offset_x * 1000) if asset.atk_proj_fx else 0,
+        (asset.atk_proj_fx.offset_y * 1000) if asset.atk_proj_fx else 0,
         s.atk_timer, s.skl_timer,
-        s.atk_projectile_vx, s.atk_projectile_lifetime, s.atk_spawn_timer,
+        s.atk_projectile_vx, s.atk_projectile_lifetime, atk_spawn_timer_val,
         s.atk_melee_enabled, s.skl_melee_enabled,
+        s.skl_damage_absorb,
+        atk_hit_start, atk_hit_end,
+        skl_hit_start, skl_hit_end,
+        s.atk_dash_vx, atk_dash_tick,
+        s.skl_spawn_entity,
     )
 
 
@@ -134,7 +145,8 @@ def run_game():
     clock = pygame.time.Clock()
     debug_manager = DebugManager()
     fx_manager = FxManager()
-    char_assets: dict[int, BaseCharacter] = {0: Knight(), 1: Mage(), 2: Archer()}
+    char_assets: dict[int, BaseCharacter] = {
+        0: Knight(), 1: Mage(), 2: Archer(), 3: Paladin(), 4: Wizard()}
 
     # 建立玩家名稱對照表（使用者名稱優先，否則 HUD 自動 fallback 職業名）
     player_names: dict[int, str] = {
@@ -240,14 +252,14 @@ def run_game():
             sprite = asset.get_sprite(
                 p.state, player_elapsed_frames[original_idx], p.facing_right)
             sw, sh = sprite.get_width(), sprite.get_height()
-            # 以圖像中心對齊角色物理位置
-            blit_x = int(sx - sw // 2)
-            blit_y = int(sy - sh // 2)
-            # 陰影跟隨圖像底部中心
+            # sprite blit：anchor_x/y 將視覺中心對齊物理位置（純渲染偏移）
+            # 朝右翻轉後模型偏移方向反轉，anchor_x 符號需隨之翻轉
+            anchor_x_eff = asset.anchor_x if not p.facing_right else -asset.anchor_x
+            blit_x = int(sx - sw // 2 - anchor_x_eff)
+            blit_y = int(sy - sh // 2 - asset.anchor_y)
+            # 影子在腳的地面投影；跳躍時 e.z 抵消 sy 的 z 分量，影子不上浮
             shadow_x = int(sx - 25)
-            # 跳躍時陰影應貼地，不隨角色 z 高度上浮
-            ground_sy = sy + int(getattr(p, "z", 0) / 1000)
-            shadow_y = int(ground_sy + sh // 2 - 20)
+            shadow_y = int(sy + p.z / 1000.0)
             pygame.draw.ellipse(screen, (10, 10, 10),
                                 (shadow_x, shadow_y, 50, 14))
             screen.blit(sprite, (blit_x, blit_y))
@@ -258,17 +270,23 @@ def run_game():
                                  (blit_x, blit_y, sw, sh), 1)
 
             # 特效：狀態剛切換時，依角色設定生成
-            # 投射物技能的 skl_fx 改由 Entity 位置驅動，不在此生成
+            # 投射物技能的 skl_proj_fx 改由 Entity 位置驅動，不在此生成
             if state_changed.get(original_idx):
                 fxdef = None
                 if p.state == STATE_ATTACK and asset.stats.atk_projectile_vx == 0:
                     fxdef = asset.atk_fx
-                elif p.state == STATE_SKILL and asset.stats.projectile_vx == 0:
+                elif p.state == STATE_SKILL and asset.stats.skl_projectile_vx == 0:
                     fxdef = asset.skl_fx
                 if fxdef is not None:
-                    fx_x = int(
-                        sx + (fxdef.offset_x if p.facing_right else -fxdef.offset_x))
-                    fx_y = int(sy + fxdef.offset_y)
+                    hit_def = asset.hit_boxes.get(p.state)
+                    if hit_def is not None:
+                        fx_x, fx_y = hit_def.screen_center(
+                            sx, sy, p.facing_right)
+                        fx_x, fx_y = int(fx_x), int(fx_y)
+                    else:
+                        fx_x = int(
+                            sx + (fxdef.offset_x if p.facing_right else -fxdef.offset_x))
+                        fx_y = int(sy + fxdef.offset_y)
                     fx_manager.spawn(fxdef.path, fxdef.frame_w, fxdef.frame_h,
                                      fx_x, fx_y, speed=fxdef.speed, scale=fxdef.scale)
 
@@ -278,9 +296,22 @@ def run_game():
                 if hurt_def:
                     pygame.draw.rect(screen, (0, 255, 0),
                                      hurt_def.to_screen_rect(sx, sy, p.facing_right), 1)
+                def _in_hit_window(state, timer):
+                    s = asset.stats
+                    if state == STATE_ATTACK:
+                        spd = asset.speed_map.get(STATE_ATTACK, 4)
+                        elapsed = (s.atk_timer - timer) // spd
+                        return s.atk_hit_frame_start <= elapsed <= s.atk_hit_frame_end
+                    if state == STATE_SKILL:
+                        spd = asset.speed_map.get(STATE_SKILL, 4)
+                        elapsed = (s.skl_timer - timer) // spd
+                        return s.skl_hit_frame_start <= elapsed <= s.skl_hit_frame_end
+                    return False
                 melee_on = (
-                    (p.state == STATE_ATTACK and asset.stats.atk_melee_enabled) or
-                    (p.state == STATE_SKILL  and asset.stats.skl_melee_enabled)
+                    (p.state == STATE_ATTACK and asset.stats.atk_melee_enabled
+                     and _in_hit_window(STATE_ATTACK, p.timer)) or
+                    (p.state == STATE_SKILL and asset.stats.skl_melee_enabled
+                     and _in_hit_window(STATE_SKILL, p.timer))
                 )
                 hit_def = asset.get_hit_box(p.state)
                 if hit_def and melee_on:
@@ -293,42 +324,53 @@ def run_game():
             ex = int(e.x / 1000.0)
             ey = int((e.y / 1000.0) - (e.z / 1000.0) + HUD_H)
 
-            # 以 owner 的 skl_fx 動畫渲染，elapsed 由 lifetime 反推
-            owner_asset = char_assets.get(session.get_player(
-                e.owner_id).character_type, char_assets[0])
-            fxdef = owner_asset.skl_fx if e.is_skill else owner_asset.atk_proj_fx
+            # 以 owner 的 skl_proj_fx 動畫渲染，elapsed 由 lifetime 反推
+            owner_asset = char_assets.get(e.character_type, char_assets[0])
+            fxdef = owner_asset.skl_proj_fx if e.is_skill else owner_asset.atk_proj_fx
 
-            # 影子貼地（z 加回去還原地面 y，不隨高度上浮）
-            ey_ground = ey + int(e.z / 1000.0)
-            shadow_w = max(8, int(30 * (fxdef.scale if fxdef is not None else 1.0)))
+            state_key = STATE_SKILL if e.is_skill else STATE_ATTACK
+            hit_def = owner_asset.hit_boxes.get(state_key)
+            if hit_def is not None:
+                fx_cx, fx_cy = hit_def.entity_screen_center(ex, ey)
+            else:
+                fx_cx, fx_cy = ex, ey
+
+            # 影子錨定 hitbox 底部
+            if hit_def is not None:
+                shadow_gy = int(ey + hit_def.oy + hit_def.h + e.z / 1000.0)
+            else:
+                shadow_gy = int(e.y / 1000.0 + HUD_H)
+            shadow_w = max(
+                8, int(30 * (fxdef.scale if fxdef is not None else 1.0)))
             pygame.draw.ellipse(screen, (10, 10, 10),
-                                (ex - shadow_w // 2, ey_ground - 4, shadow_w, 8))
+                                (ex - shadow_w // 2, shadow_gy - 4, shadow_w, 8))
 
             if fxdef is not None:
-                total = owner_asset.stats.projectile_lifetime if e.is_skill \
+                total = owner_asset.stats.skl_projectile_lifetime if e.is_skill \
                     else owner_asset.stats.atk_projectile_lifetime
                 elapsed = max(0, total - e.lifetime)
                 frames = fx_manager._load(
                     fxdef.path, fxdef.frame_w, fxdef.frame_h)
                 idx = (elapsed // max(1, fxdef.speed)) % len(frames)
                 frame = frames[idx]
+                if e.vx < 0:  # 向左飛行時水平翻轉
+                    frame = pygame.transform.flip(frame, True, False)
                 if fxdef.scale != 1.0:
                     fw = max(1, int(frame.get_width() * fxdef.scale))
                     fh = max(1, int(frame.get_height() * fxdef.scale))
                     frame = pygame.transform.scale(frame, (fw, fh))
-                screen.blit(frame, (ex - frame.get_width() //
-                            2, ey - frame.get_height() // 2))
+                screen.blit(frame, (int(fx_cx) - frame.get_width() // 2,
+                                    int(fx_cy) - frame.get_height() // 2))
             else:
-                pygame.draw.circle(screen, (255, 100, 0), (ex, ey), 10)
-                pygame.draw.circle(screen, (255, 220, 60), (ex, ey), 6)
+                pygame.draw.circle(screen, (255, 100, 0),
+                                   (int(fx_cx), int(fx_cy)), 10)
+                pygame.draw.circle(screen, (255, 220, 60),
+                                   (int(fx_cx), int(fx_cy)), 6)
 
             if debug_manager.enabled:
-                state_key = STATE_SKILL if e.is_skill else STATE_ATTACK
-                hit_def = owner_asset.hit_boxes.get(state_key)
                 if hit_def:
                     pygame.draw.rect(screen, (255, 50, 50),
-                                     (ex - hit_def.w // 2, ey - hit_def.h // 2,
-                                      hit_def.w, hit_def.h), 1)
+                                     hit_def.to_entity_screen_rect(ex, ey), 1)
 
         fx_manager.update_and_draw(screen)
         hud.draw(screen, render_list)

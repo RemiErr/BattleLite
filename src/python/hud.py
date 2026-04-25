@@ -24,6 +24,9 @@ _COL_SEP = (70,   70,  70)
 _COL_NAME = (255,  240, 180)
 _COL_HP_VAL = (220,  220, 220)
 _COL_MP_VAL = (180,  200, 255)
+_COL_SHIELD = (255,  215,   0)  # 護盾啟動時的金色邊框
+
+_STATE_SKILL = 4
 
 
 class HUD:
@@ -46,10 +49,13 @@ class HUD:
         self.max_mp: dict[int, int] = {}
         self.char_names: dict[int, str] = {}
 
+        self.has_shield: dict[int, bool] = {}
+
         for char_type, asset in char_assets.items():
             self.max_hp[char_type] = asset.stats.max_hp
             self.max_mp[char_type] = asset.stats.max_mp
             self.char_names[char_type] = asset.name
+            self.has_shield[char_type] = asset.stats.skl_damage_absorb > 0
             if asset.faceset_path:
                 try:
                     img = pygame.image.load(asset.faceset_path).convert_alpha()
@@ -79,11 +85,19 @@ class HUD:
         char_type = getattr(p, "character_type", 0)
 
         # 頭像
+        is_shielding = (
+            getattr(p, "state", -1) == _STATE_SKILL
+            and self.has_shield.get(char_type, False)
+        )
         face = self.faces.get(char_type)
         if face:
             face_surf = pygame.transform.flip(
                 face, True, False) if pid >= 2 else face
             screen.blit(face_surf, (sx + _PAD_L, _PAD_V))
+        if is_shielding:
+            pygame.draw.rect(screen, _COL_SHIELD,
+                             (sx + _PAD_L - 2, _PAD_V - 2,
+                              _FACE_SZ + 4, _FACE_SZ + 4), 2)
 
         # 文字 / 條狀區起點（頭像右側）
         bx = sx + _PAD_L + _FACE_SZ + _PAD_L
@@ -94,6 +108,9 @@ class HUD:
         display_name = self.player_names.get(pid) or class_name
         label = self.font_name.render(f"P{pid}  {display_name}", True, _COL_NAME)
         screen.blit(label, (bx, by))
+        if is_shielding:
+            shield_label = self.font_val.render("SHIELD", True, _COL_SHIELD)
+            screen.blit(shield_label, (bx + _BAR_W - shield_label.get_width(), by))
 
         # HP 條
         max_hp = self.max_hp.get(char_type, 100_000)

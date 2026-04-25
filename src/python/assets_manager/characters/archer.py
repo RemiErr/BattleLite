@@ -25,15 +25,15 @@ _COLS = 8
 #   Row 0        : IDLE（第0幀）/ WALK（全8幀）
 #   Row 1 + Row2 col0-2 : ATTACK（共11幀，start=8）
 #   Row2 col3-7 + Row3-4 + Row5 col0-2 : SKILL（共24幀，start=19）
-#   Row5 col5-7  : HURT（3幀，start=45）
+#   Row5 col5-7  : HURT（3幀，start=44）
 # (state, start_frame, num_frames, loop, speed)
 # ---------------------------------------------------------------------------
 _STATE_FRAMES = [
-    (0,  0,  1, True,  6),   # IDLE
-    (1,  0,  8, True,  6),   # WALK
+    (0,  0,  8, True,  8),   # IDLE
+    (1,  0,  8, True,  8),   # WALK
     (2,  8, 11, False, 4),   # ATTACK
     (4, 19, 24, False, 4),   # SKILL
-    (3, 45,  3, False, 4),   # HURT
+    (3, 43,  3, False, 3),   # HURT
 ]
 
 # ---------------------------------------------------------------------------
@@ -41,11 +41,11 @@ _STATE_FRAMES = [
 #   Sprite 中心 = (79, 86)（158//2, 173//2）
 # ---------------------------------------------------------------------------
 
-_HURT_BODY = HitboxDef(ox=-20, oy=-60, w=50, h=90)
-_HURT_HURT = HitboxDef(ox=-20, oy=-55, w=48, h=80)
+_HURT_BODY = HitboxDef(ox=-24, oy=-82, w=60, h=90)   # bottom=0（腳）
+_HURT_HURT = HitboxDef(ox=-26, oy=-78, w=48, h=78)
 
-_HIT_ATTACK = HitboxDef(ox=-65, oy=-45, w=58, h=95)
-_HIT_SKILL = HitboxDef(ox=-70, oy=-12, w=84, h=36)
+_HIT_ATTACK = HitboxDef(ox=0, oy=-30, w=50, h=35)
+_HIT_SKILL = HitboxDef(ox=0, oy=-40, w=80, h=45)
 
 STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
 
@@ -53,6 +53,8 @@ STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
 class Archer(BaseCharacter):
     def __init__(self):
         super().__init__("Archer")
+        self.anchor_x = 15
+        self.anchor_y = 78
         self.faceset_path = _FACE_PATH
         self.load_sheet_linear(_SHEET_PATH, _FRAME_W,
                                _FRAME_H, _COLS, _STATE_FRAMES)
@@ -64,7 +66,7 @@ class Archer(BaseCharacter):
             max_mp=60_000,
             skill_cost=30_000,
             atk_dmg=15_000,
-            skill_dmg=35_000,
+            skill_dmg=50_000,
             atk_depth=25_000,
             skl_depth=40_000,
             atk_kb_vx=6_000,
@@ -73,13 +75,13 @@ class Archer(BaseCharacter):
             skl_kb_vx=10_000,
             skl_kb_vz=6_000,
             skl_kb_timer=35,
-            projectile_vx=1_000,
-            projectile_lifetime=150,
-            spawn_timer=36,
+            skl_projectile_vx=15_000,
+            skl_projectile_lifetime=80,
+            skl_spawn_timer=12,
             atk_timer=44,
             skl_timer=96,
-            atk_projectile_vx=1_000,
-            atk_projectile_lifetime=40,
+            atk_projectile_vx=25_000,
+            atk_projectile_lifetime=50,
             atk_spawn_timer=15,
             atk_melee_enabled=False,
             skl_melee_enabled=False,
@@ -102,19 +104,19 @@ class Archer(BaseCharacter):
         }
 
         self.atk_proj_fx = FxDef(
-            path=os.path.join(_FX_DIR, "11-b.png"),
-            frame_w=100, frame_h=100,
-            offset_x=55,
-            offset_y=0,
+            path=os.path.join(_FX_DIR, "3-b.png"),
+            frame_w=127, frame_h=97,
+            offset_x=80,
+            offset_y=24,
             scale=0.6,
             speed=3,
         )
-        # 箭矢實體視覺由 skl_fx 驅動（飛行中持續循環）
-        self.skl_fx = FxDef(
+        # 箭矢實體視覺由 skl_proj_fx 驅動（飛行中持續循環）
+        self.skl_proj_fx = FxDef(
             path=os.path.join(_FX_DIR, "3.png"),
             frame_w=127, frame_h=97,
-            offset_x=50,
-            offset_y=30,
+            offset_x=100,
+            offset_y=18,
             scale=0.8,
             speed=3,
         )

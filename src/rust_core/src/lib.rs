@@ -6,16 +6,9 @@ use std::net::SocketAddr;
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce, KeyInit, aead::Aead};
 use base64::{engine::general_purpose, Engine as _};
 
-// --- 1. 全域常數（不受角色影響的物理常數）---
-const GRAVITY: i32 = 400;
-const JUMP_IMPULSE: i32 = 9000;
-const WALK_SPEED_X: i32 = 5000;
-const WALK_SPEED_Y: i32 = 3000;
-
+// --- 1. 全域常數（狀態機、輸入遮罩，不受角色影響）---
 const CHAR_WIDTH: i32 = 30000;
-const CHAR_DEPTH: i32 = 15000;
 const ATK_DEPTH_REACH: i32 = 25000;
-const HITSTOP_FRAMES: u32 = 4;
 
 const MAX_HP: i32 = 100000;
 const MAX_MP: i32 = 50000;
@@ -36,14 +29,6 @@ const INPUT_JUMP: u8   = 1 << 4;
 const INPUT_ATTACK: u8 = 1 << 5;
 const INPUT_SKILL: u8  = 1 << 6;
 
-const CHAR_TYPE_KNIGHT: u8 = 0;
-const CHAR_TYPE_MAGE: u8   = 1;
-
-const PROJECTILE_VX: i32      = 15000;
-const PROJECTILE_LIFETIME: u32 = 60;
-const ENTITY_HIT_RADIUS: i32  = 20000;
-const MAGE_SPAWN_TIMER: u32 = 35;
-
 // --- 2. 角色設定（session 層持有，不進 GameState）---
 //
 // 所有距離單位皆為遊戲單位（px × 1000）。
@@ -53,6 +38,12 @@ const MAGE_SPAWN_TIMER: u32 = 35;
 // atk_depth / skl_depth：攻擊框深度（y 軸容許誤差）。
 #[derive(Clone, Debug)]
 struct CharConfig {
+    // 物理常數（per-character，透過 set_char_config 傳入）
+    gravity:        i32,
+    jump_impulse:   i32,
+    walk_speed_x:   i32,
+    walk_speed_y:   i32,
+    hitstop_frames: u32,
     max_hp:       i32,
     max_mp:       i32,
     skill_cost:   i32,
@@ -78,11 +69,14 @@ struct CharConfig {
     hurt_half_w:  i32,
     hurt_half_h:  i32,
     hurt_z_offset: i32,
-    // 投射物（projectile_vx == 0 表示此角色無投射物）
-    projectile_vx:       i32,
-    projectile_lifetime: u32,
-    spawn_timer:         u32,
-    entity_spawn_offset: i32,
+    // SKILL 投射物（skl_projectile_vx == 0 表示此角色技能無投射物）
+    skl_projectile_vx:       i32,
+    skl_projectile_lifetime: u32,
+    skl_spawn_timer:         u32,
+    skl_entity_spawn_offset:   i32, // SKILL entity X 發射偏移
+    skl_entity_spawn_z_offset: i32, // SKILL entity Z 高度偏移
+    atk_entity_spawn_offset:   i32, // ATTACK entity X 發射偏移
+    atk_entity_spawn_z_offset: i32, // ATTACK entity Z 高度偏移
     atk_timer:           u32,
     skl_timer:           u32,
     // ATTACK 投射物（atk_projectile_vx == 0 表示此角色的 ATTACK 是近戰）
@@ -92,11 +86,28 @@ struct CharConfig {
     // 近戰啟用旗標（可與投射物獨立設定）
     atk_melee_enabled: bool,
     skl_melee_enabled: bool,
+    // 護盾：每次命中吸收的傷害量（0 = 無護盾）
+    skl_damage_absorb: i32,
+    // 近戰判定視窗（ticks，elapsed = timer_max - timer）
+    atk_hit_start: u32,
+    atk_hit_end:   u32,
+    skl_hit_start: u32,
+    skl_hit_end:   u32,
+    // ATTACK 衝刺（0 = 無衝刺）
+    atk_dash_vx:   i32,  // 衝刺距離（game unit，正值 = 朝面向方向）
+    atk_dash_tick: u32,  // elapsed ticks 到此值時觸發
+    // 強制生成 SKILL entity（即使 skl_projectile_vx == 0，用於 AOE 技能）
+    skl_spawn_entity: bool,
 }
 
 impl Default for CharConfig {
     fn default() -> Self {
         CharConfig {
+            gravity:        400,
+            jump_impulse:   9000,
+            walk_speed_x:   5000,
+            walk_speed_y:   3000,
+            hitstop_frames: 4,
             max_hp:       MAX_HP,
             max_mp:       MAX_MP,
             skill_cost:   SKILL_COST,
@@ -122,17 +133,28 @@ impl Default for CharConfig {
             hurt_half_w:  CHAR_WIDTH / 2,
             hurt_half_h:  50000,
             hurt_z_offset: 0,
-            projectile_vx:       0,
-            projectile_lifetime: 60,
-            spawn_timer:         35,
-            entity_spawn_offset: 0,
-            atk_timer:           20,
+            skl_projectile_vx:       0,
+            skl_projectile_lifetime: 60,
+            skl_spawn_timer:         35,
+            skl_entity_spawn_offset:   0,
+            skl_entity_spawn_z_offset: 0,
+            atk_entity_spawn_offset:   0,
+            atk_entity_spawn_z_offset: 0,
+            atk_timer:               20,
             skl_timer:           40,
             atk_projectile_vx:       0,
             atk_projectile_lifetime: 30,
             atk_spawn_timer:         10,
             atk_melee_enabled: true,
             skl_melee_enabled: true,
+            skl_damage_absorb: 0,
+            atk_hit_start: 0,
+            atk_hit_end:   9999,
+            skl_hit_start: 0,
+            skl_hit_end:   9999,
+            atk_dash_vx:   0,
+            atk_dash_tick: 0,
+            skl_spawn_entity: false,
         }
     }
 }
@@ -177,7 +199,14 @@ impl Player {
         check_attack_hit_cfg(self, other, &CharConfig::default(), &CharConfig::default())
     }
 
+    // Python 相容用（測試直接呼叫），使用 CharConfig 預設值
     fn update(&mut self) {
+        self.update_internal(CharConfig::default().gravity);
+    }
+}
+
+impl Player {
+    fn update_internal(&mut self, gravity: i32) {
         if self.hitstop > 0 {
             self.hitstop -= 1;
             return;
@@ -186,8 +215,7 @@ impl Player {
             self.timer -= 1;
             if self.timer == 0 { self.state = STATE_IDLE; }
         }
-        // MP regen 上限由 perform_tick 透過 CharConfig 控制，此處不處理
-        if self.z > 0 || self.vz > 0 { self.vz -= GRAVITY; }
+        if self.z > 0 || self.vz > 0 { self.vz -= gravity; }
         if self.state != STATE_ATTACK && self.state != STATE_SKILL {
             self.x += self.vx;
             self.y += self.vy;
@@ -238,6 +266,7 @@ fn check_attack_hit_cfg(attacker: &Player, victim: &Player, atk_cfg: &CharConfig
 #[derive(Clone, Default, Debug)]
 pub struct Entity {
     pub owner_id: usize,
+    pub character_type: u8,
     pub x: i32,
     pub y: i32,
     pub z: i32,
@@ -251,9 +280,11 @@ pub struct Entity {
 #[derive(Clone, Debug)]
 pub struct EntityView {
     #[pyo3(get)] pub owner_id: usize,
+    #[pyo3(get)] pub character_type: u8,
     #[pyo3(get)] pub x: i32,
     #[pyo3(get)] pub y: i32,
     #[pyo3(get)] pub z: i32,
+    #[pyo3(get)] pub vx: i32,
     #[pyo3(get)] pub lifetime: u32,
     #[pyo3(get)] pub is_skill: bool,
 }
@@ -286,42 +317,52 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
 
         if p.state == STATE_IDLE || p.state == STATE_WALK {
             p.vx = 0; p.vy = 0;
-            if input & INPUT_RIGHT != 0 { p.vx += WALK_SPEED_X; p.state = STATE_WALK; p.facing_right = true; }
-            if input & INPUT_LEFT  != 0 { p.vx -= WALK_SPEED_X; p.state = STATE_WALK; p.facing_right = false; }
-            if input & INPUT_DOWN  != 0 { p.vy += WALK_SPEED_Y; p.state = STATE_WALK; }
-            if input & INPUT_UP    != 0 { p.vy -= WALK_SPEED_Y; p.state = STATE_WALK; }
+            if input & INPUT_RIGHT != 0 { p.vx += pcfg.walk_speed_x; p.state = STATE_WALK; p.facing_right = true; }
+            if input & INPUT_LEFT  != 0 { p.vx -= pcfg.walk_speed_x; p.state = STATE_WALK; p.facing_right = false; }
+            if input & INPUT_DOWN  != 0 { p.vy += pcfg.walk_speed_y; p.state = STATE_WALK; }
+            if input & INPUT_UP    != 0 { p.vy -= pcfg.walk_speed_y; p.state = STATE_WALK; }
             if p.vx == 0 && p.vy == 0 { p.state = STATE_IDLE; }
-            if input & INPUT_JUMP   != 0 && p.z == 0 { p.vz = JUMP_IMPULSE; }
+            if input & INPUT_JUMP   != 0 && p.z == 0 { p.vz = pcfg.jump_impulse; }
             if input & INPUT_ATTACK != 0 { p.state = STATE_ATTACK; p.timer = pcfg.atk_timer; p.vx = 0; p.vy = 0; }
             if input & INPUT_SKILL  != 0 && p.mp >= pcfg.skill_cost {
                 p.state = STATE_SKILL; p.timer = pcfg.skl_timer; p.mp -= pcfg.skill_cost; p.vx = 0; p.vy = 0;
             }
         }
 
-        if p.state == STATE_SKILL && p.timer == pcfg.spawn_timer && pcfg.projectile_vx != 0 {
-            let vx = if p.facing_right { pcfg.projectile_vx } else { -pcfg.projectile_vx };
-            let spawn_x = if p.facing_right { p.x + pcfg.entity_spawn_offset } else { p.x - pcfg.entity_spawn_offset };
+        if p.state == STATE_SKILL && p.timer == pcfg.skl_spawn_timer && (pcfg.skl_projectile_vx != 0 || pcfg.skl_spawn_entity) {
+            let vx = if p.facing_right { pcfg.skl_projectile_vx } else { -pcfg.skl_projectile_vx };
+            let spawn_x = if p.facing_right { p.x + pcfg.skl_entity_spawn_offset } else { p.x - pcfg.skl_entity_spawn_offset };
             spawn_queue.push(Entity {
                 owner_id: i,
-                x: spawn_x, y: p.y, z: p.z,
+                character_type: p.character_type,
+                x: spawn_x, y: p.y, z: p.z + pcfg.skl_entity_spawn_z_offset,
                 vx, vy: 0,
-                lifetime: pcfg.projectile_lifetime,
+                lifetime: pcfg.skl_projectile_lifetime,
                 is_skill: true,
             });
         }
         if p.state == STATE_ATTACK && p.timer == pcfg.atk_spawn_timer && pcfg.atk_projectile_vx != 0 {
             let vx = if p.facing_right { pcfg.atk_projectile_vx } else { -pcfg.atk_projectile_vx };
-            let spawn_x = if p.facing_right { p.x + pcfg.entity_spawn_offset } else { p.x - pcfg.entity_spawn_offset };
+            let spawn_x = if p.facing_right { p.x + pcfg.atk_entity_spawn_offset } else { p.x - pcfg.atk_entity_spawn_offset };
             spawn_queue.push(Entity {
                 owner_id: i,
-                x: spawn_x, y: p.y, z: p.z,
+                character_type: p.character_type,
+                x: spawn_x, y: p.y, z: p.z + pcfg.atk_entity_spawn_z_offset,
                 vx, vy: 0,
                 lifetime: pcfg.atk_projectile_lifetime,
                 is_skill: false,
             });
         }
 
-        p.update();
+        if p.state == STATE_ATTACK && pcfg.atk_dash_vx != 0 {
+            let elapsed = pcfg.atk_timer.saturating_sub(p.timer);
+            if elapsed == pcfg.atk_dash_tick {
+                let dash = if p.facing_right { pcfg.atk_dash_vx } else { -pcfg.atk_dash_vx };
+                p.x += dash;
+            }
+        }
+
+        p.update_internal(pcfg.gravity);
         if p.mp < pcfg.max_mp {
             p.mp += MP_REGEN;
             if p.mp > pcfg.max_mp { p.mp = pcfg.max_mp; }
@@ -342,7 +383,7 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
     struct EntityHit { victim: usize, vx: i32, vz: i32, timer: u32, damage: i32 }
     let mut entity_hits: Vec<EntityHit> = Vec::new();
     for e in &state.entities {
-        let atk_cfg = get_cfg(configs, state.players[e.owner_id].character_type);
+        let atk_cfg = get_cfg(configs, e.character_type);
         for j in 0..state.players.len() {
             if e.owner_id == j { continue; }
             let victim = &state.players[j];
@@ -362,7 +403,7 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
                 && dz < entity_half_h + vic_cfg.hurt_half_h {
                 let (kb_vx_mag, kb_vz, kb_timer, dmg_base, total_lifetime) = if e.is_skill {
                     (atk_cfg.skl_kb_vx, atk_cfg.skl_kb_vz, atk_cfg.skl_kb_timer,
-                     atk_cfg.skill_dmg, atk_cfg.projectile_lifetime)
+                     atk_cfg.skill_dmg, atk_cfg.skl_projectile_lifetime)
                 } else {
                     (atk_cfg.atk_kb_vx, atk_cfg.atk_kb_vz, atk_cfg.atk_kb_timer,
                      atk_cfg.atk_dmg, atk_cfg.atk_projectile_lifetime)
@@ -383,12 +424,18 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
     }
     for hit in entity_hits {
         let victim = &mut state.players[hit.victim];
-        victim.state = STATE_HURT;
-        victim.timer = hit.timer;
-        victim.vx = hit.vx;
-        victim.vz = hit.vz;
-        victim.hp -= hit.damage;
-        if victim.hp < 0 { victim.hp = 0; }
+        let vic_cfg = get_cfg(configs, victim.character_type);
+        if victim.state == STATE_SKILL && vic_cfg.skl_damage_absorb > 0 {
+            let dmg = (hit.damage - vic_cfg.skl_damage_absorb).max(0);
+            victim.hp = (victim.hp - dmg).max(0);
+        } else {
+            victim.state = STATE_HURT;
+            victim.timer = hit.timer;
+            victim.vx = hit.vx;
+            victim.vz = hit.vz;
+            victim.hp -= hit.damage;
+            if victim.hp < 0 { victim.hp = 0; }
+        }
     }
 
     // 玩家近戰判定（使用 CharConfig）
@@ -396,12 +443,16 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
     for i in 0..num_players {
         let atk_info = state.players[i].clone();
         let atk_cfg = get_cfg(configs, atk_info.character_type);
+        let elapsed_atk = atk_cfg.atk_timer.saturating_sub(atk_info.timer);
+        let elapsed_skl = atk_cfg.skl_timer.saturating_sub(atk_info.timer);
         let is_attack = atk_info.state == STATE_ATTACK
             && atk_cfg.atk_melee_enabled
-            && atk_info.timer >= 5 && atk_info.timer <= 15;
+            && elapsed_atk >= atk_cfg.atk_hit_start
+            && elapsed_atk <= atk_cfg.atk_hit_end;
         let is_skill  = atk_info.state == STATE_SKILL
             && atk_cfg.skl_melee_enabled
-            && atk_info.timer > 10;
+            && elapsed_skl >= atk_cfg.skl_hit_start
+            && elapsed_skl <= atk_cfg.skl_hit_end;
         if !is_attack && !is_skill { continue; }
 
         let cfg = atk_cfg;
@@ -419,17 +470,22 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
             let vic_cfg = get_cfg(configs, state.players[j].character_type);
             if check_attack_hit_cfg(&atk_info, &state.players[j], &cfg, &vic_cfg) {
                 let victim = &mut state.players[j];
-                victim.state = STATE_HURT;
-                victim.timer = kb_timer;
-                victim.vx = kb_vx;
-                victim.vz = kb_vz;
-                victim.hp -= kb_dmg;
-                victim.hitstop = HITSTOP_FRAMES;
-                hit_landed = true;
+                if victim.state == STATE_SKILL && vic_cfg.skl_damage_absorb > 0 {
+                    let dmg = (kb_dmg - vic_cfg.skl_damage_absorb).max(0);
+                    victim.hp = (victim.hp - dmg).max(0);
+                } else {
+                    victim.state = STATE_HURT;
+                    victim.timer = kb_timer;
+                    victim.vx = kb_vx;
+                    victim.vz = kb_vz;
+                    victim.hp -= kb_dmg;
+                    victim.hitstop = cfg.hitstop_frames;
+                    hit_landed = true;
+                }
             }
         }
         if hit_landed {
-            state.players[i].hitstop = HITSTOP_FRAMES;
+            state.players[i].hitstop = cfg.hitstop_frames;
         }
     }
 }
@@ -456,6 +512,8 @@ impl OfflineSession {
         configs.push(CharConfig::default()); // Knight (0)
         configs.push(CharConfig::default()); // Mage   (1)
         configs.push(CharConfig::default()); // Archer (2)
+        configs.push(CharConfig::default()); // Paladin (3)
+        configs.push(CharConfig::default()); // Wizard  (4)
         OfflineSession { state: GameState { players, frame: 0, entities: Vec::new() }, char_configs: configs }
     }
 
@@ -464,6 +522,7 @@ impl OfflineSession {
     /// 呼叫時機：session 建立後、第一次 advance 前。
     fn set_char_config(
         &mut self, char_type: usize,
+        gravity: i32, jump_impulse: i32, walk_speed_x: i32, walk_speed_y: i32, hitstop_frames: u32,
         max_hp: i32, max_mp: i32, skill_cost: i32,
         atk_dmg: i32, skill_dmg: i32,
         atk_front: i32, atk_half_w: i32, atk_depth: i32, atk_half_h: i32, atk_z_offset: i32,
@@ -471,27 +530,40 @@ impl OfflineSession {
         atk_kb_vx: i32, atk_kb_vz: i32, atk_kb_timer: u32,
         skl_kb_vx: i32, skl_kb_vz: i32, skl_kb_timer: u32,
         hurt_front: i32, hurt_half_w: i32, hurt_half_h: i32, hurt_z_offset: i32,
-        projectile_vx: i32, projectile_lifetime: u32, spawn_timer: u32,
-        entity_spawn_offset: i32,
+        skl_projectile_vx: i32, skl_projectile_lifetime: u32, skl_spawn_timer: u32,
+        skl_entity_spawn_offset: i32, skl_entity_spawn_z_offset: i32,
+        atk_entity_spawn_offset: i32, atk_entity_spawn_z_offset: i32,
         atk_timer: u32, skl_timer: u32,
         atk_projectile_vx: i32, atk_projectile_lifetime: u32, atk_spawn_timer: u32,
         atk_melee_enabled: bool, skl_melee_enabled: bool,
+        skl_damage_absorb: i32,
+        atk_hit_start: u32, atk_hit_end: u32,
+        skl_hit_start: u32, skl_hit_end: u32,
+        atk_dash_vx: i32, atk_dash_tick: u32,
+        skl_spawn_entity: bool,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
         }
         self.char_configs[char_type] = CharConfig {
+            gravity, jump_impulse, walk_speed_x, walk_speed_y, hitstop_frames,
             max_hp, max_mp, skill_cost, atk_dmg, skill_dmg,
             atk_front, atk_half_w, atk_depth, atk_half_h, atk_z_offset,
             skl_front, skl_half_w, skl_depth, skl_half_h, skl_z_offset,
             atk_kb_vx, atk_kb_vz, atk_kb_timer,
             skl_kb_vx, skl_kb_vz, skl_kb_timer,
             hurt_front, hurt_half_w, hurt_half_h, hurt_z_offset,
-            projectile_vx, projectile_lifetime, spawn_timer,
-            entity_spawn_offset,
+            skl_projectile_vx, skl_projectile_lifetime, skl_spawn_timer,
+            skl_entity_spawn_offset, skl_entity_spawn_z_offset,
+            atk_entity_spawn_offset, atk_entity_spawn_z_offset,
             atk_timer, skl_timer,
             atk_projectile_vx, atk_projectile_lifetime, atk_spawn_timer,
             atk_melee_enabled, skl_melee_enabled,
+            skl_damage_absorb,
+            atk_hit_start, atk_hit_end,
+            skl_hit_start, skl_hit_end,
+            atk_dash_vx, atk_dash_tick,
+            skl_spawn_entity,
         };
         for p in &mut self.state.players {
             if p.character_type as usize == char_type {
@@ -520,7 +592,8 @@ impl OfflineSession {
 
     fn get_entity(&self, id: usize) -> PyResult<EntityView> {
         self.state.entities.get(id).map(|e| EntityView {
-            owner_id: e.owner_id, x: e.x, y: e.y, z: e.z, lifetime: e.lifetime, is_skill: e.is_skill,
+            owner_id: e.owner_id, character_type: e.character_type,
+            x: e.x, y: e.y, z: e.z, vx: e.vx, lifetime: e.lifetime, is_skill: e.is_skill,
         }).ok_or_else(|| PyIndexError::new_err("Entity OOR"))
     }
 
@@ -566,6 +639,8 @@ impl GGRSSession {
         configs.push(CharConfig::default()); // Knight (0)
         configs.push(CharConfig::default()); // Mage   (1)
         configs.push(CharConfig::default()); // Archer (2)
+        configs.push(CharConfig::default()); // Paladin (3)
+        configs.push(CharConfig::default()); // Wizard  (4)
         Ok(GGRSSession {
             session,
             current_state: GameState { players, frame: 0, entities: Vec::new() },
@@ -576,6 +651,7 @@ impl GGRSSession {
 
     fn set_char_config(
         &mut self, char_type: usize,
+        gravity: i32, jump_impulse: i32, walk_speed_x: i32, walk_speed_y: i32, hitstop_frames: u32,
         max_hp: i32, max_mp: i32, skill_cost: i32,
         atk_dmg: i32, skill_dmg: i32,
         atk_front: i32, atk_half_w: i32, atk_depth: i32, atk_half_h: i32, atk_z_offset: i32,
@@ -583,27 +659,40 @@ impl GGRSSession {
         atk_kb_vx: i32, atk_kb_vz: i32, atk_kb_timer: u32,
         skl_kb_vx: i32, skl_kb_vz: i32, skl_kb_timer: u32,
         hurt_front: i32, hurt_half_w: i32, hurt_half_h: i32, hurt_z_offset: i32,
-        projectile_vx: i32, projectile_lifetime: u32, spawn_timer: u32,
-        entity_spawn_offset: i32,
+        skl_projectile_vx: i32, skl_projectile_lifetime: u32, skl_spawn_timer: u32,
+        skl_entity_spawn_offset: i32, skl_entity_spawn_z_offset: i32,
+        atk_entity_spawn_offset: i32, atk_entity_spawn_z_offset: i32,
         atk_timer: u32, skl_timer: u32,
         atk_projectile_vx: i32, atk_projectile_lifetime: u32, atk_spawn_timer: u32,
         atk_melee_enabled: bool, skl_melee_enabled: bool,
+        skl_damage_absorb: i32,
+        atk_hit_start: u32, atk_hit_end: u32,
+        skl_hit_start: u32, skl_hit_end: u32,
+        atk_dash_vx: i32, atk_dash_tick: u32,
+        skl_spawn_entity: bool,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
         }
         self.char_configs[char_type] = CharConfig {
+            gravity, jump_impulse, walk_speed_x, walk_speed_y, hitstop_frames,
             max_hp, max_mp, skill_cost, atk_dmg, skill_dmg,
             atk_front, atk_half_w, atk_depth, atk_half_h, atk_z_offset,
             skl_front, skl_half_w, skl_depth, skl_half_h, skl_z_offset,
             atk_kb_vx, atk_kb_vz, atk_kb_timer,
             skl_kb_vx, skl_kb_vz, skl_kb_timer,
             hurt_front, hurt_half_w, hurt_half_h, hurt_z_offset,
-            projectile_vx, projectile_lifetime, spawn_timer,
-            entity_spawn_offset,
+            skl_projectile_vx, skl_projectile_lifetime, skl_spawn_timer,
+            skl_entity_spawn_offset, skl_entity_spawn_z_offset,
+            atk_entity_spawn_offset, atk_entity_spawn_z_offset,
             atk_timer, skl_timer,
             atk_projectile_vx, atk_projectile_lifetime, atk_spawn_timer,
             atk_melee_enabled, skl_melee_enabled,
+            skl_damage_absorb,
+            atk_hit_start, atk_hit_end,
+            skl_hit_start, skl_hit_end,
+            atk_dash_vx, atk_dash_tick,
+            skl_spawn_entity,
         };
         for p in &mut self.current_state.players {
             if p.character_type as usize == char_type {
@@ -638,7 +727,8 @@ impl GGRSSession {
 
     fn get_entity(&self, id: usize) -> PyResult<EntityView> {
         self.current_state.entities.get(id).map(|e| EntityView {
-            owner_id: e.owner_id, x: e.x, y: e.y, z: e.z, lifetime: e.lifetime, is_skill: e.is_skill,
+            owner_id: e.owner_id, character_type: e.character_type,
+            x: e.x, y: e.y, z: e.z, vx: e.vx, lifetime: e.lifetime, is_skill: e.is_skill,
         }).ok_or_else(|| PyIndexError::new_err("Entity OOR"))
     }
 

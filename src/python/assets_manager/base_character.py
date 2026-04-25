@@ -9,6 +9,12 @@ class CharStats:
     角色數值定義，單位與 Rust 遊戲單位一致（px × 1000）。
     session.set_char_config() 會把這些值傳入 Rust，驅動實際判定。
     """
+    # 物理常數（per-character，預設值與原 Rust 全域常數相同）
+    gravity:        int =    400
+    jump_impulse:   int =  9_000
+    walk_speed_x:   int =  5_000
+    walk_speed_y:   int =  3_000
+    hitstop_frames: int =      4
     max_hp:       int = 100_000   # 血量上限
     max_mp:       int =  50_000   # 魔力上限
     skill_cost:   int =  20_000   # 技能消耗魔力
@@ -25,19 +31,32 @@ class CharStats:
     skl_kb_vx:    int =   8_000
     skl_kb_vz:    int =   6_000
     skl_kb_timer: int =      40
-    # 投射物（0 = 此角色無投射物）
-    projectile_vx:       int =      0   # 投射物每幀速度（×1000）
-    projectile_lifetime: int =     60   # 投射物存活幀數
-    spawn_timer:         int =     35   # SKILL 動作第幾幀發射（timer 倒數值）
+    # SKILL 投射物（0 = 此角色技能無投射物；搭配 skl_spawn_entity=True 可做靜止 AOE）
+    skl_projectile_vx:       int =      0   # 投射物每幀速度（×1000）
+    skl_projectile_lifetime: int =     60   # 投射物存活幀數
+    skl_spawn_timer:         int =     35   # 舊版：Rust timer 倒數值（保留相容，優先用 skl_spawn_frame）
+    skl_spawn_frame:         int =     -1   # SKILL 動畫第幾幀觸發生成（0-based；-1 = 用 skl_spawn_timer）
+    skl_spawn_entity:        bool =  False  # True = 強制生成 entity（用於 AOE，vx 可為 0）
     atk_timer:           int =      20  # ATTACK 狀態持續 tick 數
     skl_timer:           int =      40  # SKILL 狀態持續 tick 數
     # ATTACK 投射物（0 = 此角色的 ATTACK 是近戰）
     atk_projectile_vx:       int =      0   # ATTACK 投射物速度（×1000）
     atk_projectile_lifetime: int =     30   # ATTACK 投射物存活幀數
-    atk_spawn_timer:         int =     10   # ATTACK 動作第幾 tick 發射
+    atk_spawn_timer:         int =     10   # 舊版：Rust timer 倒數值（保留相容，優先用 atk_spawn_frame）
+    atk_spawn_frame:         int =     -1   # ATTACK 動畫第幾幀觸發生成（0-based；-1 = 用 atk_spawn_timer）
     # 近戰啟用旗標（可與投射物獨立設定）
     atk_melee_enabled: bool = True   # False = ATTACK 不走近戰判定
     skl_melee_enabled: bool = True   # False = SKILL 不走近戰判定
+    # 護盾：SKILL 狀態下每次命中吸收的傷害量（0 = 無護盾效果）
+    skl_damage_absorb: int  = 0
+    # 近戰判定視窗（以動畫幀數計，從第幾幀到第幾幀有攻擊判定）
+    atk_hit_frame_start: int = 0    # ATTACK 判定開始幀（含）
+    atk_hit_frame_end:   int = 999  # ATTACK 判定結束幀（含）
+    skl_hit_frame_start: int = 0    # SKILL 判定開始幀（含）
+    skl_hit_frame_end:   int = 999  # SKILL 判定結束幀（含）
+    # 衝刺（ATTACK 動畫指定幀瞬間位移，0 = 無衝刺）
+    atk_dash_vx:    int = 0   # 衝刺距離（game unit = px × 1000，正值 = 朝面向方向）
+    atk_dash_frame: int = 0   # 第幾幀觸發衝刺
 
 
 @dataclass
@@ -81,12 +100,47 @@ class HitboxDef:
     h: int
 
     def to_screen_rect(self, cx: float, cy: float, facing_right: bool) -> pygame.Rect:
-        """轉換為螢幕 Rect，facing_right 時自動水平鏡像。"""
+        """角色近戰 debug 框。cx/cy 為 Sprite 中心（物理位置投影），facing_right 時水平鏡像。"""
         if facing_right:
             left = int(cx) - self.ox - self.w
         else:
             left = int(cx) + self.ox
         return pygame.Rect(left, int(cy) + self.oy, self.w, self.h)
+
+    def to_entity_screen_rect(self, ex: float, ey: float) -> pygame.Rect:
+        """投射物 entity debug 框。
+        Rust entity 碰撞以 e.x 為中心左右對稱（不套 front），X 軸故居中。
+        Y 軸：ey + oy，與 to_rust_params() 的 z_offset 推導一致。
+        """
+        return pygame.Rect(int(ex) - self.w // 2, int(ey) + self.oy, self.w, self.h)
+
+    def screen_center(self, cx: float, cy: float, facing_right: bool) -> tuple[float, float]:
+        """回傳角色 hit box 中心的螢幕座標，用於定位近戰 FX 特效。"""
+        if facing_right:
+            center_x = cx - self.ox - self.w + self.w // 2
+        else:
+            center_x = cx + self.ox + self.w // 2
+        center_y = cy + self.oy + self.h // 2
+        return center_x, center_y
+
+    def entity_screen_center(self, ex: float, ey: float) -> tuple[float, float]:
+        """回傳 entity hit box 中心的螢幕座標，用於定位投射物 FX 特效。"""
+        return ex, ey + self.oy + self.h // 2
+
+    def to_rust_params(self) -> tuple[int, int, int, int]:
+        """回傳傳入 Rust set_char_config 所需的四個值（單位 game unit = px × 1000）：
+        (front, half_w, half_h, z_offset)
+
+        front    = -(ox + w//2) × 1000  框中心距角色中心的距離（朝面向方向為正）
+        half_w   = (w // 2) × 1000      框半寬（X 軸）
+        half_h   = (h // 2) × 1000      框半高（Z 軸）
+        z_offset = -(oy + h//2) × 1000  框中心距角色 z 的偏移（screen-y 向下取反）
+        """
+        front    = -(self.ox + self.w // 2) * 1000
+        half_w   = (self.w // 2) * 1000
+        half_h   = (self.h // 2) * 1000
+        z_offset = -(self.oy + self.h // 2) * 1000
+        return front, half_w, half_h, z_offset
 
 
 class BaseCharacter:
@@ -106,10 +160,17 @@ class BaseCharacter:
         self.hit_boxes:  dict[int, HitboxDef | None] = {}
         self.stats: CharStats = CharStats()
 
+        # 幀中心到角色視覺中心的偏移（純渲染用，不影響 hitbox 或物理）
+        # anchor_x: 正值 = sprite 向左移（視覺中心在幀中心右方）
+        # anchor_y: 正值 = sprite 向上移（視覺腳在幀中心下方）
+        self.anchor_x: int = 0
+        self.anchor_y: int = 0
+
         # 特效設定（None = 此動作無特效）
-        self.atk_fx: FxDef | None = None       # ATTACK 狀態切換時在角色位置播放
-        self.atk_proj_fx: FxDef | None = None  # ATTACK 投射物實體視覺（飛行中循環）
-        self.skl_fx: FxDef | None = None       # SKILL 投射物實體視覺（飛行中循環）
+        self.atk_fx: FxDef | None = None           # ATTACK 狀態切換時在角色位置播放（近戰用）
+        self.atk_proj_fx: FxDef | None = None      # ATTACK 投射物實體視覺（飛行中循環）
+        self.skl_fx: FxDef | None = None           # SKILL 狀態切換時在角色位置播放（近戰/非投射物用）
+        self.skl_proj_fx: FxDef | None = None      # SKILL 投射物實體視覺（飛行中循環）
 
     def load_sheet(self, path: str, frame_w: int, frame_h: int,
                    state_rows: list[tuple]) -> None:
