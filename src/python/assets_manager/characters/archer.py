@@ -44,8 +44,8 @@ _STATE_FRAMES = [
 _HURT_BODY = HitboxDef(ox=-20, oy=-82, w=50, h=90)   # bottom=0（腳）
 _HURT_HURT = HitboxDef(ox=-20, oy=-85, w=48, h=80)
 
-_HIT_ATTACK = HitboxDef(ox=50, oy=-75, w=38, h=35)
-_HIT_SKILL = HitboxDef(ox=100, oy=30, w=84, h=36)
+_HIT_ATTACK = HitboxDef(ox=0, oy=-30, w=50, h=35)
+_HIT_SKILL = HitboxDef(ox=0, oy=-40, w=80, h=45)
 
 STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
 
@@ -75,13 +75,13 @@ class Archer(BaseCharacter):
             skl_kb_vx=10_000,
             skl_kb_vz=6_000,
             skl_kb_timer=35,
-            projectile_vx=1_000,
-            projectile_lifetime=150,
+            projectile_vx=15_000,
+            projectile_lifetime=80,
             spawn_timer=36,
             atk_timer=44,
             skl_timer=96,
-            atk_projectile_vx=1_000,
-            atk_projectile_lifetime=40,
+            atk_projectile_vx=25_000,
+            atk_projectile_lifetime=50,
             atk_spawn_timer=15,
             atk_melee_enabled=False,
             skl_melee_enabled=False,
@@ -104,10 +104,10 @@ class Archer(BaseCharacter):
         }
 
         self.atk_proj_fx = FxDef(
-            path=os.path.join(_FX_DIR, "11-b.png"),
-            frame_w=100, frame_h=100,
-            offset_x=55,
-            offset_y=0,
+            path=os.path.join(_FX_DIR, "3-b.png"),
+            frame_w=127, frame_h=97,
+            offset_x=80,
+            offset_y=24,
             scale=0.6,
             speed=3,
         )
@@ -115,8 +115,8 @@ class Archer(BaseCharacter):
         self.skl_fx = FxDef(
             path=os.path.join(_FX_DIR, "3.png"),
             frame_w=127, frame_h=97,
-            offset_x=50,
-            offset_y=0,
+            offset_x=100,
+            offset_y=18,
             scale=0.8,
             speed=3,
         )

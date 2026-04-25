@@ -36,8 +36,8 @@ _STATE_ROWS = [
 _HURT_BODY = HitboxDef(ox=-25, oy=-87, w=70, h=87)   # bottom=0（腳）
 _HURT_HURT = HitboxDef(ox=-30, oy=-80, w=70, h=80)
 
-_HIT_ATTACK = HitboxDef(ox=100, oy=-77, w=660, h=860)
-_HIT_SKILL = HitboxDef(ox=-70, oy=-62, w=40, h=40)
+_HIT_ATTACK = HitboxDef(ox=-95, oy=-77, w=66, h=86)
+_HIT_SKILL = HitboxDef(ox=-70, oy=-32, w=40, h=40)
 
 STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
 
@@ -45,7 +45,7 @@ STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
 class Mage(BaseCharacter):
     def __init__(self):
         super().__init__("Mage")
-        self.anchor_x = -12
+        self.anchor_x = 12
         self.anchor_y = 42
         self.faceset_path = _FACE_PATH
         self.load_sheet(_SHEET_PATH, _FRAME_W, _FRAME_H, _STATE_ROWS)
@@ -91,6 +91,8 @@ class Mage(BaseCharacter):
         self.atk_fx = FxDef(
             path=os.path.join(_FX_DIR, "8-b.png"),
             frame_w=193, frame_h=190,
+            offset_x=0,
+            offset_y=0,
             scale=0.4,     # 縮放（1.0 = 原始大小）
             speed=3,       # 每幀持續 game tick（越小越快）
         )
@@ -99,7 +101,7 @@ class Mage(BaseCharacter):
             path=os.path.join(_FX_DIR, "1.png"),
             frame_w=112, frame_h=100,
             offset_x=70,
-            offset_y=0,
+            offset_y=20,
             scale=0.5,
             speed=5,
         )
