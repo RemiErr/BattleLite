@@ -9,6 +9,12 @@ class CharStats:
     角色數值定義，單位與 Rust 遊戲單位一致（px × 1000）。
     session.set_char_config() 會把這些值傳入 Rust，驅動實際判定。
     """
+    # 物理常數（per-character，預設值與原 Rust 全域常數相同）
+    gravity:        int =    400
+    jump_impulse:   int =  9_000
+    walk_speed_x:   int =  5_000
+    walk_speed_y:   int =  3_000
+    hitstop_frames: int =      4
     max_hp:       int = 100_000   # 血量上限
     max_mp:       int =  50_000   # 魔力上限
     skill_cost:   int =  20_000   # 技能消耗魔力

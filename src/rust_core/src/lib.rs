@@ -6,16 +6,9 @@ use std::net::SocketAddr;
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce, KeyInit, aead::Aead};
 use base64::{engine::general_purpose, Engine as _};
 
-// --- 1. 全域常數（不受角色影響的物理常數）---
-const GRAVITY: i32 = 400;
-const JUMP_IMPULSE: i32 = 9000;
-const WALK_SPEED_X: i32 = 5000;
-const WALK_SPEED_Y: i32 = 3000;
-
+// --- 1. 全域常數（狀態機、輸入遮罩，不受角色影響）---
 const CHAR_WIDTH: i32 = 30000;
-const CHAR_DEPTH: i32 = 15000;
 const ATK_DEPTH_REACH: i32 = 25000;
-const HITSTOP_FRAMES: u32 = 4;
 
 const MAX_HP: i32 = 100000;
 const MAX_MP: i32 = 50000;
@@ -36,14 +29,6 @@ const INPUT_JUMP: u8   = 1 << 4;
 const INPUT_ATTACK: u8 = 1 << 5;
 const INPUT_SKILL: u8  = 1 << 6;
 
-const CHAR_TYPE_KNIGHT: u8 = 0;
-const CHAR_TYPE_MAGE: u8   = 1;
-
-const PROJECTILE_VX: i32      = 15000;
-const PROJECTILE_LIFETIME: u32 = 60;
-const ENTITY_HIT_RADIUS: i32  = 20000;
-const MAGE_SPAWN_TIMER: u32 = 35;
-
 // --- 2. 角色設定（session 層持有，不進 GameState）---
 //
 // 所有距離單位皆為遊戲單位（px × 1000）。
@@ -53,6 +38,12 @@ const MAGE_SPAWN_TIMER: u32 = 35;
 // atk_depth / skl_depth：攻擊框深度（y 軸容許誤差）。
 #[derive(Clone, Debug)]
 struct CharConfig {
+    // 物理常數（per-character，透過 set_char_config 傳入）
+    gravity:        i32,
+    jump_impulse:   i32,
+    walk_speed_x:   i32,
+    walk_speed_y:   i32,
+    hitstop_frames: u32,
     max_hp:       i32,
     max_mp:       i32,
     skill_cost:   i32,
@@ -100,6 +91,11 @@ struct CharConfig {
 impl Default for CharConfig {
     fn default() -> Self {
         CharConfig {
+            gravity:        400,
+            jump_impulse:   9000,
+            walk_speed_x:   5000,
+            walk_speed_y:   3000,
+            hitstop_frames: 4,
             max_hp:       MAX_HP,
             max_mp:       MAX_MP,
             skill_cost:   SKILL_COST,
@@ -183,7 +179,14 @@ impl Player {
         check_attack_hit_cfg(self, other, &CharConfig::default(), &CharConfig::default())
     }
 
+    // Python 相容用（測試直接呼叫），使用 CharConfig 預設值
     fn update(&mut self) {
+        self.update_internal(CharConfig::default().gravity);
+    }
+}
+
+impl Player {
+    fn update_internal(&mut self, gravity: i32) {
         if self.hitstop > 0 {
             self.hitstop -= 1;
             return;
@@ -192,8 +195,7 @@ impl Player {
             self.timer -= 1;
             if self.timer == 0 { self.state = STATE_IDLE; }
         }
-        // MP regen 上限由 perform_tick 透過 CharConfig 控制，此處不處理
-        if self.z > 0 || self.vz > 0 { self.vz -= GRAVITY; }
+        if self.z > 0 || self.vz > 0 { self.vz -= gravity; }
         if self.state != STATE_ATTACK && self.state != STATE_SKILL {
             self.x += self.vx;
             self.y += self.vy;
@@ -294,12 +296,12 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
 
         if p.state == STATE_IDLE || p.state == STATE_WALK {
             p.vx = 0; p.vy = 0;
-            if input & INPUT_RIGHT != 0 { p.vx += WALK_SPEED_X; p.state = STATE_WALK; p.facing_right = true; }
-            if input & INPUT_LEFT  != 0 { p.vx -= WALK_SPEED_X; p.state = STATE_WALK; p.facing_right = false; }
-            if input & INPUT_DOWN  != 0 { p.vy += WALK_SPEED_Y; p.state = STATE_WALK; }
-            if input & INPUT_UP    != 0 { p.vy -= WALK_SPEED_Y; p.state = STATE_WALK; }
+            if input & INPUT_RIGHT != 0 { p.vx += pcfg.walk_speed_x; p.state = STATE_WALK; p.facing_right = true; }
+            if input & INPUT_LEFT  != 0 { p.vx -= pcfg.walk_speed_x; p.state = STATE_WALK; p.facing_right = false; }
+            if input & INPUT_DOWN  != 0 { p.vy += pcfg.walk_speed_y; p.state = STATE_WALK; }
+            if input & INPUT_UP    != 0 { p.vy -= pcfg.walk_speed_y; p.state = STATE_WALK; }
             if p.vx == 0 && p.vy == 0 { p.state = STATE_IDLE; }
-            if input & INPUT_JUMP   != 0 && p.z == 0 { p.vz = JUMP_IMPULSE; }
+            if input & INPUT_JUMP   != 0 && p.z == 0 { p.vz = pcfg.jump_impulse; }
             if input & INPUT_ATTACK != 0 { p.state = STATE_ATTACK; p.timer = pcfg.atk_timer; p.vx = 0; p.vy = 0; }
             if input & INPUT_SKILL  != 0 && p.mp >= pcfg.skill_cost {
                 p.state = STATE_SKILL; p.timer = pcfg.skl_timer; p.mp -= pcfg.skill_cost; p.vx = 0; p.vy = 0;
@@ -331,7 +333,7 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
             });
         }
 
-        p.update();
+        p.update_internal(pcfg.gravity);
         if p.mp < pcfg.max_mp {
             p.mp += MP_REGEN;
             if p.mp > pcfg.max_mp { p.mp = pcfg.max_mp; }
@@ -434,12 +436,12 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
                 victim.vx = kb_vx;
                 victim.vz = kb_vz;
                 victim.hp -= kb_dmg;
-                victim.hitstop = HITSTOP_FRAMES;
+                victim.hitstop = cfg.hitstop_frames;
                 hit_landed = true;
             }
         }
         if hit_landed {
-            state.players[i].hitstop = HITSTOP_FRAMES;
+            state.players[i].hitstop = cfg.hitstop_frames;
         }
     }
 }
@@ -474,6 +476,7 @@ impl OfflineSession {
     /// 呼叫時機：session 建立後、第一次 advance 前。
     fn set_char_config(
         &mut self, char_type: usize,
+        gravity: i32, jump_impulse: i32, walk_speed_x: i32, walk_speed_y: i32, hitstop_frames: u32,
         max_hp: i32, max_mp: i32, skill_cost: i32,
         atk_dmg: i32, skill_dmg: i32,
         atk_front: i32, atk_half_w: i32, atk_depth: i32, atk_half_h: i32, atk_z_offset: i32,
@@ -492,6 +495,7 @@ impl OfflineSession {
             self.char_configs.push(CharConfig::default());
         }
         self.char_configs[char_type] = CharConfig {
+            gravity, jump_impulse, walk_speed_x, walk_speed_y, hitstop_frames,
             max_hp, max_mp, skill_cost, atk_dmg, skill_dmg,
             atk_front, atk_half_w, atk_depth, atk_half_h, atk_z_offset,
             skl_front, skl_half_w, skl_depth, skl_half_h, skl_z_offset,
@@ -589,6 +593,7 @@ impl GGRSSession {
 
     fn set_char_config(
         &mut self, char_type: usize,
+        gravity: i32, jump_impulse: i32, walk_speed_x: i32, walk_speed_y: i32, hitstop_frames: u32,
         max_hp: i32, max_mp: i32, skill_cost: i32,
         atk_dmg: i32, skill_dmg: i32,
         atk_front: i32, atk_half_w: i32, atk_depth: i32, atk_half_h: i32, atk_z_offset: i32,
@@ -607,6 +612,7 @@ impl GGRSSession {
             self.char_configs.push(CharConfig::default());
         }
         self.char_configs[char_type] = CharConfig {
+            gravity, jump_impulse, walk_speed_x, walk_speed_y, hitstop_frames,
             max_hp, max_mp, skill_cost, atk_dmg, skill_dmg,
             atk_front, atk_half_w, atk_depth, atk_half_h, atk_z_offset,
             skl_front, skl_half_w, skl_depth, skl_half_h, skl_z_offset,

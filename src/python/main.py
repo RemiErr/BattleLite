@@ -51,6 +51,7 @@ def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
 
     session.set_char_config(
         char_type,
+        s.gravity, s.jump_impulse, s.walk_speed_x, s.walk_speed_y, s.hitstop_frames,
         s.max_hp, s.max_mp, s.skill_cost,
         s.atk_dmg, s.skill_dmg,
         atk_f, atk_hw, s.atk_depth, atk_hh, atk_zo,
