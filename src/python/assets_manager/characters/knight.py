@@ -45,7 +45,6 @@ _HURT_BODY = HitboxDef(ox=-35, oy=-80, w=80, h=100)   # bottom=0（腳）
 _HURT_HURT = HitboxDef(ox=-15, oy=-80, w=70, h=90)
 
 _HIT_ATTACK = HitboxDef(ox=-86, oy=-92, w=75, h=110)
-_HIT_SKILL = HitboxDef(ox=-60, oy=-72, w=66, h=85)
 
 STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
 
@@ -61,20 +60,26 @@ class Knight(BaseCharacter):
             _STATE_ROWS,
         )
 
+        # atk_timer = 6 frames * speed 4 = 24 ticks
+        # skl_timer = 6 frames * speed 4 = 24 ticks
         self.stats = CharStats(
             max_hp=100_000,
             max_mp=50_000,
-            skill_cost=20_000,
+            skill_cost=10_000,
             atk_dmg=10_000,
-            skill_dmg=15_000,
+            skill_dmg=0,        # 格擋不造成傷害
             atk_depth=25_000,
             skl_depth=40_000,
             atk_kb_vx=8_000,
             atk_kb_vz=4_000,
             atk_kb_timer=30,
-            skl_kb_vx=8_000,
-            skl_kb_vz=6_000,
-            skl_kb_timer=40,
+            skl_kb_vx=0,        # 格擋不擊飛
+            skl_kb_vz=0,
+            skl_kb_timer=0,
+            atk_timer=24,
+            skl_timer=24,
+            skl_melee_enabled=False,  # 格擋不攻擊對手
+            skl_damage_absorb=30_000,  # 格擋每次命中吸收傷害
         )
 
         self.hurt_boxes = {
@@ -89,6 +94,6 @@ class Knight(BaseCharacter):
             STATE_IDLE:   None,
             STATE_WALK:   None,
             STATE_ATTACK: _HIT_ATTACK,
-            STATE_SKILL:  _HIT_SKILL,
+            STATE_SKILL:  None,   # 格擋不攻擊
             STATE_HURT:   None,
         }
