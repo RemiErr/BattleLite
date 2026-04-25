@@ -46,6 +46,11 @@ class CharStats:
     skl_melee_enabled: bool = True   # False = SKILL 不走近戰判定
     # 護盾：SKILL 狀態下每次命中吸收的傷害量（0 = 無護盾效果）
     skl_damage_absorb: int  = 0
+    # 近戰判定視窗（以動畫幀數計，從第幾幀到第幾幀有攻擊判定）
+    atk_hit_frame_start: int = 0    # ATTACK 判定開始幀（含）
+    atk_hit_frame_end:   int = 999  # ATTACK 判定結束幀（含）
+    skl_hit_frame_start: int = 0    # SKILL 判定開始幀（含）
+    skl_hit_frame_end:   int = 999  # SKILL 判定結束幀（含）
 
 
 @dataclass

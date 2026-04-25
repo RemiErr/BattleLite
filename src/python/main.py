@@ -50,6 +50,13 @@ def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
     if not asset.hurt_boxes.get(STATE_IDLE):
         hurt_hw, hurt_hh = 15_000, 50_000
 
+    atk_spd = asset.speed_map.get(STATE_ATTACK, 4)
+    skl_spd = asset.speed_map.get(STATE_SKILL,  4)
+    atk_hit_start = s.atk_hit_frame_start * atk_spd
+    atk_hit_end   = s.atk_hit_frame_end   * atk_spd
+    skl_hit_start = s.skl_hit_frame_start * skl_spd
+    skl_hit_end   = s.skl_hit_frame_end   * skl_spd
+
     session.set_char_config(
         char_type,
         s.gravity, s.jump_impulse, s.walk_speed_x, s.walk_speed_y, s.hitstop_frames,
@@ -69,6 +76,8 @@ def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
         s.atk_projectile_vx, s.atk_projectile_lifetime, s.atk_spawn_timer,
         s.atk_melee_enabled, s.skl_melee_enabled,
         s.skl_damage_absorb,
+        atk_hit_start, atk_hit_end,
+        skl_hit_start, skl_hit_end,
     )
 
 
@@ -278,9 +287,22 @@ def run_game():
                 if hurt_def:
                     pygame.draw.rect(screen, (0, 255, 0),
                                      hurt_def.to_screen_rect(sx, sy, p.facing_right), 1)
+                def _in_hit_window(state, timer):
+                    s = asset.stats
+                    if state == STATE_ATTACK:
+                        spd = asset.speed_map.get(STATE_ATTACK, 4)
+                        elapsed = (s.atk_timer - timer) // spd
+                        return s.atk_hit_frame_start <= elapsed <= s.atk_hit_frame_end
+                    if state == STATE_SKILL:
+                        spd = asset.speed_map.get(STATE_SKILL, 4)
+                        elapsed = (s.skl_timer - timer) // spd
+                        return s.skl_hit_frame_start <= elapsed <= s.skl_hit_frame_end
+                    return False
                 melee_on = (
-                    (p.state == STATE_ATTACK and asset.stats.atk_melee_enabled) or
-                    (p.state == STATE_SKILL and asset.stats.skl_melee_enabled)
+                    (p.state == STATE_ATTACK and asset.stats.atk_melee_enabled
+                     and _in_hit_window(STATE_ATTACK, p.timer)) or
+                    (p.state == STATE_SKILL and asset.stats.skl_melee_enabled
+                     and _in_hit_window(STATE_SKILL, p.timer))
                 )
                 hit_def = asset.get_hit_box(p.state)
                 if hit_def and melee_on:

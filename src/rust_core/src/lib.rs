@@ -88,6 +88,11 @@ struct CharConfig {
     skl_melee_enabled: bool,
     // 護盾：每次命中吸收的傷害量（0 = 無護盾）
     skl_damage_absorb: i32,
+    // 近戰判定視窗（ticks，elapsed = timer_max - timer）
+    atk_hit_start: u32,
+    atk_hit_end:   u32,
+    skl_hit_start: u32,
+    skl_hit_end:   u32,
 }
 
 impl Default for CharConfig {
@@ -138,6 +143,10 @@ impl Default for CharConfig {
             atk_melee_enabled: true,
             skl_melee_enabled: true,
             skl_damage_absorb: 0,
+            atk_hit_start: 0,
+            atk_hit_end:   9999,
+            skl_hit_start: 0,
+            skl_hit_end:   9999,
         }
     }
 }
@@ -417,12 +426,16 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
     for i in 0..num_players {
         let atk_info = state.players[i].clone();
         let atk_cfg = get_cfg(configs, atk_info.character_type);
+        let elapsed_atk = atk_cfg.atk_timer.saturating_sub(atk_info.timer);
+        let elapsed_skl = atk_cfg.skl_timer.saturating_sub(atk_info.timer);
         let is_attack = atk_info.state == STATE_ATTACK
             && atk_cfg.atk_melee_enabled
-            && atk_info.timer >= 5 && atk_info.timer <= 15;
+            && elapsed_atk >= atk_cfg.atk_hit_start
+            && elapsed_atk <= atk_cfg.atk_hit_end;
         let is_skill  = atk_info.state == STATE_SKILL
             && atk_cfg.skl_melee_enabled
-            && atk_info.timer > 10;
+            && elapsed_skl >= atk_cfg.skl_hit_start
+            && elapsed_skl <= atk_cfg.skl_hit_end;
         if !is_attack && !is_skill { continue; }
 
         let cfg = atk_cfg;
@@ -506,6 +519,8 @@ impl OfflineSession {
         atk_projectile_vx: i32, atk_projectile_lifetime: u32, atk_spawn_timer: u32,
         atk_melee_enabled: bool, skl_melee_enabled: bool,
         skl_damage_absorb: i32,
+        atk_hit_start: u32, atk_hit_end: u32,
+        skl_hit_start: u32, skl_hit_end: u32,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
@@ -525,6 +540,8 @@ impl OfflineSession {
             atk_projectile_vx, atk_projectile_lifetime, atk_spawn_timer,
             atk_melee_enabled, skl_melee_enabled,
             skl_damage_absorb,
+            atk_hit_start, atk_hit_end,
+            skl_hit_start, skl_hit_end,
         };
         for p in &mut self.state.players {
             if p.character_type as usize == char_type {
@@ -626,6 +643,8 @@ impl GGRSSession {
         atk_projectile_vx: i32, atk_projectile_lifetime: u32, atk_spawn_timer: u32,
         atk_melee_enabled: bool, skl_melee_enabled: bool,
         skl_damage_absorb: i32,
+        atk_hit_start: u32, atk_hit_end: u32,
+        skl_hit_start: u32, skl_hit_end: u32,
     ) {
         while self.char_configs.len() <= char_type {
             self.char_configs.push(CharConfig::default());
@@ -645,6 +664,8 @@ impl GGRSSession {
             atk_projectile_vx, atk_projectile_lifetime, atk_spawn_timer,
             atk_melee_enabled, skl_melee_enabled,
             skl_damage_absorb,
+            atk_hit_start, atk_hit_end,
+            skl_hit_start, skl_hit_end,
         };
         for p in &mut self.current_state.players {
             if p.character_type as usize == char_type {
