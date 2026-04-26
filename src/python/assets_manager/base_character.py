@@ -2,67 +2,31 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import pygame
 
+# 與 Rust INPUT_* 常數對齊
+INPUT_ATTACK: int = 1 << 5
+INPUT_SKILL:  int = 1 << 6
+
 
 @dataclass
-class CharStats:
+class PhysicsStats:
     """
-    角色數值定義，單位與 Rust 遊戲單位一致（px × 1000）。
-    session.set_char_config() 會把這些值傳入 Rust，驅動實際判定。
+    角色物理常數（per-character）。
+    對應 Rust PhysicsConfig，由 apply_char_config() 呼叫 set_physics_config() 傳入。
+    Hurt box 從 hurt_boxes[STATE_IDLE] 推導，不在此持有。
     """
-    # 物理常數（per-character，預設值與原 Rust 全域常數相同）
     gravity:        int =    400
     jump_impulse:   int =  9_000
     walk_speed_x:   int =  5_000
     walk_speed_y:   int =  3_000
     hitstop_frames: int =      4
-    max_hp:       int = 100_000   # 血量上限
-    max_mp:       int =  50_000   # 魔力上限
-    skill_cost:   int =  20_000   # 技能消耗魔力
-    atk_dmg:      int =  10_000   # 普攻傷害
-    skill_dmg:    int =  15_000   # 技能傷害
-    # y 軸深度容許誤差（非 2D 螢幕概念，維持預設即可）
-    atk_depth:    int =  25_000
-    skl_depth:    int =  40_000
-    # 普攻擊飛
-    atk_kb_vx:    int =   8_000
-    atk_kb_vz:    int =   4_000
-    atk_kb_timer: int =      30
-    # 技能擊飛
-    skl_kb_vx:    int =   8_000
-    skl_kb_vz:    int =   6_000
-    skl_kb_timer: int =      40
-    # SKILL 投射物（0 = 此角色技能無投射物；搭配 skl_spawn_entity=True 可做靜止 AOE）
-    skl_projectile_vx:       int =      0   # 投射物每幀速度（×1000）
-    skl_projectile_lifetime: int =     60   # 投射物存活幀數
-    skl_spawn_timer:         int =     35   # 舊版：Rust timer 倒數值（保留相容，優先用 skl_spawn_frame）
-    skl_spawn_frame:         int =     -1   # SKILL 動畫第幾幀觸發生成（0-based；-1 = 用 skl_spawn_timer）
-    skl_spawn_entity:        bool =  False  # True = 強制生成 entity（用於 AOE，vx 可為 0）
-    atk_timer:           int =      20  # ATTACK 狀態持續 tick 數
-    skl_timer:           int =      40  # SKILL 狀態持續 tick 數
-    # ATTACK 投射物（0 = 此角色的 ATTACK 是近戰）
-    atk_projectile_vx:       int =      0   # ATTACK 投射物速度（×1000）
-    atk_projectile_lifetime: int =     30   # ATTACK 投射物存活幀數
-    atk_spawn_timer:         int =     10   # 舊版：Rust timer 倒數值（保留相容，優先用 atk_spawn_frame）
-    atk_spawn_frame:         int =     -1   # ATTACK 動畫第幾幀觸發生成（0-based；-1 = 用 atk_spawn_timer）
-    # 近戰啟用旗標（可與投射物獨立設定）
-    atk_melee_enabled: bool = True   # False = ATTACK 不走近戰判定
-    skl_melee_enabled: bool = True   # False = SKILL 不走近戰判定
-    # 護盾：SKILL 狀態下每次命中吸收的傷害量（0 = 無護盾效果）
-    skl_damage_absorb: int  = 0
-    # 近戰判定視窗（以動畫幀數計，從第幾幀到第幾幀有攻擊判定）
-    atk_hit_frame_start: int = 0    # ATTACK 判定開始幀（含）
-    atk_hit_frame_end:   int = 999  # ATTACK 判定結束幀（含）
-    skl_hit_frame_start: int = 0    # SKILL 判定開始幀（含）
-    skl_hit_frame_end:   int = 999  # SKILL 判定結束幀（含）
-    # 衝刺（ATTACK 動畫指定幀瞬間位移，0 = 無衝刺）
-    atk_dash_vx:    int = 0   # 衝刺距離（game unit = px × 1000，正值 = 朝面向方向）
-    atk_dash_frame: int = 0   # 第幾幀觸發衝刺
+    max_hp:         int = 100_000
+    max_mp:         int =  50_000
 
 
 @dataclass
 class FxDef:
     """
-    角色特效定義，由角色 Python 設定、main.py 透過 FxManager 執行。
+    特效定義，由 AbilityDef 持有或傳給 FxManager 執行。
 
     path     : 特效 sprite sheet 絕對路徑
     frame_w  : 每幀寬度（px）
@@ -108,10 +72,7 @@ class HitboxDef:
         return pygame.Rect(left, int(cy) + self.oy, self.w, self.h)
 
     def to_entity_screen_rect(self, ex: float, ey: float) -> pygame.Rect:
-        """投射物 entity debug 框。
-        Rust entity 碰撞以 e.x 為中心左右對稱（不套 front），X 軸故居中。
-        Y 軸：ey + oy，與 to_rust_params() 的 z_offset 推導一致。
-        """
+        """投射物 entity debug 框（X 軸居中）。"""
         return pygame.Rect(int(ex) - self.w // 2, int(ey) + self.oy, self.w, self.h)
 
     def screen_center(self, cx: float, cy: float, facing_right: bool) -> tuple[float, float]:
@@ -128,8 +89,8 @@ class HitboxDef:
         return ex, ey + self.oy + self.h // 2
 
     def to_rust_params(self) -> tuple[int, int, int, int]:
-        """回傳傳入 Rust set_char_config 所需的四個值（單位 game unit = px × 1000）：
-        (front, half_w, half_h, z_offset)
+        """回傳傳入 Rust set_ability / set_physics_config 所需的四個值：
+        (front, half_w, half_h, z_offset)，單位 game unit = px × 1000。
 
         front    = -(ox + w//2) × 1000  框中心距角色中心的距離（朝面向方向為正）
         half_w   = (w // 2) × 1000      框半寬（X 軸）
@@ -143,40 +104,76 @@ class HitboxDef:
         return front, half_w, half_h, z_offset
 
 
+@dataclass
+class AbilityDef:
+    """
+    單一技能槽完整設定。對應 Rust AbilityConfig。
+
+    trigger_button : INPUT_ATTACK 或 INPUT_SKILL 位元遮罩
+    state_id       : Python 定義的狀態 ID（Rust 通用執行）
+    timer          : 技能持續 ticks（game 單位，非幀數）
+    hit_frame_start / hit_frame_end : 近戰有效視窗（動畫幀索引，apply 時 × speed → ticks）
+    spawn_frame    : entity 生成的動畫幀索引（-1 = 用 spawn_timer_raw）
+    spawn_timer_raw: 生成時 Rust timer 倒數值（spawn_frame < 0 時使用）
+    dash_frame     : 衝刺觸發幀（apply 時 × speed → ticks）
+    hit_box        : 近戰/技能碰撞框（None = 無近戰）
+    proj_fx        : 投射物實體視覺 FX（飛行中循環）
+    fx             : 狀態進入時在角色位置播放的 FX
+    """
+    trigger_button:   int
+    state_id:         int
+    mp_cost:          int  = 0
+    timer:            int  = 20
+    dmg:              int  = 10_000
+    depth:            int  = 25_000
+    kb_vx:            int  = 8_000
+    kb_vz:            int  = 4_000
+    kb_timer:         int  = 30
+    melee_enabled:    bool = True
+    hit_frame_start:  int  = 0
+    hit_frame_end:    int  = 999
+    damage_absorb:    int  = 0
+    projectile_vx:    int  = 0
+    projectile_lifetime: int = 30
+    spawn_frame:      int  = -1
+    spawn_timer_raw:  int  = 10
+    spawn_entity:     bool = False
+    dash_vx:          int  = 0
+    dash_frame:       int  = 0
+    is_skill:         bool = False
+    trigger_context:  int  = 0   # reserved; 0 = ANY
+    hit_box:          HitboxDef | None = None
+    proj_fx:          FxDef | None     = None
+    fx:               FxDef | None     = None   # state-entry FX
+
+
 class BaseCharacter:
     """
     角色資源基類。
-    負責從 Sprite Sheet 切幀、管理動畫播放，以及持有判定框定義。
+    負責從 Sprite Sheet 切幀、管理動畫播放，以及持有判定框與技能設定。
     """
 
     def __init__(self, name: str):
         self.name = name
         self.faceset_path: str = ""
         self.animations: dict[int, list[pygame.Surface]] = {}
-        self.loop_map:    dict[int, bool] = {}
-        self.speed_map:   dict[int, int]  = {}
+        self.loop_map:   dict[int, bool] = {}
+        self.speed_map:  dict[int, int]  = {}
 
         self.hurt_boxes: dict[int, HitboxDef] = {}
-        self.hit_boxes:  dict[int, HitboxDef | None] = {}
-        self.stats: CharStats = CharStats()
 
-        # 幀中心到角色視覺中心的偏移（純渲染用，不影響 hitbox 或物理）
-        # anchor_x: 正值 = sprite 向左移（視覺中心在幀中心右方）
-        # anchor_y: 正值 = sprite 向上移（視覺腳在幀中心下方）
+        # 幀中心到角色視覺中心的偏移（純渲染用）
         self.anchor_x: int = 0
         self.anchor_y: int = 0
 
-        # 特效設定（None = 此動作無特效）
-        self.atk_fx: FxDef | None = None           # ATTACK 狀態切換時在角色位置播放（近戰用）
-        self.atk_proj_fx: FxDef | None = None      # ATTACK 投射物實體視覺（飛行中循環）
-        self.skl_fx: FxDef | None = None           # SKILL 狀態切換時在角色位置播放（近戰/非投射物用）
-        self.skl_proj_fx: FxDef | None = None      # SKILL 投射物實體視覺（飛行中循環）
+        # 物理與技能設定（子類 __init__ 覆寫）
+        self.physics:   PhysicsStats    = PhysicsStats()
+        self.abilities: list[AbilityDef] = []
 
     def load_sheet(self, path: str, frame_w: int, frame_h: int,
                    state_rows: list[tuple]) -> None:
         """
         載入 Sprite Sheet 並切幀存入 self.animations。
-
         state_rows 格式：[(state, row, num_frames, loop, speed), ...]
         """
         sheet = pygame.image.load(path).convert_alpha()
@@ -196,7 +193,6 @@ class BaseCharacter:
         """
         支援跨列動畫的切幀方法。
         state_frames: [(state, start_frame, num_frames, loop, speed), ...]
-        start_frame: 線性幀索引（row * cols_per_row + col）
         """
         sheet = pygame.image.load(path).convert_alpha()
         for state, start_frame, num_frames, loop, speed in state_frames:
@@ -245,4 +241,15 @@ class BaseCharacter:
         return self.hurt_boxes.get(state) or self.hurt_boxes.get(0)
 
     def get_hit_box(self, state: int) -> HitboxDef | None:
-        return self.hit_boxes.get(state)
+        """從 abilities 找出對應 state_id 的 hit_box，取代舊版 hit_boxes dict。"""
+        for ab in self.abilities:
+            if ab.state_id == state:
+                return ab.hit_box
+        return None
+
+    def get_ability(self, state: int) -> AbilityDef | None:
+        """取得對應 state_id 的 AbilityDef，供 main.py 渲染與 debug 使用。"""
+        for ab in self.abilities:
+            if ab.state_id == state:
+                return ab
+        return None
