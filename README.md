@@ -604,3 +604,9 @@ pytest tests/test_physics.py -v
   - 來源：<https://github.com/sparklinlabs/superpowers-asset-packs>
   - 授權：Creative Commons Zero v1.0 Universal (CC0-1.0)
   - 說明：本專案使用其中部分美術素材作為遊戲資源，感謝 Sparklin Labs 與素材作者 Pixel-boy。
+
+- Noto Sans TC
+  - 來源：<https://fonts.google.com/noto/specimen/Noto+Sans+TC>
+  - 授權：SIL Open Font License 1.1（詳見 `src/assets/fonts/OFL.txt`）
+  - 版權：Copyright 2014-2021 Adobe
+  - 說明：用於 Launcher 介面的繁體中文字型顯示。
