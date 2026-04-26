@@ -23,6 +23,7 @@ try:
     from src.python.assets_manager.characters.wizard import Wizard
     from src.python.assets_manager.base_character import BaseCharacter
     from src.python.fx_manager import FxManager
+    from src.python.sfx_manager import SfxManager
     from src.python.crypto_utils import SHARED_SECRET
 except ImportError as e:
     print(f"❌ 匯入失敗: {e}")
@@ -141,6 +142,18 @@ def run_game():
     clock = pygame.time.Clock()
     debug_manager = DebugManager()
     fx_manager = FxManager()
+
+    # 從 settings.json 讀音量（0–100 → 0.0–1.0）
+    _settings_path = os.path.join(os.path.dirname(__file__), '..', '..', 'settings.json')
+    _vol = 50
+    if os.path.exists(_settings_path):
+        try:
+            with open(_settings_path) as _f:
+                _vol = json.load(_f).get("volume", 50)
+        except Exception:
+            pass
+    sfx_manager = SfxManager(volume=_vol / 100.0)
+
     char_assets: dict[int, BaseCharacter] = {
         0: Knight(), 1: Mage(), 2: Archer(), 3: Paladin(), 4: Wizard()}
 
@@ -151,6 +164,8 @@ def run_game():
         if "nickname" in p_info:
             player_names[p_info["id"]] = p_info["nickname"]
     hud = HUD(char_assets, player_names=player_names)
+    for ct, asset in char_assets.items():
+        sfx_manager.register(ct, asset.sfx)
 
     # --- Session 工廠 ---
     is_offline = config["is_offline"]
@@ -243,12 +258,47 @@ def run_game():
         input_mask = get_input_mask()
 
         if match_result is None:
+            prev_z            = [session.get_player(i).z for i in range(num_players)]
+            prev_entity_count = session.get_entity_count()
+
             if is_offline:
                 inputs = [0] * num_players
                 inputs[controlled_idx] = input_mask
                 session.advance(inputs)
             else:
                 session.advance(input_mask)
+
+            # --- SFX 事件偵測 ---
+            for i in range(num_players):
+                p  = session.get_player(i)
+                ct = p.character_type
+                old_state = last_states[i]
+                if p.state != old_state:
+                    if p.state == STATE_HURT:
+                        sfx_manager.on_hurt(ct)
+                        # 找近戰攻擊方：上一幀處於 melee ability 狀態的玩家
+                        for j in range(num_players):
+                            if j == i:
+                                continue
+                            atk = session.get_player(j)
+                            ab  = char_assets.get(atk.character_type, char_assets[0]).get_ability(last_states[j])
+                            if ab and ab.melee_enabled:
+                                sfx_manager.on_hit(atk.character_type, last_states[j])
+                                break
+                    elif p.state == STATE_DEAD:
+                        sfx_manager.on_dead(ct)
+                    elif p.state not in (STATE_IDLE, STATE_WALK):
+                        sfx_manager.on_ability(ct, p.state)
+                if prev_z[i] == 0 and p.z > 0 and p.state not in (STATE_HURT, STATE_DEAD):
+                    sfx_manager.on_jump(ct)
+                if prev_z[i] > 0 and p.z == 0:
+                    sfx_manager.on_land(ct)
+
+            for eid in range(prev_entity_count, session.get_entity_count()):
+                e = session.get_entity(eid)
+                sfx_manager.on_proj(e.character_type, e.ability_state_id)
+            # --- SFX 事件偵測結束 ---
+
             if num_players > 1:
                 match_result = _check_match(num_players)
 
