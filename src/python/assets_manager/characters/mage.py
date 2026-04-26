@@ -46,7 +46,7 @@ _HURT_HURT = HitboxDef(ox=-30, oy=-80, w=70, h=80)
 _HIT_ATTACK = HitboxDef(ox=-95, oy=-77, w=66, h=86)
 _HIT_SKILL = HitboxDef(ox=-70, oy=-32, w=40, h=40)
 
-STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
+from src.python.game_constants import STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL
 
 
 class Mage(BaseCharacter):

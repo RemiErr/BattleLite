@@ -47,7 +47,7 @@ _HURT_HURT = HitboxDef(ox=-18, oy=-72, w=38, h=72)
 _HIT_ATTACK = HitboxDef(ox=-80, oy=-50, w=56, h=30)
 _HIT_SKILL = HitboxDef(ox=-80, oy=-34, w=80, h=40)
 
-STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
+from src.python.game_constants import STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL
 
 CHAR_TYPE_WIZARD = 4
 

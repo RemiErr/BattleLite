@@ -40,7 +40,7 @@ _HURT_HURT = HitboxDef(ox=-15, oy=-80, w=70, h=90)
 
 _HIT_ATTACK = HitboxDef(ox=-86, oy=-92, w=75, h=110)
 
-STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
+from src.python.game_constants import STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL
 
 
 class Knight(BaseCharacter):

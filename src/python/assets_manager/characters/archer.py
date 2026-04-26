@@ -47,7 +47,7 @@ _HURT_HURT = HitboxDef(ox=-26, oy=-78, w=48, h=78)
 _HIT_ATTACK = HitboxDef(ox=0, oy=-30, w=50, h=35)
 _HIT_SKILL = HitboxDef(ox=0, oy=-40, w=80, h=45)
 
-STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
+from src.python.game_constants import STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL
 
 
 class Archer(BaseCharacter):
