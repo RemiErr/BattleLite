@@ -12,7 +12,8 @@ import random
 import string
 import urllib.request
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+PROJECT_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), '../..'))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
@@ -32,9 +33,40 @@ LOBBY_WS_URL = (
     os.getenv("LOBBY_SERVER_URL_LOCAL", "ws://localhost:8000") if _use_local
     else os.getenv("LOBBY_SERVER_URL_CLOUD", "ws://localhost:8000")
 )
-LOBBY_HTTP_URL = LOBBY_WS_URL.replace("ws://", "http://").replace("wss://", "https://")
+LOBBY_HTTP_URL = LOBBY_WS_URL.replace(
+    "ws://", "http://").replace("wss://", "https://")
 
 CHAR_NAMES = ["Knight", "Mage", "Archer", "Paladin", "Wizard"]
+
+
+_FONTS_DIR = os.path.join(PROJECT_ROOT, "src", "assets", "fonts")
+_FC_TMP_CONF: str | None = None
+
+
+def _setup_project_font() -> None:
+    """點 Tk 初始化前，透過 fontconfig 臨時 config 載入專案內的字型目錄。"""
+    global _FC_TMP_CONF
+    if not os.path.isdir(_FONTS_DIR):
+        return
+    has_font = any(f.lower().endswith((".ttf", ".otf", ".ttc"))
+                   for f in os.listdir(_FONTS_DIR))
+    if not has_font:
+        return
+
+    import tempfile
+    conf = (
+        '<?xml version="1.0"?>\n'
+        '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">\n'
+        '<fontconfig>\n'
+        f'  <dir>{_FONTS_DIR}</dir>\n'
+        '  <include ignore_missing="yes">/etc/fonts/fonts.conf</include>\n'
+        '</fontconfig>\n'
+    )
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".conf", delete=False)
+    tmp.write(conf)
+    tmp.close()
+    _FC_TMP_CONF = tmp.name
+    os.environ["FONTCONFIG_FILE"] = tmp.name
 
 
 def _gen_room_code(length: int = 6) -> str:
@@ -49,16 +81,20 @@ class SettingsDialog(ctk.CTkToplevel):
         self.title("設定")
         self.geometry("320x180")
         self.resizable(False, False)
+        self.wait_visibility()
         self.grab_set()
         self._mgr = settings_mgr
 
-        ctk.CTkLabel(self, text="音量", font=ctk.CTkFont(size=14)).pack(pady=(20, 4))
+        ctk.CTkLabel(self, text="音量", font=ctk.CTkFont(
+            size=14)).pack(pady=(20, 4))
         self._vol = ctk.IntVar(value=settings_mgr.get("volume"))
-        self._slider = ctk.CTkSlider(self, from_=0, to=100, variable=self._vol, width=240)
+        self._slider = ctk.CTkSlider(
+            self, from_=0, to=100, variable=self._vol, width=240)
         self._slider.pack(pady=4)
         self._lbl = ctk.CTkLabel(self, text=f"{self._vol.get()}%")
         self._lbl.pack()
-        self._slider.configure(command=lambda v: self._lbl.configure(text=f"{int(v)}%"))
+        self._slider.configure(
+            command=lambda v: self._lbl.configure(text=f"{int(v)}%"))
 
         ctk.CTkButton(self, text="儲存", command=self._save).pack(pady=18)
 
@@ -77,8 +113,9 @@ class LauncherApp(ctk.CTk):
         self.title("BattleLite Launcher")
         self.protocol("WM_DELETE_WINDOW", self._on_closing)
 
-        sz  = self.settings_mgr.get("window_size")
+        sz = self.settings_mgr.get("window_size")
         pos = self.settings_mgr.get("window_pos")
+        self.resizable(False, False)
         self.geometry(f"{sz[0]}x{sz[1]}+{pos[0]}+{pos[1]}")
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
@@ -92,11 +129,11 @@ class LauncherApp(ctk.CTk):
         self._punch_stop = threading.Event()
 
         # 房間狀態
-        self._my_id       = 0
-        self._is_host     = False
-        self._is_queue    = False
-        self._room_id     = ""
-        self._local_ct    = 0   # 本玩家選的 char_type
+        self._my_id = 0
+        self._is_host = False
+        self._is_queue = False
+        self._room_id = ""
+        self._local_ct = 0   # 本玩家選的 char_type
 
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
@@ -118,30 +155,34 @@ class LauncherApp(ctk.CTk):
             row=0, column=0, pady=(20, 4))
 
         self._lbl_online_main = ctk.CTkLabel(f, text="Online: -",
-                                              font=ctk.CTkFont(size=12))
+                                             font=ctk.CTkFont(size=12))
         self._lbl_online_main.grid(row=1, column=0)
 
-        self.entry_nickname = ctk.CTkEntry(f, placeholder_text="Nickname", width=260)
+        self.entry_nickname = ctk.CTkEntry(
+            f, placeholder_text="Nickname", width=260)
         self.entry_nickname.insert(0, self.settings_mgr.get("nickname"))
         self.entry_nickname.grid(row=2, column=0, pady=12)
 
         # 線上按鈕列
-        btn_row = ctk.CTkFrame(f, fg_color="transparent")
-        btn_row.grid(row=3, column=0, pady=4)
-        ctk.CTkButton(btn_row, text="排隊",    width=100, command=self._on_queue      ).grid(row=0, column=0, padx=5)
-        ctk.CTkButton(btn_row, text="開房間",  width=100, command=self._on_create     ).grid(row=0, column=1, padx=5)
-        ctk.CTkButton(btn_row, text="加入房間",width=100, command=self._on_join_click ).grid(row=0, column=2, padx=5)
-
-        self._entry_room = ctk.CTkEntry(f, placeholder_text="房間碼", width=260)
-        self._entry_room.insert(0, self.settings_mgr.get("last_room"))
-        self._entry_room.grid(row=4, column=0, pady=4)
+        btn_grid = ctk.CTkFrame(f, fg_color="transparent")
+        btn_grid.grid(row=3, column=0, pady=4)
+        ctk.CTkButton(btn_grid, text="排隊",    width=130, command=self._on_queue).grid(
+            row=0, column=0, padx=5, pady=4)
+        ctk.CTkButton(btn_grid, text="開房",  width=130, command=self._on_create).grid(
+            row=0, column=1, padx=5, pady=4)
+        self._entry_room = ctk.CTkEntry(
+            btn_grid, placeholder_text="請輸入房間碼", width=130)
+        self._entry_room.grid(row=1, column=0, padx=5, pady=4)
+        ctk.CTkButton(btn_grid, text="加入", width=130, command=self._on_join_click).grid(
+            row=1, column=1, padx=5, pady=4)
 
         ctk.CTkButton(f, text="離線模式", fg_color="gray40",
                       command=self._on_offline).grid(row=5, column=0, pady=6)
         ctk.CTkButton(f, text="設定", width=80, fg_color="gray30",
                       command=self._open_settings).grid(row=6, column=0, pady=2)
 
-        self._lbl_status_main = ctk.CTkLabel(f, text="Ready.", font=ctk.CTkFont(size=12))
+        self._lbl_status_main = ctk.CTkLabel(
+            f, text="Ready.", font=ctk.CTkFont(size=12))
         self._lbl_status_main.grid(row=7, column=0, pady=10)
 
     # ── Room Frame ────────────────────────────────────────────────────────
@@ -159,12 +200,12 @@ class LauncherApp(ctk.CTk):
         ctk.CTkButton(hdr, text="← 離開", width=80, fg_color="gray30",
                       command=self._leave_room).grid(row=0, column=0)
         self._lbl_room_code = ctk.CTkLabel(hdr, text="Room: ------",
-                                            font=ctk.CTkFont(size=16, weight="bold"))
+                                           font=ctk.CTkFont(size=16, weight="bold"))
         self._lbl_room_code.grid(row=0, column=1, padx=10)
         ctk.CTkButton(hdr, text="複製", width=60, fg_color="gray40",
                       command=self._copy_room_code).grid(row=0, column=2)
         self._lbl_online_room = ctk.CTkLabel(hdr, text="Online: -",
-                                              font=ctk.CTkFont(size=12))
+                                             font=ctk.CTkFont(size=12))
         self._lbl_online_room.grid(row=0, column=3, padx=10)
 
         # 玩家列表區
@@ -176,15 +217,15 @@ class LauncherApp(ctk.CTk):
         bot = ctk.CTkFrame(f, fg_color="transparent")
         bot.grid(row=2, column=0, pady=10)
         self._btn_ready = ctk.CTkButton(bot, text="準備好了", width=130,
-                                         command=self._on_ready)
+                                        command=self._on_ready)
         self._btn_ready.grid(row=0, column=0, padx=10)
         self._btn_start = ctk.CTkButton(bot, text="開始遊戲", width=130,
-                                         state="disabled", fg_color="green4",
-                                         command=self._on_start_game)
+                                        state="disabled", fg_color="green4",
+                                        command=self._on_start_game)
         self._btn_start.grid(row=0, column=1, padx=10)
 
         self._lbl_status_room = ctk.CTkLabel(f, text="等待玩家...",
-                                              font=ctk.CTkFont(size=12))
+                                             font=ctk.CTkFont(size=12))
         self._lbl_status_room.grid(row=3, column=0, pady=8)
 
     def _update_room_ui(self, data: dict):
@@ -368,7 +409,10 @@ class LauncherApp(ctk.CTk):
         for p in range(5000, 5020):
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             try:
-                s.bind(('0.0.0.0', p)); s.close(); local_port = p; break
+                s.bind(('0.0.0.0', p))
+                s.close()
+                local_port = p
+                break
             except OSError:
                 s.close()
 
@@ -383,14 +427,16 @@ class LauncherApp(ctk.CTk):
                 None, lambda: probe_stun_on_sock(udp_sock))
             self._set_status_main(f"NAT: {pub_ip}:{pub_port}")
         except Exception as e:
-            udp_sock.close(); self._udp_sock = None
+            udp_sock.close()
+            self._udp_sock = None
             self._set_status_main(f"STUN 失敗: {e}")
             return
 
         # 3. 連線大廳
         self._client = LobbyClient(LOBBY_WS_URL)
         if not await self._client.join_room(room_id, nickname):
-            udp_sock.close(); self._udp_sock = None
+            udp_sock.close()
+            self._udp_sock = None
             self._set_status_main("無法連線至大廳伺服器。")
             return
 
@@ -403,7 +449,7 @@ class LauncherApp(ctk.CTk):
         })
 
         # 5. 監聽訊息
-        punch_stop   = threading.Event()
+        punch_stop = threading.Event()
         punch_thread: threading.Thread | None = None
 
         try:
@@ -411,10 +457,11 @@ class LauncherApp(ctk.CTk):
                 t = msg.get("type")
 
                 if t == "join_ack":
-                    self._my_id   = msg["player_id"]
+                    self._my_id = msg["player_id"]
                     self._is_host = msg["is_host"]
                     is_q = (room_id == "__queue__")
-                    self.after(0, lambda m=msg, q=is_q: self._show_room(m["room_id"], q))
+                    self.after(0, lambda m=msg,
+                               q=is_q: self._show_room(m["room_id"], q))
 
                 elif t == "room_update":
                     self.after(0, lambda m=msg: self._update_room_ui(m))
@@ -439,17 +486,19 @@ class LauncherApp(ctk.CTk):
                     punch_stop.set()
                     if punch_thread:
                         punch_thread.join(timeout=1.0)
-                    udp_sock.close(); self._udp_sock = None
+                    udp_sock.close()
+                    self._udp_sock = None
 
                     my_pub = next((p["pub_ip"] for p in msg["players"]
                                    if p["id"] == self._my_id), "")
                     resolved = []
                     for p in msg["players"]:
-                        same_lan = (p["pub_ip"] == my_pub and p["id"] != self._my_id)
+                        same_lan = (p["pub_ip"] ==
+                                    my_pub and p["id"] != self._my_id)
                         resolved.append({**p,
-                            "ip":   p["local_ip"]   if same_lan else p["pub_ip"],
-                            "port": p["local_port"]  if same_lan else p["pub_port"],
-                        })
+                                         "ip":   p["local_ip"] if same_lan else p["pub_ip"],
+                                         "port": p["local_port"] if same_lan else p["pub_port"],
+                                         })
 
                     session_data = {
                         "nickname":    nickname,
@@ -489,10 +538,10 @@ class LauncherApp(ctk.CTk):
             time.sleep(0.1)
 
     def _reset_room_state(self):
-        self._my_id    = 0
-        self._is_host  = False
+        self._my_id = 0
+        self._is_host = False
         self._is_queue = False
-        self._room_id  = ""
+        self._room_id = ""
         self._local_ct = 0
         self._btn_ready.configure(state="normal", text="準備好了")
         self._btn_start.configure(state="disabled", text="開始遊戲")
@@ -511,15 +560,16 @@ class LauncherApp(ctk.CTk):
         try:
             with urllib.request.urlopen(f"{LOBBY_HTTP_URL}/online", timeout=3) as r:
                 count = json.loads(r.read()).get("count", 0)
-            self.after(0, lambda: self._lbl_online_main.configure(text=f"Online: {count}"))
-            self.after(0, lambda: self._lbl_online_room.configure(text=f"Online: {count}"))
+            self.after(0, lambda: self._lbl_online_main.configure(
+                text=f"Online: {count}"))
+            self.after(0, lambda: self._lbl_online_room.configure(
+                text=f"Online: {count}"))
         except Exception:
             pass
 
     def _do_launch(self, session_data: dict):
         payload = encrypt_payload(session_data)
         self.settings_mgr.set("nickname", session_data["nickname"])
-        self.settings_mgr.set("last_room", session_data.get("room", ""))
         self.settings_mgr.save()
         try:
             script = os.path.join(PROJECT_ROOT, "src", "python", "main.py")
@@ -552,5 +602,8 @@ class LauncherApp(ctk.CTk):
 
 
 if __name__ == "__main__":
+    _setup_project_font()
     app = LauncherApp()
     app.mainloop()
+    if _FC_TMP_CONF and os.path.exists(_FC_TMP_CONF):
+        os.unlink(_FC_TMP_CONF)

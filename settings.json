@@ -2,12 +2,12 @@
     "nickname": "Player",
     "volume": 50,
     "window_size": [
-        894,
-        670
+        620,
+        420
     ],
     "window_pos": [
-        871,
-        24
+        600,
+        300
     ],
     "fullscreen": false,
     "last_room": "offline"
