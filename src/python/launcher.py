@@ -8,10 +8,11 @@ import threading
 import asyncio
 import socket
 import time
+import random
+import string
+import urllib.request
 
-# 確保路徑正確
-PROJECT_ROOT = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), '../..'))
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
@@ -27,276 +28,526 @@ except ImportError as e:
 load_dotenv()
 
 _use_local = os.getenv("LOBBY_USE_LOCAL", "false").lower() == "true"
-LOBBY_SERVER_URL = (
+LOBBY_WS_URL = (
     os.getenv("LOBBY_SERVER_URL_LOCAL", "ws://localhost:8000") if _use_local
     else os.getenv("LOBBY_SERVER_URL_CLOUD", "ws://localhost:8000")
 )
+LOBBY_HTTP_URL = LOBBY_WS_URL.replace("ws://", "http://").replace("wss://", "https://")
 
+CHAR_NAMES = ["Knight", "Mage", "Archer", "Paladin", "Wizard"]
+
+
+def _gen_room_code(length: int = 6) -> str:
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+
+
+# ── 設定對話框 ────────────────────────────────────────────────────────────
+
+class SettingsDialog(ctk.CTkToplevel):
+    def __init__(self, parent, settings_mgr: SettingsManager):
+        super().__init__(parent)
+        self.title("設定")
+        self.geometry("320x180")
+        self.resizable(False, False)
+        self.grab_set()
+        self._mgr = settings_mgr
+
+        ctk.CTkLabel(self, text="音量", font=ctk.CTkFont(size=14)).pack(pady=(20, 4))
+        self._vol = ctk.IntVar(value=settings_mgr.get("volume"))
+        self._slider = ctk.CTkSlider(self, from_=0, to=100, variable=self._vol, width=240)
+        self._slider.pack(pady=4)
+        self._lbl = ctk.CTkLabel(self, text=f"{self._vol.get()}%")
+        self._lbl.pack()
+        self._slider.configure(command=lambda v: self._lbl.configure(text=f"{int(v)}%"))
+
+        ctk.CTkButton(self, text="儲存", command=self._save).pack(pady=18)
+
+    def _save(self):
+        self._mgr.set("volume", int(self._vol.get()))
+        self._mgr.save()
+        self.destroy()
+
+
+# ── 主應用程式 ────────────────────────────────────────────────────────────
 
 class LauncherApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-
         self.settings_mgr = SettingsManager()
         self.title("BattleLite Launcher")
-        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.protocol("WM_DELETE_WINDOW", self._on_closing)
 
-        size = self.settings_mgr.get("window_size")
+        sz  = self.settings_mgr.get("window_size")
         pos = self.settings_mgr.get("window_pos")
-        self.geometry(f"{size[0]}x{size[1]}+{pos[0]}+{pos[1]}")
-
+        self.geometry(f"{sz[0]}x{sz[1]}+{pos[0]}+{pos[1]}")
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
+        # 連線狀態
         self.game_process = None
-        self.lobby_thread = None
-        self.loop = None
+        self.lobby_thread: threading.Thread | None = None
+        self.loop: asyncio.AbstractEventLoop | None = None
+        self._client: LobbyClient | None = None
+        self._udp_sock: socket.socket | None = None
+        self._punch_stop = threading.Event()
 
+        # 房間狀態
+        self._my_id       = 0
+        self._is_host     = False
+        self._is_queue    = False
+        self._room_id     = ""
+        self._local_ct    = 0   # 本玩家選的 char_type
+
+        self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
-        self.main_frame = ctk.CTkFrame(self, corner_radius=10)
-        self.main_frame.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
-        self.main_frame.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(self.main_frame, text="BATTLE LITE", font=ctk.CTkFont(
-            size=32, weight="bold")).grid(row=0, column=0, pady=20)
+        self._build_main_frame()
+        self._build_room_frame()
+        self._show_main()
+        self._poll_online()
 
-        self.entry_nickname = ctk.CTkEntry(
-            self.main_frame, placeholder_text="Nickname", width=250)
+    # ── Main Frame ────────────────────────────────────────────────────────
+
+    def _build_main_frame(self):
+        f = ctk.CTkFrame(self, corner_radius=10)
+        f.grid_columnconfigure(0, weight=1)
+        self.main_frame = f
+
+        ctk.CTkLabel(f, text="BATTLE LITE",
+                     font=ctk.CTkFont(size=32, weight="bold")).grid(
+            row=0, column=0, pady=(20, 4))
+
+        self._lbl_online_main = ctk.CTkLabel(f, text="Online: -",
+                                              font=ctk.CTkFont(size=12))
+        self._lbl_online_main.grid(row=1, column=0)
+
+        self.entry_nickname = ctk.CTkEntry(f, placeholder_text="Nickname", width=260)
         self.entry_nickname.insert(0, self.settings_mgr.get("nickname"))
-        self.entry_nickname.grid(row=1, column=0, pady=10)
+        self.entry_nickname.grid(row=2, column=0, pady=12)
 
-        self.entry_room = ctk.CTkEntry(
-            self.main_frame, placeholder_text="Room Code", width=250)
-        self.entry_room.insert(0, self.settings_mgr.get("last_room"))
-        self.entry_room.grid(row=2, column=0, pady=10)
+        # 線上按鈕列
+        btn_row = ctk.CTkFrame(f, fg_color="transparent")
+        btn_row.grid(row=3, column=0, pady=4)
+        ctk.CTkButton(btn_row, text="排隊",    width=100, command=self._on_queue      ).grid(row=0, column=0, padx=5)
+        ctk.CTkButton(btn_row, text="開房間",  width=100, command=self._on_create     ).grid(row=0, column=1, padx=5)
+        ctk.CTkButton(btn_row, text="加入房間",width=100, command=self._on_join_click ).grid(row=0, column=2, padx=5)
 
-        self.btn_mode = ctk.CTkSegmentedButton(
-            self.main_frame, values=["Online P2P", "Offline Dev"])
-        self.btn_mode.set("Offline Dev")
-        self.btn_mode.grid(row=3, column=0, pady=10)
+        self._entry_room = ctk.CTkEntry(f, placeholder_text="房間碼", width=260)
+        self._entry_room.insert(0, self.settings_mgr.get("last_room"))
+        self._entry_room.grid(row=4, column=0, pady=4)
 
-        self.btn_start = ctk.CTkButton(self.main_frame, text="START GAME",
-                                       font=ctk.CTkFont(size=18, weight="bold"),
-                                       command=self.on_start_clicked, height=45)
-        self.btn_start.grid(row=4, column=0, padx=20, pady=30)
+        ctk.CTkButton(f, text="離線模式", fg_color="gray40",
+                      command=self._on_offline).grid(row=5, column=0, pady=6)
+        ctk.CTkButton(f, text="設定", width=80, fg_color="gray30",
+                      command=self._open_settings).grid(row=6, column=0, pady=2)
 
-        self.label_status = ctk.CTkLabel(
-            self.main_frame, text="Ready.", font=ctk.CTkFont(size=12))
-        self.label_status.grid(row=5, column=0, padx=20, pady=10)
+        self._lbl_status_main = ctk.CTkLabel(f, text="Ready.", font=ctk.CTkFont(size=12))
+        self._lbl_status_main.grid(row=7, column=0, pady=10)
 
-    def on_start_clicked(self):
-        mode = self.btn_mode.get()
-        if mode == "Offline Dev":
-            self.launch_game_offline()
+    # ── Room Frame ────────────────────────────────────────────────────────
+
+    def _build_room_frame(self):
+        f = ctk.CTkFrame(self, corner_radius=10)
+        f.grid_columnconfigure(0, weight=1)
+        self.room_frame = f
+
+        # 頂列
+        hdr = ctk.CTkFrame(f, fg_color="transparent")
+        hdr.grid(row=0, column=0, padx=15, pady=(15, 5), sticky="ew")
+        hdr.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkButton(hdr, text="← 離開", width=80, fg_color="gray30",
+                      command=self._leave_room).grid(row=0, column=0)
+        self._lbl_room_code = ctk.CTkLabel(hdr, text="Room: ------",
+                                            font=ctk.CTkFont(size=16, weight="bold"))
+        self._lbl_room_code.grid(row=0, column=1, padx=10)
+        ctk.CTkButton(hdr, text="複製", width=60, fg_color="gray40",
+                      command=self._copy_room_code).grid(row=0, column=2)
+        self._lbl_online_room = ctk.CTkLabel(hdr, text="Online: -",
+                                              font=ctk.CTkFont(size=12))
+        self._lbl_online_room.grid(row=0, column=3, padx=10)
+
+        # 玩家列表區
+        self._rows_frame = ctk.CTkFrame(f, fg_color="transparent")
+        self._rows_frame.grid(row=1, column=0, padx=15, pady=8, sticky="ew")
+        self._rows_frame.grid_columnconfigure(1, weight=1)
+
+        # 底列按鈕
+        bot = ctk.CTkFrame(f, fg_color="transparent")
+        bot.grid(row=2, column=0, pady=10)
+        self._btn_ready = ctk.CTkButton(bot, text="準備好了", width=130,
+                                         command=self._on_ready)
+        self._btn_ready.grid(row=0, column=0, padx=10)
+        self._btn_start = ctk.CTkButton(bot, text="開始遊戲", width=130,
+                                         state="disabled", fg_color="green4",
+                                         command=self._on_start_game)
+        self._btn_start.grid(row=0, column=1, padx=10)
+
+        self._lbl_status_room = ctk.CTkLabel(f, text="等待玩家...",
+                                              font=ctk.CTkFont(size=12))
+        self._lbl_status_room.grid(row=3, column=0, pady=8)
+
+    def _update_room_ui(self, data: dict):
+        players = data.get("players", [])
+        host_id = data.get("host_id", 0)
+
+        # 清除舊列
+        for w in self._rows_frame.winfo_children():
+            w.destroy()
+
+        # 欄標題
+        for col, txt in enumerate(["玩家", "角色選擇", "狀態"]):
+            ctk.CTkLabel(self._rows_frame, text=txt,
+                         font=ctk.CTkFont(size=11, weight="bold"),
+                         width=[120, 380, 70][col], anchor="w").grid(
+                row=0, column=col, padx=4, pady=2, sticky="w")
+
+        for i, p in enumerate(players):
+            row = i + 1
+            is_local = (p["id"] == self._my_id)
+            crown = " 👑" if p["id"] == host_id else ""
+
+            ctk.CTkLabel(self._rows_frame,
+                         text=f"P{p['id']} {p['name']}{crown}",
+                         width=120, anchor="w").grid(
+                row=row, column=0, padx=4, pady=4, sticky="w")
+
+            if is_local:
+                seg = ctk.CTkSegmentedButton(
+                    self._rows_frame, values=CHAR_NAMES, width=380,
+                    command=self._on_char_selected)
+                seg.set(CHAR_NAMES[p.get("char_type", 0)])
+                seg.grid(row=row, column=1, padx=4, pady=4)
+            else:
+                ctk.CTkLabel(self._rows_frame,
+                             text=CHAR_NAMES[p.get("char_type", 0)],
+                             width=380, anchor="center",
+                             fg_color=("gray75", "gray30"),
+                             corner_radius=6).grid(
+                    row=row, column=1, padx=4, pady=4)
+
+            ready = p.get("ready", False)
+            ctk.CTkLabel(self._rows_frame,
+                         text="✓ 準備" if ready else "- 等待",
+                         width=70, anchor="center",
+                         fg_color="green4" if ready else "gray40",
+                         corner_radius=6).grid(
+                row=row, column=2, padx=4, pady=4)
+
+        # 空槽位
+        for i in range(len(players), 4):
+            row = i + 1
+            ctk.CTkLabel(self._rows_frame, text=f"P{i} (空)",
+                         width=120, anchor="w",
+                         text_color="gray50").grid(row=row, column=0, padx=4, pady=4, sticky="w")
+            ctk.CTkLabel(self._rows_frame, text="---",
+                         width=380, anchor="center",
+                         text_color="gray50").grid(row=row, column=1, padx=4, pady=4)
+            ctk.CTkLabel(self._rows_frame, text="---",
+                         width=70, anchor="center",
+                         text_color="gray50").grid(row=row, column=2, padx=4, pady=4)
+
+        # 開始按鈕（房主且全員準備）
+        all_ready = len(players) >= 2 and all(p.get("ready") for p in players)
+        if self._is_host and not self._is_queue:
+            self._btn_start.configure(
+                state="normal" if all_ready else "disabled",
+                text="開始遊戲")
         else:
-            self.start_online_flow()
+            self._btn_start.configure(
+                state="disabled",
+                text="排隊中" if self._is_queue else "等待房主")
 
-    def launch_game_offline(self):
-        session_data = {
-            "nickname": self.entry_nickname.get(),
+    # ── 切換 Frame ────────────────────────────────────────────────────────
+
+    def _show_main(self):
+        self.room_frame.grid_remove()
+        self.main_frame.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
+
+    def _show_room(self, room_id: str, is_queue: bool):
+        self._room_id = room_id
+        label = "Room: 排隊中" if is_queue else f"Room: {room_id}"
+        self._lbl_room_code.configure(text=label)
+        self.main_frame.grid_remove()
+        self.room_frame.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
+        self._set_status_room("等待玩家加入..." if not is_queue else "等待其他玩家...")
+
+    # ── Main Frame 回呼 ───────────────────────────────────────────────────
+
+    def _on_queue(self):
+        self._is_queue = True
+        self._start_online("__queue__")
+
+    def _on_create(self):
+        self._is_queue = False
+        self._start_online(_gen_room_code())
+
+    def _on_join_click(self):
+        self._is_queue = False
+        code = self._entry_room.get().strip().upper()
+        if not code:
+            self._set_status_main("請輸入房間碼")
+            return
+        self._start_online(code)
+
+    def _on_offline(self):
+        self._do_launch({
+            "nickname": self.entry_nickname.get() or "DevPlayer",
             "room": "offline",
             "is_offline": True,
             "local_id": 0,
             "local_port": 5000,
-            "num_players": 4
-        }
-        self.do_launch(session_data)
+            "num_players": 4,
+        })
 
-    def start_online_flow(self):
+    def _open_settings(self):
+        SettingsDialog(self, self.settings_mgr)
+
+    # ── Room Frame 回呼 ───────────────────────────────────────────────────
+
+    def _on_char_selected(self, name: str):
+        ct = CHAR_NAMES.index(name) if name in CHAR_NAMES else 0
+        self._local_ct = ct
+        if self.loop and self._client:
+            asyncio.run_coroutine_threadsafe(
+                self._client.send_char_select(ct), self.loop)
+
+    def _on_ready(self):
+        self._btn_ready.configure(state="disabled", text="已準備")
+        if self.loop and self._client:
+            asyncio.run_coroutine_threadsafe(
+                self._client.send_ready(), self.loop)
+
+    def _on_start_game(self):
+        self._btn_start.configure(state="disabled")
+        if self.loop and self._client:
+            asyncio.run_coroutine_threadsafe(
+                self._client.send_start_game(), self.loop)
+
+    def _leave_room(self):
+        if self.loop and self._client:
+            asyncio.run_coroutine_threadsafe(self._client.close(), self.loop)
+        self._reset_room_state()
+        self._show_main()
+        self._set_status_main("已離開房間。")
+
+    def _copy_room_code(self):
+        if self._room_id and self._room_id != "__queue__":
+            self.clipboard_clear()
+            self.clipboard_append(self._room_id)
+            self._set_status_room("房間碼已複製！")
+
+    # ── Online Flow ───────────────────────────────────────────────────────
+
+    def _start_online(self, room_id: str):
         if self.game_process:
             return
-        self.btn_start.configure(state="disabled", text="CONNECTING...")
-        self.update_status("Searching for free UDP port...")
+        self._set_status_main("探測 NAT 位址...")
         self.lobby_thread = threading.Thread(
-            target=self.run_async_lobby, daemon=True)
+            target=self._run_lobby_thread, args=(room_id,), daemon=True)
         self.lobby_thread.start()
 
-    # --- Punch loop (背景執行緒) ---
-
-    def _punch_loop(self, sock: socket.socket, remotes: list, stop_event: threading.Event):
-        """持續向所有 remote 發 UDP 封包，直到 stop_event 被設置。"""
-        count = 0
-        while not stop_event.is_set():
-            for ip, port in remotes:
-                try:
-                    sock.sendto(b'\x00', (ip, port))
-                except Exception:
-                    pass
-            count += 1
-            time.sleep(0.1)  # 10 輪/秒
-        print(f"  [punch] 結束，共發送 {count} 輪")
-
-    # --- Async lobby flow ---
-
-    def run_async_lobby(self):
+    def _run_lobby_thread(self, room_id: str):
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
         try:
-            self.loop.run_until_complete(self.async_lobby_task())
+            self.loop.run_until_complete(self._lobby_task(room_id))
         finally:
             pending = asyncio.all_tasks(self.loop)
             if pending:
                 self.loop.run_until_complete(
                     asyncio.gather(*pending, return_exceptions=True))
             self.loop.close()
+            self.loop = None
 
-    async def async_lobby_task(self):
-        nickname = self.entry_nickname.get()
-        room = self.entry_room.get()
+    async def _lobby_task(self, room_id: str):
+        nickname = self.entry_nickname.get() or "Player"
 
-        # 1. 找可用 local port
+        # 1. 找可用 UDP port
         local_port = 5000
         for p in range(5000, 5020):
-            test_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             try:
-                test_sock.bind(('0.0.0.0', p))
-                test_sock.close()
-                local_port = p
-                break
+                s.bind(('0.0.0.0', p)); s.close(); local_port = p; break
             except OSError:
-                test_sock.close()
+                s.close()
 
-        # 2. 建立並保持 UDP socket（方案二：不在 STUN 後關閉）
+        # 2. STUN 探測
         udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         udp_sock.bind(('0.0.0.0', local_port))
-
+        self._udp_sock = udp_sock
         try:
             loop = asyncio.get_event_loop()
             pub_ip, pub_port = await loop.run_in_executor(
                 None, lambda: probe_stun_on_sock(udp_sock))
-            self.update_status(f"NAT Probe: {pub_ip}:{pub_port}")
-            print(f"  [stun] local={local_port}  public={pub_ip}:{pub_port}")
+            self._set_status_main(f"NAT: {pub_ip}:{pub_port}")
         except Exception as e:
-            udp_sock.close()
-            self.update_status(f"STUN Failed: {e}")
-            self.after(2000, self.reset_ui_to_idle)
+            udp_sock.close(); self._udp_sock = None
+            self._set_status_main(f"STUN 失敗: {e}")
             return
 
         # 3. 連線大廳
-        client = LobbyClient(server_url=LOBBY_SERVER_URL)
-        if not await client.join_room(room, nickname):
-            udp_sock.close()
-            self.update_status("Lobby Server offline.")
-            self.after(2000, self.reset_ui_to_idle)
+        self._client = LobbyClient(LOBBY_WS_URL)
+        if not await self._client.join_room(room_id, nickname):
+            udp_sock.close(); self._udp_sock = None
+            self._set_status_main("無法連線至大廳伺服器。")
             return
 
-        # 4. 回報公網 + 私有 endpoint（供同 LAN 直連判斷使用）
+        # 4. 回報 endpoint
         local_ip = get_local_ip()
-        await client.send_data({
+        await self._client.send_data({
             "type": "report_endpoint",
             "pub_ip": pub_ip, "pub_port": pub_port,
             "local_ip": local_ip, "local_port": local_port,
         })
-        print(f"  [report] pub={pub_ip}:{pub_port}  lan={local_ip}:{local_port}")
-        self.update_status("Waiting for opponent...")
 
-        # 5. 監聽大廳訊息（方案三：新協議 punch_start / game_start）
-        punch_stop = threading.Event()
-        punch_thread = None
+        # 5. 監聽訊息
+        punch_stop   = threading.Event()
+        punch_thread: threading.Thread | None = None
 
         try:
-            async for msg in client.listen():
+            async for msg in self._client.listen():
+                t = msg.get("type")
 
-                if msg["type"] == "punch_start":
-                    my_id = next((p["id"] for p in msg["players"] if p["name"] == nickname), 0)
-                    my_pub_ip = next((p["pub_ip"] for p in msg["players"] if p["id"] == my_id), pub_ip)
+                if t == "join_ack":
+                    self._my_id   = msg["player_id"]
+                    self._is_host = msg["is_host"]
+                    is_q = (room_id == "__queue__")
+                    self.after(0, lambda m=msg, q=is_q: self._show_room(m["room_id"], q))
+
+                elif t == "room_update":
+                    self.after(0, lambda m=msg: self._update_room_ui(m))
+
+                elif t == "punch_start":
+                    my_pub = next((p["pub_ip"] for p in msg["players"]
+                                   if p["id"] == self._my_id), pub_ip)
                     remotes = [
-                        # 同公網 IP → 同 LAN → 用私有 IP 直連，避免 NAT hairpin 失敗
-                        (p["local_ip"], p["local_port"]) if p["pub_ip"] == my_pub_ip
-                        else (p["pub_ip"], p["pub_port"])
+                        (p["local_ip"], p["local_port"])
+                        if p["pub_ip"] == my_pub else (p["pub_ip"], p["pub_port"])
                         for p in msg["players"]
-                        if p["id"] != my_id and p["pub_port"] != 0
+                        if p["id"] != self._my_id and p["pub_port"] != 0
                     ]
-                    print(f"  [punch_start] my_id={my_id}  remotes={remotes}")
                     punch_stop.clear()
                     punch_thread = threading.Thread(
                         target=self._punch_loop,
-                        args=(udp_sock, remotes, punch_stop),
-                        daemon=True
-                    )
+                        args=(udp_sock, remotes, punch_stop), daemon=True)
                     punch_thread.start()
-                    self.update_status("Punching NAT holes...")
+                    self._set_status_room("打洞中...")
 
-                elif msg["type"] == "game_start":
+                elif t == "game_start":
                     punch_stop.set()
                     if punch_thread:
                         punch_thread.join(timeout=1.0)
-                    udp_sock.close()
+                    udp_sock.close(); self._udp_sock = None
 
-                    my_id = next((p["id"] for p in msg["players"] if p["name"] == nickname), 0)
-                    my_pub_ip = next((p["pub_ip"] for p in msg["players"] if p["id"] == my_id), "")
-
-                    # 為每位玩家決定 GGRS 實際要連線的 IP:port
-                    resolved_players = []
+                    my_pub = next((p["pub_ip"] for p in msg["players"]
+                                   if p["id"] == self._my_id), "")
+                    resolved = []
                     for p in msg["players"]:
-                        if p["pub_ip"] == my_pub_ip and p["id"] != my_id:
-                            # 同 LAN → 私有 IP 直連
-                            eff_ip, eff_port = p["local_ip"], p["local_port"]
-                        else:
-                            eff_ip, eff_port = p["pub_ip"], p["pub_port"]
-                        resolved_players.append({**p, "ip": eff_ip, "port": eff_port})
-                        tag = "← me" if p["id"] == my_id else "→ remote"
-                        print(f"  [resolve] id={p['id']} {eff_ip}:{eff_port}  {tag}")
+                        same_lan = (p["pub_ip"] == my_pub and p["id"] != self._my_id)
+                        resolved.append({**p,
+                            "ip":   p["local_ip"]   if same_lan else p["pub_ip"],
+                            "port": p["local_port"]  if same_lan else p["pub_port"],
+                        })
 
                     session_data = {
-                        "nickname": nickname,
-                        "room": room,
-                        "is_offline": False,
-                        "local_id": my_id,
-                        "local_port": local_port,
+                        "nickname":    nickname,
+                        "room":        room_id,
+                        "is_offline":  False,
+                        "local_id":    self._my_id,
+                        "local_port":  local_port,
                         "num_players": len(msg["players"]),
-                        "players": resolved_players,
-                        "seed": msg["seed"]
+                        "players":     resolved,
+                        "seed":        msg["seed"],
+                        "host_id":     msg.get("host_id", 0),
                     }
-                    await client.close()
-                    # 給 OS 50ms 釋放 port 再讓 GGRS 綁定
-                    self.after(50, lambda sd=session_data: self.do_launch(sd))
+                    await self._client.close()
+                    self.after(50, lambda sd=session_data: self._do_launch(sd))
                     break
 
         except Exception as e:
             punch_stop.set()
-            udp_sock.close()
-            self.update_status(f"Lobby error: {e}")
-            self.after(2000, self.reset_ui_to_idle)
+            if self._udp_sock and not getattr(udp_sock, '_closed', False):
+                try:
+                    udp_sock.close()
+                except Exception:
+                    pass
+            self._udp_sock = None
+            self._set_status_main(f"連線錯誤: {e}")
+            self.after(0, self._show_main)
 
-    def reset_ui_to_idle(self):
-        self.btn_start.configure(state="normal", text="START GAME")
-        self.label_status.configure(text="Ready.")
+    # ── 工具方法 ──────────────────────────────────────────────────────────
 
-    def update_status(self, text):
-        self.after(0, lambda: self.label_status.configure(text=text))
+    def _punch_loop(self, sock: socket.socket, remotes: list, stop: threading.Event):
+        while not stop.is_set():
+            for ip, port in remotes:
+                try:
+                    sock.sendto(b'\x00', (ip, port))
+                except Exception:
+                    pass
+            time.sleep(0.1)
 
-    def do_launch(self, session_data):
+    def _reset_room_state(self):
+        self._my_id    = 0
+        self._is_host  = False
+        self._is_queue = False
+        self._room_id  = ""
+        self._local_ct = 0
+        self._btn_ready.configure(state="normal", text="準備好了")
+        self._btn_start.configure(state="disabled", text="開始遊戲")
+
+    def _set_status_main(self, text: str):
+        self.after(0, lambda: self._lbl_status_main.configure(text=text))
+
+    def _set_status_room(self, text: str):
+        self.after(0, lambda: self._lbl_status_room.configure(text=text))
+
+    def _poll_online(self):
+        threading.Thread(target=self._fetch_online, daemon=True).start()
+        self.after(10_000, self._poll_online)
+
+    def _fetch_online(self):
+        try:
+            with urllib.request.urlopen(f"{LOBBY_HTTP_URL}/online", timeout=3) as r:
+                count = json.loads(r.read()).get("count", 0)
+            self.after(0, lambda: self._lbl_online_main.configure(text=f"Online: {count}"))
+            self.after(0, lambda: self._lbl_online_room.configure(text=f"Online: {count}"))
+        except Exception:
+            pass
+
+    def _do_launch(self, session_data: dict):
         payload = encrypt_payload(session_data)
         self.settings_mgr.set("nickname", session_data["nickname"])
-        self.settings_mgr.set("last_room", session_data["room"])
+        self.settings_mgr.set("last_room", session_data.get("room", ""))
         self.settings_mgr.save()
         try:
-            game_script = os.path.join(PROJECT_ROOT, "src", "python", "main.py")
+            script = os.path.join(PROJECT_ROOT, "src", "python", "main.py")
             self.game_process = subprocess.Popen(
-                [sys.executable, game_script, "--payload", payload],
-                env=os.environ.copy()
-            )
+                [sys.executable, script, "--payload", payload],
+                env=os.environ.copy())
             self.iconify()
-            self.monitor_game_process()
+            self._monitor_game()
         except Exception as e:
-            self.reset_ui(f"Launch Error: {e}")
+            self._set_status_main(f"Launch Error: {e}")
 
-    def monitor_game_process(self):
+    def _monitor_game(self):
         if self.game_process and self.game_process.poll() is not None:
-            self.reset_ui("Game ended.")
+            self._reset_room_state()
+            self._show_main()
+            self._set_status_main("遊戲結束。")
             self.deiconify()
+            self.game_process = None
         else:
-            self.after(1000, self.monitor_game_process)
+            self.after(1000, self._monitor_game)
 
-    def reset_ui(self, message):
-        self.btn_start.configure(state="normal", text="START GAME")
-        self.label_status.configure(text=message)
-        self.game_process = None
-
-    def on_closing(self):
+    def _on_closing(self):
         self.settings_mgr.save()
+        if self._udp_sock:
+            try:
+                self._udp_sock.close()
+            except Exception:
+                pass
         self.destroy()
 
 

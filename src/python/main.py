@@ -192,6 +192,18 @@ def run_game():
         for char_type, asset in char_assets.items():
             apply_char_config(session, char_type, asset)
 
+    # 線上模式：依 payload 的 char_type 初始化各玩家角色
+    if not is_offline:
+        for p_info in config.get("players", []):
+            pid = p_info.get("id", 0)
+            ct  = p_info.get("char_type", 0)
+            if 0 <= pid < num_players and ct in char_assets:
+                p = session.get_player(pid)
+                p.character_type = ct
+                p.hp = char_assets[ct].physics.max_hp
+                p.mp = char_assets[ct].physics.max_mp
+                session.set_player(pid, p)
+
     player_elapsed_frames = [0] * num_players
     last_states = [STATE_IDLE] * num_players
     sync_wait_frames = 0
