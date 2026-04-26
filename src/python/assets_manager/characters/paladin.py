@@ -1,6 +1,7 @@
 import os
 from src.python.assets_manager.base_character import (
-    BaseCharacter, HitboxDef, PhysicsStats, AbilityDef, INPUT_ATTACK, INPUT_SKILL
+    BaseCharacter, HitboxDef, PhysicsStats, AbilityDef,
+    SfxDef, CharSfxConfig, INPUT_ATTACK, INPUT_SKILL
 )
 
 _SHEET_PATH = os.path.normpath(os.path.join(
@@ -11,6 +12,11 @@ _SHEET_PATH = os.path.normpath(os.path.join(
 _FACE_PATH = os.path.normpath(os.path.join(
     os.path.dirname(__file__), "..", "..", "..", "..",
     "src", "assets", "char", "paladin", "faceset.png"
+))
+
+_SFX_DIR = os.path.normpath(os.path.join(
+    os.path.dirname(__file__), "..", "..", "..", "..",
+    "src", "assets", "sound"
 ))
 
 _FRAME_W = 249
@@ -34,7 +40,7 @@ _HURT_BODY = HitboxDef(ox=-20, oy=-82, w=60, h=82)
 _HURT_HURT = HitboxDef(ox=-15, oy=-78, w=48, h=78)
 
 _HIT_ATTACK = HitboxDef(ox=-140, oy=-62, w=130, h=36)
-_HIT_SKILL  = HitboxDef(ox=-160, oy=-92, w=180, h=100)
+_HIT_SKILL = HitboxDef(ox=-160, oy=-92, w=180, h=100)
 
 STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
 
@@ -47,7 +53,8 @@ class Paladin(BaseCharacter):
         self.anchor_x = 20
         self.anchor_y = 42
         self.faceset_path = _FACE_PATH
-        self.load_sheet_linear(_SHEET_PATH, _FRAME_W, _FRAME_H, _COLS, _STATE_FRAMES)
+        self.load_sheet_linear(_SHEET_PATH, _FRAME_W,
+                               _FRAME_H, _COLS, _STATE_FRAMES)
 
         self.physics = PhysicsStats(
             max_hp=120_000,
@@ -96,3 +103,10 @@ class Paladin(BaseCharacter):
             STATE_SKILL:  _HURT_BODY,
             STATE_HURT:   _HURT_HURT,
         }
+
+        def _s(n): return SfxDef(os.path.join(_SFX_DIR, f"{n}.ogg"))
+        self.sfx = CharSfxConfig(
+            on_ability={STATE_SKILL: _s(20)},
+            on_hit={STATE_ATTACK: _s(14), STATE_SKILL: _s(24)},
+            on_hurt=_s(13), on_jump=_s(27), on_land=_s(23), on_dead=_s(15),
+        )

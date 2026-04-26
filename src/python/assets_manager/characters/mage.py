@@ -1,6 +1,7 @@
 import os
 from src.python.assets_manager.base_character import (
-    BaseCharacter, HitboxDef, PhysicsStats, AbilityDef, FxDef, INPUT_ATTACK, INPUT_SKILL
+    BaseCharacter, HitboxDef, PhysicsStats, AbilityDef, FxDef,
+    SfxDef, CharSfxConfig, INPUT_ATTACK, INPUT_SKILL
 )
 
 _SHEET_PATH = os.path.normpath(os.path.join(
@@ -16,6 +17,11 @@ _FACE_PATH = os.path.normpath(os.path.join(
 _FX_DIR = os.path.normpath(os.path.join(
     os.path.dirname(__file__), "..", "..", "..", "..",
     "src", "assets", "fx"
+))
+
+_SFX_DIR = os.path.normpath(os.path.join(
+    os.path.dirname(__file__), "..", "..", "..", "..",
+    "src", "assets", "sound"
 ))
 
 _FRAME_W = 151
@@ -38,7 +44,7 @@ _HURT_BODY = HitboxDef(ox=-25, oy=-87, w=70, h=87)
 _HURT_HURT = HitboxDef(ox=-30, oy=-80, w=70, h=80)
 
 _HIT_ATTACK = HitboxDef(ox=-95, oy=-77, w=66, h=86)
-_HIT_SKILL  = HitboxDef(ox=-70, oy=-32, w=40, h=40)
+_HIT_SKILL = HitboxDef(ox=-70, oy=-32, w=40, h=40)
 
 STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
 
@@ -106,3 +112,11 @@ class Mage(BaseCharacter):
             STATE_SKILL:  _HURT_BODY,
             STATE_HURT:   _HURT_HURT,
         }
+
+        def _s(n): return SfxDef(os.path.join(_SFX_DIR, f"{n}.ogg"))
+        self.sfx = CharSfxConfig(
+            on_ability={STATE_ATTACK: _s(17)},
+            on_hit={},
+            on_proj={STATE_SKILL:  _s(26)},
+            on_hurt=_s(13), on_jump=_s(27), on_land=_s(23), on_dead=_s(15),
+        )

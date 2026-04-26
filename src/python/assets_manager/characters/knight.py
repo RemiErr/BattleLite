@@ -1,6 +1,7 @@
 import os
 from src.python.assets_manager.base_character import (
-    BaseCharacter, HitboxDef, PhysicsStats, AbilityDef, INPUT_ATTACK, INPUT_SKILL
+    BaseCharacter, HitboxDef, PhysicsStats, AbilityDef,
+    SfxDef, CharSfxConfig, INPUT_ATTACK, INPUT_SKILL
 )
 
 _SHEET_PATH = os.path.join(
@@ -11,6 +12,11 @@ _SHEET_PATH = os.path.join(
 _FACE_PATH = os.path.normpath(os.path.join(
     os.path.dirname(__file__), "..", "..", "..", "..",
     "src", "assets", "char", "knight", "faceset.png"
+))
+
+_SFX_DIR = os.path.normpath(os.path.join(
+    os.path.dirname(__file__), "..", "..", "..", "..",
+    "src", "assets", "sound"
 ))
 
 _FRAME_W = 182
@@ -88,3 +94,10 @@ class Knight(BaseCharacter):
             STATE_SKILL:  _HURT_BODY,
             STATE_HURT:   _HURT_HURT,
         }
+
+        def _s(n): return SfxDef(os.path.join(_SFX_DIR, f"{n}.ogg"))
+        self.sfx = CharSfxConfig(
+            on_ability={STATE_SKILL: _s(29)},
+            on_hit={STATE_ATTACK: _s(1)},
+            on_hurt=_s(13), on_jump=_s(27), on_land=_s(23), on_dead=_s(15),
+        )
