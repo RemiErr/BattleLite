@@ -25,15 +25,15 @@ try:
     from src.python.fx_manager import FxManager
     from src.python.sfx_manager import SfxManager
     from src.python.crypto_utils import SHARED_SECRET
+    from src.python.game_constants import (
+        STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL, STATE_DEAD)
 except ImportError as e:
     print(f"❌ 匯入失敗: {e}")
     sys.exit(1)
 
-# --- 常數對齊 (必須與 Rust 對齊) ---
+# --- 輸入常數 ---
 INPUT_RIGHT, INPUT_LEFT, INPUT_UP, INPUT_DOWN, INPUT_JUMP, INPUT_ATTACK, INPUT_SKILL = [
     1 << i for i in range(7)]
-STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = range(5)
-STATE_DEAD = 5
 
 
 def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:

@@ -814,5 +814,9 @@ fn battlelite_core(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<EntityView>()?;
     m.add_class::<OfflineSession>()?;
     m.add_class::<GGRSSession>()?;
+    m.add("STATE_IDLE",  STATE_IDLE)?;
+    m.add("STATE_WALK",  STATE_WALK)?;
+    m.add("STATE_HURT",  STATE_HURT)?;
+    m.add("STATE_DEAD",  STATE_DEAD)?;
     Ok(())
 }
