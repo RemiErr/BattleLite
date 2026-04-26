@@ -24,6 +24,35 @@ class PhysicsStats:
 
 
 @dataclass
+class SfxDef:
+    """音效定義，由 CharSfxConfig 持有。"""
+    path:   str
+    volume: float = 1.0
+
+
+@dataclass
+class CharSfxConfig:
+    """
+    角色完整音效表，集中宣告所有觸發音效。
+    SfxManager 根據幀差事件查表播放。
+
+    on_ability : state_id → 技能/攻擊啟動音
+    on_hit     : state_id → 近戰命中音（命中時由攻擊方角色類型查表）
+    on_proj    : state_id → 投射物發射音（entity 生成時）
+    on_hurt    : 受擊音
+    on_land    : 落地音
+    on_dead    : 死亡音
+    """
+    on_ability: dict[int, SfxDef] = field(default_factory=dict)
+    on_hit:     dict[int, SfxDef] = field(default_factory=dict)
+    on_proj:    dict[int, SfxDef] = field(default_factory=dict)
+    on_hurt:    SfxDef | None = None
+    on_jump:    SfxDef | None = None
+    on_land:    SfxDef | None = None
+    on_dead:    SfxDef | None = None
+
+
+@dataclass
 class FxDef:
     """
     特效定義，由 AbilityDef 持有或傳給 FxManager 執行。
@@ -166,9 +195,10 @@ class BaseCharacter:
         self.anchor_x: int = 0
         self.anchor_y: int = 0
 
-        # 物理與技能設定（子類 __init__ 覆寫）
+        # 物理、技能、音效設定（子類 __init__ 覆寫）
         self.physics:   PhysicsStats    = PhysicsStats()
         self.abilities: list[AbilityDef] = []
+        self.sfx:       CharSfxConfig   = CharSfxConfig()
 
     def load_sheet(self, path: str, frame_w: int, frame_h: int,
                    state_rows: list[tuple]) -> None:
