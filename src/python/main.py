@@ -33,62 +33,57 @@ INPUT_RIGHT, INPUT_LEFT, INPUT_UP, INPUT_DOWN, INPUT_JUMP, INPUT_ATTACK, INPUT_S
     1 << i for i in range(7)]
 STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = range(5)
 STATE_DEAD = 5
-CHAR_TYPE_MAGE = 1
-CHAR_TYPE_ARCHER = 2
 
 
 def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
-    """HitboxDef → Rust CharConfig。座標轉換邏輯由 HitboxDef.to_rust_params() 統一處理。"""
-    s = asset.stats
+    """PhysicsStats + AbilityDef → Rust PhysicsConfig + AbilityConfig。"""
+    p = asset.physics
 
-    def hb_params(state: int, box_map):
-        hb = box_map.get(state)
-        return hb.to_rust_params() if hb is not None else (0, 0, 0, 0)
+    # Hurt box 從 STATE_IDLE 推導（所有狀態共用同一 Rust hurt box）
+    hurt_hb = asset.hurt_boxes.get(STATE_IDLE) or next(iter(asset.hurt_boxes.values()), None)
+    if hurt_hb is not None:
+        hurt_f, hurt_hw, hurt_hh, hurt_zo = hurt_hb.to_rust_params()
+    else:
+        hurt_f, hurt_hw, hurt_hh, hurt_zo = 0, 15_000, 50_000, 0
 
-    atk_f, atk_hw, atk_hh, atk_zo = hb_params(STATE_ATTACK, asset.hit_boxes)
-    skl_f, skl_hw, skl_hh, skl_zo = hb_params(STATE_SKILL,  asset.hit_boxes)
-
-    hurt_f, hurt_hw, hurt_hh, hurt_zo = hb_params(STATE_IDLE, asset.hurt_boxes)
-    if not asset.hurt_boxes.get(STATE_IDLE):
-        hurt_hw, hurt_hh = 15_000, 50_000
-
-    atk_spd = asset.speed_map.get(STATE_ATTACK, 4)
-    skl_spd = asset.speed_map.get(STATE_SKILL,  4)
-    atk_hit_start = s.atk_hit_frame_start * atk_spd
-    atk_hit_end   = s.atk_hit_frame_end   * atk_spd
-    skl_hit_start = s.skl_hit_frame_start * skl_spd
-    skl_hit_end   = s.skl_hit_frame_end   * skl_spd
-    atk_dash_tick = s.atk_dash_frame * atk_spd
-    # 幀索引優先於舊版 timer 倒數值
-    skl_spawn_timer_val = (s.skl_timer - s.skl_spawn_frame * skl_spd
-                           if s.skl_spawn_frame >= 0 else s.skl_spawn_timer)
-    atk_spawn_timer_val = (s.atk_timer - s.atk_spawn_frame * atk_spd
-                           if s.atk_spawn_frame >= 0 else s.atk_spawn_timer)
-
-    session.set_char_config(
+    session.set_physics_config(
         char_type,
-        s.gravity, s.jump_impulse, s.walk_speed_x, s.walk_speed_y, s.hitstop_frames,
-        s.max_hp, s.max_mp, s.skill_cost,
-        s.atk_dmg, s.skill_dmg,
-        atk_f, atk_hw, s.atk_depth, atk_hh, atk_zo,
-        skl_f, skl_hw, s.skl_depth, skl_hh, skl_zo,
-        s.atk_kb_vx, s.atk_kb_vz, s.atk_kb_timer,
-        s.skl_kb_vx, s.skl_kb_vz, s.skl_kb_timer,
+        p.gravity, p.jump_impulse, p.walk_speed_x, p.walk_speed_y, p.hitstop_frames,
+        p.max_hp, p.max_mp,
         hurt_f, hurt_hw, hurt_hh, hurt_zo,
-        s.skl_projectile_vx, s.skl_projectile_lifetime, skl_spawn_timer_val,
-        (asset.skl_proj_fx.offset_x * 1000) if asset.skl_proj_fx else 0,
-        (asset.skl_proj_fx.offset_y * 1000) if asset.skl_proj_fx else 0,
-        (asset.atk_proj_fx.offset_x * 1000) if asset.atk_proj_fx else 0,
-        (asset.atk_proj_fx.offset_y * 1000) if asset.atk_proj_fx else 0,
-        s.atk_timer, s.skl_timer,
-        s.atk_projectile_vx, s.atk_projectile_lifetime, atk_spawn_timer_val,
-        s.atk_melee_enabled, s.skl_melee_enabled,
-        s.skl_damage_absorb,
-        atk_hit_start, atk_hit_end,
-        skl_hit_start, skl_hit_end,
-        s.atk_dash_vx, atk_dash_tick,
-        s.skl_spawn_entity,
     )
+
+    for slot_idx, ab in enumerate(asset.abilities):
+        spd = asset.speed_map.get(ab.state_id, 4)
+        hit_start = ab.hit_frame_start * spd
+        hit_end   = ab.hit_frame_end   * spd
+        dash_tick = ab.dash_frame * spd
+        # spawn_timer：幀索引優先於舊版 timer 倒數值
+        spawn_timer = (ab.timer - ab.spawn_frame * spd
+                       if ab.spawn_frame >= 0 else ab.spawn_timer_raw)
+
+        if ab.hit_box is not None:
+            ab_f, ab_hw, ab_hh, ab_zo = ab.hit_box.to_rust_params()
+        else:
+            ab_f, ab_hw, ab_hh, ab_zo = 0, 0, 0, 0
+
+        entity_offset   = (ab.proj_fx.offset_x * 1000) if ab.proj_fx else 0
+        entity_z_offset = (ab.proj_fx.offset_y * 1000) if ab.proj_fx else 0
+
+        session.set_ability(
+            char_type, slot_idx,
+            ab.trigger_button, ab.trigger_context, ab.state_id,
+            ab.mp_cost, ab.timer,
+            ab.dmg, ab_f, ab_hw, ab.depth, ab_hh, ab_zo,
+            ab.kb_vx, ab.kb_vz, ab.kb_timer,
+            ab.melee_enabled, hit_start, hit_end,
+            ab.damage_absorb,
+            ab.projectile_vx, ab.projectile_lifetime, spawn_timer,
+            entity_offset, entity_z_offset,
+            ab.spawn_entity,
+            ab.dash_vx, dash_tick,
+            ab.is_skill,
+        )
 
 
 def parse_args():
@@ -149,7 +144,7 @@ def run_game():
     char_assets: dict[int, BaseCharacter] = {
         0: Knight(), 1: Mage(), 2: Archer(), 3: Paladin(), 4: Wizard()}
 
-    # 建立玩家名稱對照表（使用者名稱優先，否則 HUD 自動 fallback 職業名）
+    # 建立玩家名稱對照表
     player_names: dict[int, str] = {
         config["local_id"]: config.get("nickname", "Player")}
     for p_info in config.get("players", []):
@@ -157,7 +152,7 @@ def run_game():
             player_names[p_info["id"]] = p_info["nickname"]
     hud = HUD(char_assets, player_names=player_names)
 
-    # --- Session 工廠：組合模式的核心實作 ---
+    # --- Session 工廠 ---
     is_offline = config["is_offline"]
     num_players = config["num_players"]
     controlled_idx = config["local_id"]
@@ -187,7 +182,7 @@ def run_game():
     sync_wait_frames = 0
     switch_player = 0
     match_result: int | None = None  # None=進行中, -2=平手, 0..n=勝者 idx
-    result_font_big  = pygame.font.SysFont("Arial", 56, bold=True)
+    result_font_big   = pygame.font.SysFont("Arial", 56, bold=True)
     result_font_small = pygame.font.SysFont("Arial", 24)
 
     def _check_match(n: int) -> int | None:
@@ -203,8 +198,8 @@ def run_game():
         for i in range(num_players):
             p = session.get_player(i)
             asset = char_assets.get(p.character_type, char_assets[0])
-            p.hp  = asset.stats.max_hp
-            p.mp  = asset.stats.max_mp
+            p.hp    = asset.physics.max_hp
+            p.mp    = asset.physics.max_mp
             p.state = STATE_IDLE
             p.timer = 0
             p.vx = p.vy = p.vz = 0
@@ -229,25 +224,22 @@ def run_game():
                 if event.key == pygame.K_F1:
                     debug_manager.toggle()
                 if event.key == pygame.K_F2 and is_offline:
-                    # 離線模式切換控制角色（僅供測試）
                     player_names.pop(controlled_idx, None)
                     switch_player = (switch_player + 1) % num_players
                     controlled_idx = switch_player
-                    player_names[controlled_idx] = config.get(
-                        "nickname", "Player")
+                    player_names[controlled_idx] = config.get("nickname", "Player")
                 if event.key == pygame.K_F3 and is_offline:
-                    # 離線模式切換角色種類（僅供測試）
                     p = session.get_player(controlled_idx)
                     new_type = (p.character_type + 1) % len(char_assets)
                     p.character_type = new_type
                     asset = char_assets[new_type]
-                    p.hp = asset.stats.max_hp
-                    p.mp = asset.stats.max_mp
+                    p.hp = asset.physics.max_hp
+                    p.mp = asset.physics.max_mp
                     session.set_player(controlled_idx, p)
                     player_elapsed_frames[controlled_idx] = 0
                     last_states[controlled_idx] = STATE_IDLE
 
-        # 1. 邏輯推進 (不論模式，介面完全對等)
+        # 1. 邏輯推進
         input_mask = get_input_mask()
 
         if match_result is None:
@@ -260,7 +252,7 @@ def run_game():
             if num_players > 1:
                 match_result = _check_match(num_players)
 
-        # 2. 渲染處理 (根據 Y 軸排序)
+        # 2. 渲染
         screen.fill((30, 30, 30))
         pygame.draw.line(screen, (60, 60, 60), (0, 300 + HUD_H),
                          (SCREEN_W, 300 + HUD_H), 1)
@@ -284,7 +276,6 @@ def run_game():
         for original_idx, p in render_list:
             sx, sy = get_screen_pos(p)
             asset = char_assets.get(p.character_type, char_assets[0])
-            # 死亡時用 HURT 最後一幀，50% 透明度顯示
             if p.state == STATE_DEAD:
                 sprite = asset.get_sprite(STATE_HURT, 9999, p.facing_right)
                 sprite = sprite.copy()
@@ -293,67 +284,52 @@ def run_game():
                 sprite = asset.get_sprite(
                     p.state, player_elapsed_frames[original_idx], p.facing_right)
             sw, sh = sprite.get_width(), sprite.get_height()
-            # sprite blit：anchor_x/y 將視覺中心對齊物理位置（純渲染偏移）
-            # 朝右翻轉後模型偏移方向反轉，anchor_x 符號需隨之翻轉
             anchor_x_eff = asset.anchor_x if not p.facing_right else -asset.anchor_x
             blit_x = int(sx - sw // 2 - anchor_x_eff)
             blit_y = int(sy - sh // 2 - asset.anchor_y)
-            # 影子在腳的地面投影；跳躍時 e.z 抵消 sy 的 z 分量，影子不上浮
             shadow_x = int(sx - 25)
             shadow_y = int(sy + p.z / 1000.0)
             pygame.draw.ellipse(screen, (10, 10, 10),
                                 (shadow_x, shadow_y, 50, 14))
             screen.blit(sprite, (blit_x, blit_y))
 
-            # 如果是離線模式，高亮當前操作的角色
             if is_offline and original_idx == controlled_idx:
                 pygame.draw.rect(screen, (255, 255, 255),
                                  (blit_x, blit_y, sw, sh), 1)
 
-            # 特效：狀態剛切換時，依角色設定生成
-            # 投射物技能的 skl_proj_fx 改由 Entity 位置驅動，不在此生成
+            # 狀態進入時播放非投射物特效
             if state_changed.get(original_idx):
-                fxdef = None
-                if p.state == STATE_ATTACK and asset.stats.atk_projectile_vx == 0:
-                    fxdef = asset.atk_fx
-                elif p.state == STATE_SKILL and asset.stats.skl_projectile_vx == 0:
-                    fxdef = asset.skl_fx
-                if fxdef is not None:
-                    hit_def = asset.hit_boxes.get(p.state)
+                ab = asset.get_ability(p.state)
+                if ab is not None and ab.projectile_vx == 0 and ab.fx is not None:
+                    fxdef = ab.fx
+                    hit_def = ab.hit_box
                     if hit_def is not None:
-                        fx_x, fx_y = hit_def.screen_center(
-                            sx, sy, p.facing_right)
+                        fx_x, fx_y = hit_def.screen_center(sx, sy, p.facing_right)
                         fx_x, fx_y = int(fx_x), int(fx_y)
                     else:
-                        fx_x = int(
-                            sx + (fxdef.offset_x if p.facing_right else -fxdef.offset_x))
+                        fx_x = int(sx + (fxdef.offset_x if p.facing_right else -fxdef.offset_x))
                         fx_y = int(sy + fxdef.offset_y)
                     fx_manager.spawn(fxdef.path, fxdef.frame_w, fxdef.frame_h,
                                      fx_x, fx_y, speed=fxdef.speed, scale=fxdef.scale)
 
-            # 判定框視覺輔助 (僅用於開發者 Debug)
+            # 判定框 debug 顯示
             if debug_manager.enabled:
                 hurt_def = asset.get_hurt_box(p.state)
                 if hurt_def:
                     pygame.draw.rect(screen, (0, 255, 0),
                                      hurt_def.to_screen_rect(sx, sy, p.facing_right), 1)
-                def _in_hit_window(state, timer):
-                    s = asset.stats
-                    if state == STATE_ATTACK:
-                        spd = asset.speed_map.get(STATE_ATTACK, 4)
-                        elapsed = (s.atk_timer - timer) // spd
-                        return s.atk_hit_frame_start <= elapsed <= s.atk_hit_frame_end
-                    if state == STATE_SKILL:
-                        spd = asset.speed_map.get(STATE_SKILL, 4)
-                        elapsed = (s.skl_timer - timer) // spd
-                        return s.skl_hit_frame_start <= elapsed <= s.skl_hit_frame_end
-                    return False
-                melee_on = (
-                    (p.state == STATE_ATTACK and asset.stats.atk_melee_enabled
-                     and _in_hit_window(STATE_ATTACK, p.timer)) or
-                    (p.state == STATE_SKILL and asset.stats.skl_melee_enabled
-                     and _in_hit_window(STATE_SKILL, p.timer))
-                )
+
+                def _in_hit_window(state: int, timer: int) -> bool:
+                    a = asset.get_ability(state)
+                    if a is None or not a.melee_enabled:
+                        return False
+                    spd = asset.speed_map.get(state, 4)
+                    elapsed = (a.timer - timer) // spd
+                    return a.hit_frame_start <= elapsed <= a.hit_frame_end
+
+                ab_cur = asset.get_ability(p.state)
+                melee_on = (ab_cur is not None and ab_cur.melee_enabled
+                            and _in_hit_window(p.state, p.timer))
                 hit_def = asset.get_hit_box(p.state)
                 if hit_def and melee_on:
                     pygame.draw.rect(screen, (255, 50, 50),
@@ -365,12 +341,12 @@ def run_game():
             ex = int(e.x / 1000.0)
             ey = int((e.y / 1000.0) - (e.z / 1000.0) + HUD_H)
 
-            # 以 owner 的 skl_proj_fx 動畫渲染，elapsed 由 lifetime 反推
             owner_asset = char_assets.get(e.character_type, char_assets[0])
-            fxdef = owner_asset.skl_proj_fx if e.is_skill else owner_asset.atk_proj_fx
+            ab = owner_asset.get_ability(e.ability_state_id)
+            fxdef    = ab.proj_fx if ab else None
+            hit_def  = ab.hit_box if ab else None
+            total    = ab.projectile_lifetime if ab else 30
 
-            state_key = STATE_SKILL if e.is_skill else STATE_ATTACK
-            hit_def = owner_asset.hit_boxes.get(state_key)
             if hit_def is not None:
                 fx_cx, fx_cy = hit_def.entity_screen_center(ex, ey)
             else:
@@ -387,14 +363,11 @@ def run_game():
                                 (ex - shadow_w // 2, shadow_gy - 4, shadow_w, 8))
 
             if fxdef is not None:
-                total = owner_asset.stats.skl_projectile_lifetime if e.is_skill \
-                    else owner_asset.stats.atk_projectile_lifetime
                 elapsed = max(0, total - e.lifetime)
-                frames = fx_manager._load(
-                    fxdef.path, fxdef.frame_w, fxdef.frame_h)
+                frames = fx_manager._load(fxdef.path, fxdef.frame_w, fxdef.frame_h)
                 idx = (elapsed // max(1, fxdef.speed)) % len(frames)
                 frame = frames[idx]
-                if e.vx < 0:  # 向左飛行時水平翻轉
+                if e.vx < 0:
                     frame = pygame.transform.flip(frame, True, False)
                 if fxdef.scale != 1.0:
                     fw = max(1, int(frame.get_width() * fxdef.scale))
@@ -408,10 +381,9 @@ def run_game():
                 pygame.draw.circle(screen, (255, 220, 60),
                                    (int(fx_cx), int(fx_cy)), 6)
 
-            if debug_manager.enabled:
-                if hit_def:
-                    pygame.draw.rect(screen, (255, 50, 50),
-                                     hit_def.to_entity_screen_rect(ex, ey), 1)
+            if debug_manager.enabled and hit_def:
+                pygame.draw.rect(screen, (255, 50, 50),
+                                 hit_def.to_entity_screen_rect(ex, ey), 1)
 
         fx_manager.update_and_draw(screen)
         hud.draw(screen, render_list)
@@ -420,7 +392,7 @@ def run_game():
         # 同步等待提示
         if not is_offline and not session.is_synchronized():
             sync_wait_frames += 1
-            if sync_wait_frames % (60 * 5) == 0:  # 每 5 秒印一次
+            if sync_wait_frames % (60 * 5) == 0:
                 remotes = [(p["id"], p["ip"], p["port"]) for p in config.get(
                     "players", []) if p["id"] != controlled_idx]
                 print(
@@ -431,8 +403,7 @@ def run_game():
             screen.blit(overlay, (0, 0))
             cx, cy = SCREEN_W // 2, SCREEN_H // 2
             wait_font = pygame.font.SysFont("Arial", 36, bold=True)
-            text_surf = wait_font.render(
-                "WAITING FOR SYNC...", True, (255, 255, 0))
+            text_surf = wait_font.render("WAITING FOR SYNC...", True, (255, 255, 0))
             screen.blit(text_surf, text_surf.get_rect(center=(cx, cy)))
 
             info_font = pygame.font.SysFont("Arial", 16)
@@ -440,10 +411,8 @@ def run_game():
                 "players", []) if p["id"] != controlled_idx)
             info1 = info_font.render(
                 f"My id={controlled_idx}  local_port={config['local_port']}", True, (200, 200, 200))
-            info2 = info_font.render(
-                f"Remote: {remotes_str}", True, (200, 200, 200))
-            info3 = info_font.render(
-                f"Waiting {sync_wait_frames // 60}s", True, (150, 150, 150))
+            info2 = info_font.render(f"Remote: {remotes_str}", True, (200, 200, 200))
+            info3 = info_font.render(f"Waiting {sync_wait_frames // 60}s", True, (150, 150, 150))
             screen.blit(info1, info1.get_rect(center=(cx, cy + 50)))
             screen.blit(info2, info2.get_rect(center=(cx, cy + 75)))
             screen.blit(info3, info3.get_rect(center=(cx, cy + 100)))
