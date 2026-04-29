@@ -83,6 +83,8 @@ struct AbilityConfig {
     hit_start:             u32,
     hit_end:               u32,
     damage_absorb:         i32,
+    hp_regen_per_tick:     i32,
+    on_hit_hp_restore:     i32,
     projectile_vx:         i32,
     projectile_lifetime:   u32,
     spawn_timer:           u32,
@@ -115,6 +117,8 @@ impl Default for AbilityConfig {
             hit_start:             0,
             hit_end:               9999,
             damage_absorb:         0,
+            hp_regen_per_tick:     0,
+            on_hit_hp_restore:     0,
             projectile_vx:         0,
             projectile_lifetime:   30,
             spawn_timer:           10,
@@ -159,6 +163,8 @@ impl Default for CharConfig {
                     hit_start:             0,
                     hit_end:               9999,
                     damage_absorb:         0,
+                    hp_regen_per_tick:     0,
+                    on_hit_hp_restore:     0,
                     projectile_vx:         0,
                     projectile_lifetime:   60,
                     spawn_timer:           35,
@@ -217,7 +223,7 @@ fn do_set_ability(
     dmg: i32, front: i32, half_w: i32, depth: i32, half_h: i32, z_offset: i32,
     kb_vx: i32, kb_vz: i32, kb_timer: u32,
     melee_enabled: bool, hit_start: u32, hit_end: u32,
-    damage_absorb: i32,
+    damage_absorb: i32, hp_regen_per_tick: i32, on_hit_hp_restore: i32,
     projectile_vx: i32, projectile_lifetime: u32, spawn_timer: u32,
     entity_spawn_offset: i32, entity_spawn_z_offset: i32,
     spawn_entity: bool,
@@ -232,7 +238,7 @@ fn do_set_ability(
         front, half_w, depth, half_h, z_offset,
         kb_vx, kb_vz, kb_timer,
         melee_enabled, hit_start, hit_end,
-        damage_absorb,
+        damage_absorb, hp_regen_per_tick, on_hit_hp_restore,
         projectile_vx, projectile_lifetime, spawn_timer,
         entity_spawn_offset, entity_spawn_z_offset,
         spawn_entity,
@@ -385,6 +391,35 @@ impl Config for BattleConfig {
     type Address = SocketAddr;
 }
 
+fn apply_hit(
+    victim: &mut Player,
+    damage: i32, kb_vx: i32, kb_vz: i32, kb_timer: u32,
+    absorb: i32, hitstop: u32,
+) -> bool {
+    if absorb > 0 {
+        victim.hp = (victim.hp - (damage - absorb).max(0)).max(0);
+    } else {
+        victim.state   = STATE_HURT;
+        victim.timer   = kb_timer;
+        victim.vx      = kb_vx;
+        victim.vz      = kb_vz;
+        victim.hp      = (victim.hp - damage).max(0);
+        victim.hitstop = hitstop;
+    }
+    if victim.hp == 0 { victim.state = STATE_DEAD; victim.timer = 0; }
+    absorb == 0
+}
+
+fn apply_per_tick_buffs(p: &mut Player, phy: &PhysicsConfig, active_ab: Option<&AbilityConfig>) {
+    if p.mp < phy.max_mp { p.mp = (p.mp + MP_REGEN).min(phy.max_mp); }
+    if p.hp > phy.max_hp { p.hp = phy.max_hp; }
+    if let Some(ab) = active_ab {
+        if ab.hp_regen_per_tick > 0 && p.hp > 0 && p.state != STATE_DEAD {
+            p.hp = (p.hp + ab.hp_regen_per_tick).min(phy.max_hp);
+        }
+    }
+}
+
 fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[CharConfig]) {
     state.frame += 1;
 
@@ -449,14 +484,9 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
             }
         }
 
-        let in_ability = pcfg.abilities.iter().any(|ab| ab.state_id == p.state);
-        p.update_internal(phy.gravity, in_ability);
-
-        if p.mp < phy.max_mp {
-            p.mp += MP_REGEN;
-            if p.mp > phy.max_mp { p.mp = phy.max_mp; }
-        }
-        if p.hp > phy.max_hp { p.hp = phy.max_hp; }
+        let active_ab = pcfg.abilities.iter().find(|ab| ab.state_id == p.state);
+        p.update_internal(phy.gravity, active_ab.is_some());
+        apply_per_tick_buffs(p, phy, active_ab);
     }
 
     // 實體移動 + 壽命遞減
@@ -469,7 +499,7 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
     state.entities.extend(spawn_queue);
 
     // 投擲物碰撞判定
-    struct EntityHit { victim: usize, vx: i32, vz: i32, timer: u32, damage: i32 }
+    struct EntityHit { victim: usize, owner_id: usize, vx: i32, vz: i32, timer: u32, damage: i32, on_hit_hp_restore: i32 }
     let mut entity_hits: Vec<EntityHit> = Vec::new();
     for e in &state.entities {
         let atk_cfg = get_cfg(configs, e.character_type);
@@ -493,29 +523,33 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
                     e.lifetime as i32 * 1000 / ab.projectile_lifetime as i32
                 } else { 1000 };
                 let damage = ab.dmg * ratio / 1000;
-                entity_hits.push(EntityHit { victim: j, vx: kb_vx, vz: ab.kb_vz, timer: ab.kb_timer, damage });
+                entity_hits.push(EntityHit { victim: j, owner_id: e.owner_id, vx: kb_vx, vz: ab.kb_vz, timer: ab.kb_timer, damage, on_hit_hp_restore: ab.on_hit_hp_restore });
             }
         }
     }
+    let mut entity_hp_restores: Vec<(usize, i32)> = Vec::new();
     for hit in entity_hits {
-        let victim = &mut state.players[hit.victim];
-        if victim.state == STATE_DEAD { continue; }
-        let vic_cfg = get_cfg(configs, victim.character_type);
+        if state.players[hit.victim].state == STATE_DEAD { continue; }
+        let (victim_state, victim_char) = {
+            let v = &state.players[hit.victim];
+            (v.state, v.character_type)
+        };
+        let vic_cfg = get_cfg(configs, victim_char);
         let absorb = vic_cfg.abilities.iter()
-            .find(|ab| ab.state_id == victim.state && ab.damage_absorb > 0)
+            .find(|ab| ab.state_id == victim_state && ab.damage_absorb > 0)
             .map(|ab| ab.damage_absorb).unwrap_or(0);
-        if absorb > 0 {
-            let dmg = (hit.damage - absorb).max(0);
-            victim.hp = (victim.hp - dmg).max(0);
-        } else {
-            victim.state = STATE_HURT;
-            victim.timer = hit.timer;
-            victim.vx    = hit.vx;
-            victim.vz    = hit.vz;
-            victim.hp   -= hit.damage;
-            if victim.hp < 0 { victim.hp = 0; }
+        let hit_landed = apply_hit(&mut state.players[hit.victim], hit.damage, hit.vx, hit.vz, hit.timer, absorb, vic_cfg.physics.hitstop_frames);
+        if hit_landed && hit.on_hit_hp_restore > 0 {
+            entity_hp_restores.push((hit.owner_id, hit.on_hit_hp_restore));
         }
-        if victim.hp == 0 { victim.state = STATE_DEAD; victim.timer = 0; }
+    }
+    for (pid, amount) in entity_hp_restores {
+        if let Some(owner) = state.players.get_mut(pid) {
+            if owner.state != STATE_DEAD {
+                let max_hp = get_cfg(configs, owner.character_type).physics.max_hp;
+                owner.hp = (owner.hp + amount).min(max_hp);
+            }
+        }
     }
 
     // 近戰判定
@@ -537,26 +571,22 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
             if state.players[j].state == STATE_HURT || state.players[j].state == STATE_DEAD { continue; }
             let vic_cfg = get_cfg(configs, state.players[j].character_type);
             if check_attack_hit_cfg(&atk_info, &state.players[j], ab, &vic_cfg.physics) {
-                let victim = &mut state.players[j];
+                let victim_state = state.players[j].state;
                 let absorb = vic_cfg.abilities.iter()
-                    .find(|a| a.state_id == victim.state && a.damage_absorb > 0)
+                    .find(|a| a.state_id == victim_state && a.damage_absorb > 0)
                     .map(|a| a.damage_absorb).unwrap_or(0);
-                if absorb > 0 {
-                    let dmg = (ab.dmg - absorb).max(0);
-                    victim.hp = (victim.hp - dmg).max(0);
-                } else {
-                    victim.state   = STATE_HURT;
-                    victim.timer   = ab.kb_timer;
-                    victim.vx      = kb_vx;
-                    victim.vz      = ab.kb_vz;
-                    victim.hp     -= ab.dmg;
-                    victim.hitstop = atk_cfg.physics.hitstop_frames;
+                if apply_hit(&mut state.players[j], ab.dmg, kb_vx, ab.kb_vz, ab.kb_timer, absorb, atk_cfg.physics.hitstop_frames) {
                     hit_landed = true;
                 }
-                if victim.hp <= 0 { victim.hp = 0; victim.state = STATE_DEAD; victim.timer = 0; }
             }
         }
-        if hit_landed { state.players[i].hitstop = atk_cfg.physics.hitstop_frames; }
+        if hit_landed {
+            state.players[i].hitstop = atk_cfg.physics.hitstop_frames;
+            if ab.on_hit_hp_restore > 0 {
+                let max_hp = atk_cfg.physics.max_hp;
+                state.players[i].hp = (state.players[i].hp + ab.on_hit_hp_restore).min(max_hp);
+            }
+        }
     }
 }
 
@@ -603,7 +633,7 @@ impl OfflineSession {
         dmg: i32, front: i32, half_w: i32, depth: i32, half_h: i32, z_offset: i32,
         kb_vx: i32, kb_vz: i32, kb_timer: u32,
         melee_enabled: bool, hit_start: u32, hit_end: u32,
-        damage_absorb: i32,
+        damage_absorb: i32, hp_regen_per_tick: i32, on_hit_hp_restore: i32,
         projectile_vx: i32, projectile_lifetime: u32, spawn_timer: u32,
         entity_spawn_offset: i32, entity_spawn_z_offset: i32,
         spawn_entity: bool,
@@ -616,7 +646,7 @@ impl OfflineSession {
             mp_cost, timer, dmg, front, half_w, depth, half_h, z_offset,
             kb_vx, kb_vz, kb_timer,
             melee_enabled, hit_start, hit_end,
-            damage_absorb,
+            damage_absorb, hp_regen_per_tick, on_hit_hp_restore,
             projectile_vx, projectile_lifetime, spawn_timer,
             entity_spawn_offset, entity_spawn_z_offset,
             spawn_entity, dash_vx, dash_tick, is_skill,
@@ -716,7 +746,7 @@ impl GGRSSession {
         dmg: i32, front: i32, half_w: i32, depth: i32, half_h: i32, z_offset: i32,
         kb_vx: i32, kb_vz: i32, kb_timer: u32,
         melee_enabled: bool, hit_start: u32, hit_end: u32,
-        damage_absorb: i32,
+        damage_absorb: i32, hp_regen_per_tick: i32, on_hit_hp_restore: i32,
         projectile_vx: i32, projectile_lifetime: u32, spawn_timer: u32,
         entity_spawn_offset: i32, entity_spawn_z_offset: i32,
         spawn_entity: bool,
@@ -729,7 +759,7 @@ impl GGRSSession {
             mp_cost, timer, dmg, front, half_w, depth, half_h, z_offset,
             kb_vx, kb_vz, kb_timer,
             melee_enabled, hit_start, hit_end,
-            damage_absorb,
+            damage_absorb, hp_regen_per_tick, on_hit_hp_restore,
             projectile_vx, projectile_lifetime, spawn_timer,
             entity_spawn_offset, entity_spawn_z_offset,
             spawn_entity, dash_vx, dash_tick, is_skill,

@@ -78,7 +78,7 @@ def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
             ab.dmg, ab_f, ab_hw, ab.depth, ab_hh, ab_zo,
             ab.kb_vx, ab.kb_vz, ab.kb_timer,
             ab.melee_enabled, hit_start, hit_end,
-            ab.damage_absorb,
+            ab.damage_absorb, ab.hp_regen, ab.on_hit_restore,
             ab.projectile_vx, ab.projectile_lifetime, spawn_timer,
             entity_offset, entity_z_offset,
             ab.spawn_entity,
