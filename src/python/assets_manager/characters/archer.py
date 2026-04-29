@@ -1,3 +1,4 @@
+from src.python.game_constants import STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL
 import os
 from src.python.assets_manager.base_character import (
     BaseCharacter, HitboxDef, PhysicsStats, AbilityDef, FxDef,
@@ -47,8 +48,6 @@ _HURT_HURT = HitboxDef(ox=-26, oy=-78, w=48, h=78)
 _HIT_ATTACK = HitboxDef(ox=0, oy=-30, w=50, h=35)
 _HIT_SKILL = HitboxDef(ox=0, oy=-40, w=80, h=45)
 
-from src.python.game_constants import STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL
-
 
 class Archer(BaseCharacter):
     def __init__(self):
@@ -60,7 +59,7 @@ class Archer(BaseCharacter):
                                _FRAME_H, _COLS, _STATE_FRAMES)
 
         self.physics = PhysicsStats(
-            max_hp=60_000,
+            max_hp=40_000,
             max_mp=60_000,
         )
 
@@ -73,6 +72,7 @@ class Archer(BaseCharacter):
                 timer=44,
                 dmg=15_000,
                 depth=25_000,
+                on_hit_restore=10_000,
                 kb_vx=6_000, kb_vz=4_000, kb_timer=25,
                 melee_enabled=False,
                 projectile_vx=25_000,
@@ -94,6 +94,7 @@ class Archer(BaseCharacter):
                 timer=96,
                 dmg=50_000,
                 depth=40_000,
+                damage_absorb=20_000,
                 kb_vx=10_000, kb_vz=6_000, kb_timer=35,
                 melee_enabled=False,
                 projectile_vx=15_000,

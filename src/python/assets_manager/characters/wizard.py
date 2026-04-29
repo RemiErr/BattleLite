@@ -1,3 +1,4 @@
+from src.python.game_constants import STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL
 import os
 from src.python.assets_manager.base_character import (
     BaseCharacter, HitboxDef, PhysicsStats, AbilityDef, FxDef,
@@ -47,7 +48,6 @@ _HURT_HURT = HitboxDef(ox=-18, oy=-72, w=38, h=72)
 _HIT_ATTACK = HitboxDef(ox=-80, oy=-50, w=56, h=30)
 _HIT_SKILL = HitboxDef(ox=-80, oy=-34, w=80, h=40)
 
-from src.python.game_constants import STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL
 
 CHAR_TYPE_WIZARD = 4
 
@@ -74,10 +74,11 @@ class Wizard(BaseCharacter):
             AbilityDef(
                 trigger_button=INPUT_ATTACK,
                 state_id=STATE_ATTACK,
+                mp_cost=3_000,
                 timer=28,
-                dmg=10_000,
+                dmg=8_000,
                 depth=25_000,
-                kb_vx=3_200, kb_vz=8_000, kb_timer=22,
+                kb_vx=5_000, kb_vz=8_000, kb_timer=25,
                 melee_enabled=True,
                 hit_frame_start=3, hit_frame_end=5,
                 projectile_vx=-2_000,
@@ -95,11 +96,12 @@ class Wizard(BaseCharacter):
             AbilityDef(
                 trigger_button=INPUT_SKILL,
                 state_id=STATE_SKILL,
-                mp_cost=25_000,
+                mp_cost=30_000,
                 timer=72,
+                hp_regen=140,  # 回血量 = hp_regen * timer
                 dmg=25_000,
                 depth=60_000,
-                kb_vx=5_000, kb_vz=15_000, kb_timer=38,
+                kb_vx=3_000, kb_vz=16_000, kb_timer=35,
                 melee_enabled=False,
                 projectile_vx=10_000,
                 projectile_lifetime=25,

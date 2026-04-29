@@ -1,3 +1,4 @@
+from src.python.game_constants import STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL
 import os
 from src.python.assets_manager.base_character import (
     BaseCharacter, HitboxDef, PhysicsStats, AbilityDef,
@@ -42,7 +43,6 @@ _HURT_HURT = HitboxDef(ox=-15, oy=-78, w=48, h=78)
 _HIT_ATTACK = HitboxDef(ox=-140, oy=-62, w=130, h=36)
 _HIT_SKILL = HitboxDef(ox=-160, oy=-92, w=180, h=100)
 
-from src.python.game_constants import STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL
 
 CHAR_TYPE_PALADIN = 3
 
@@ -57,7 +57,7 @@ class Paladin(BaseCharacter):
                                _FRAME_H, _COLS, _STATE_FRAMES)
 
         self.physics = PhysicsStats(
-            max_hp=120_000,
+            max_hp=90_000,
             max_mp=75_000,
         )
 
@@ -70,20 +70,22 @@ class Paladin(BaseCharacter):
             AbilityDef(
                 trigger_button=INPUT_ATTACK,
                 state_id=STATE_ATTACK,
+                mp_cost=5_000,
                 timer=44,
-                dmg=15_000,
-                depth=25_000,
+                dmg=10_000,
+                depth=20_000,
                 kb_vx=8_500, kb_vz=5_000, kb_timer=30,
                 melee_enabled=True,
                 hit_frame_start=4, hit_frame_end=7,
                 dash_vx=80_000, dash_frame=4,
+                on_hit_restore=15_000,
                 hit_box=_HIT_ATTACK,
                 is_skill=False,
             ),
             AbilityDef(
                 trigger_button=INPUT_SKILL,
                 state_id=STATE_SKILL,
-                mp_cost=30_000,
+                mp_cost=25_000,
                 timer=72,
                 dmg=30_000,
                 depth=40_000,

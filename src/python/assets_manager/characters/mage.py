@@ -1,3 +1,4 @@
+from src.python.game_constants import STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL
 import os
 from src.python.assets_manager.base_character import (
     BaseCharacter, HitboxDef, PhysicsStats, AbilityDef, FxDef,
@@ -46,8 +47,6 @@ _HURT_HURT = HitboxDef(ox=-30, oy=-80, w=70, h=80)
 _HIT_ATTACK = HitboxDef(ox=-95, oy=-77, w=66, h=86)
 _HIT_SKILL = HitboxDef(ox=-70, oy=-32, w=40, h=40)
 
-from src.python.game_constants import STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL
-
 
 class Mage(BaseCharacter):
     def __init__(self):
@@ -69,7 +68,7 @@ class Mage(BaseCharacter):
                 trigger_button=INPUT_ATTACK,
                 state_id=STATE_ATTACK,
                 timer=20,
-                dmg=8_000,
+                dmg=9_000,
                 depth=25_000,
                 kb_vx=5_000, kb_vz=3_000, kb_timer=20,
                 melee_enabled=True,
@@ -85,11 +84,11 @@ class Mage(BaseCharacter):
             AbilityDef(
                 trigger_button=INPUT_SKILL,
                 state_id=STATE_SKILL,
-                mp_cost=15_000,
+                mp_cost=20_000,
                 timer=40,
-                dmg=20_000,
+                dmg=8_500,
                 depth=40_000,
-                kb_vx=7_000, kb_vz=5_000, kb_timer=30,
+                kb_vx=6_000, kb_vz=7_500, kb_timer=40,
                 melee_enabled=False,
                 projectile_vx=1_500,
                 projectile_lifetime=300,

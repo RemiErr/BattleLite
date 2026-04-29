@@ -1,3 +1,4 @@
+from src.python.game_constants import STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL
 import os
 from src.python.assets_manager.base_character import (
     BaseCharacter, HitboxDef, PhysicsStats, AbilityDef,
@@ -40,8 +41,6 @@ _HURT_HURT = HitboxDef(ox=-15, oy=-80, w=70, h=90)
 
 _HIT_ATTACK = HitboxDef(ox=-86, oy=-92, w=75, h=110)
 
-from src.python.game_constants import STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL
-
 
 class Knight(BaseCharacter):
     def __init__(self):
@@ -67,8 +66,10 @@ class Knight(BaseCharacter):
                 state_id=STATE_ATTACK,
                 timer=24,
                 dmg=10_000,
-                depth=25_000,
-                kb_vx=8_000, kb_vz=4_000, kb_timer=30,
+                depth=40_000,
+                on_hit_restore=5_000,
+                kb_vx=5_000, kb_vz=6_000, kb_timer=30,
+                dash_vx=10_000, dash_frame=2,
                 melee_enabled=True,
                 hit_box=_HIT_ATTACK,
                 is_skill=False,
@@ -80,9 +81,9 @@ class Knight(BaseCharacter):
                 timer=24,
                 dmg=0,
                 depth=40_000,
+                damage_absorb=30_000,
                 kb_vx=0, kb_vz=0, kb_timer=0,
                 melee_enabled=False,
-                damage_absorb=30_000,
                 is_skill=True,
             ),
         ]
