@@ -28,7 +28,7 @@ def _setup_mage_config(session) -> None:
         8000, 0, 0, 25000, 0, 0,    # dmg, front, half_w, depth, half_h, z_offset
         5000, 3000, 20,              # kb_vx, kb_vz, kb_timer
         True, 0, 9999,              # melee_enabled, hit_start, hit_end
-        0,                           # damage_absorb
+        0, 0, 0,                     # damage_absorb, hp_regen_per_tick, on_hit_hp_restore
         0, 30, 10,                   # projectile_vx, projectile_lifetime, spawn_timer
         0, 0,                        # entity_spawn_offset, entity_spawn_z_offset
         False,                       # spawn_entity
@@ -42,7 +42,7 @@ def _setup_mage_config(session) -> None:
         20000, 0, 0, 40000, 0, 0,   # dmg, front, half_w, depth, half_h, z_offset
         7000, 5000, 30,              # kb_vx, kb_vz, kb_timer
         True, 0, 9999,              # melee_enabled, hit_start, hit_end
-        0,                           # damage_absorb
+        0, 0, 0,                     # damage_absorb, hp_regen_per_tick, on_hit_hp_restore
         15000, 60, 35,              # projectile_vx, projectile_lifetime, spawn_timer
         0, 0,                        # entity_spawn_offset, entity_spawn_z_offset
         False,                       # spawn_entity
