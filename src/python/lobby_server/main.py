@@ -9,10 +9,25 @@ import os
 import datetime
 import aiosqlite
 
-DB_PATH         = os.path.join(os.path.dirname(__file__), "leaderboard.db")
-QUEUE_ROOM_ID   = "__queue__"
-QUEUE_MIN       = 2
-PUNCH_DURATION  = 2.0
+DB_PATH        = os.path.join(os.path.dirname(__file__), "leaderboard.db")
+QUEUE_MIN      = 4
+PUNCH_DURATION = 2.0
+
+TIER_THRESHOLDS = {"games": 10, "silver_min": 40.0, "gold_min": 60.0}
+
+
+def _is_queue_room(room_id: str) -> bool:
+    return room_id.startswith("__queue_") and room_id.endswith("__")
+
+
+def _calc_tier(games: int, win_rate: float) -> str:
+    if games < TIER_THRESHOLDS["games"]:
+        return "placement"
+    if win_rate < TIER_THRESHOLDS["silver_min"]:
+        return "bronze"
+    if win_rate <= TIER_THRESHOLDS["gold_min"]:
+        return "silver"
+    return "gold"
 
 rooms: Dict[str, dict] = {}
 _db: aiosqlite.Connection | None = None
@@ -120,7 +135,13 @@ async def get_leaderboard(limit: int = 30):
     if not _db:
         raise HTTPException(503, "DB not ready")
     async with _db.execute(
-        """SELECT nickname, games, wins, losses, draws, win_rate
+        """SELECT nickname, games, wins, losses, draws, win_rate,
+                  CASE
+                      WHEN games < 10            THEN 'placement'
+                      WHEN win_rate < 40.0       THEN 'bronze'
+                      WHEN win_rate <= 60.0      THEN 'silver'
+                      ELSE                            'gold'
+                  END AS tier
            FROM (
                SELECT nickname,
                       COUNT(*) AS games,
@@ -137,6 +158,23 @@ async def get_leaderboard(limit: int = 30):
         cols = [d[0] for d in cur.description]
         rows = [dict(zip(cols, r)) for r in await cur.fetchall()]
     return {"entries": rows}
+
+
+@app.get("/player_tier/{nickname}")
+async def get_player_tier(nickname: str):
+    if not _db:
+        raise HTTPException(503, "DB not ready")
+    async with _db.execute(
+        """SELECT COUNT(*) AS games,
+                  ROUND(100.0 * SUM(CASE WHEN result='win' THEN 1 ELSE 0 END)
+                        / NULLIF(COUNT(*), 0), 1) AS win_rate
+           FROM match_results WHERE nickname = ?""",
+        (nickname,)
+    ) as cur:
+        row = await cur.fetchone()
+    games    = row[0] or 0
+    win_rate = row[1] or 0.0
+    return {"tier": _calc_tier(games, win_rate), "games": games, "win_rate": win_rate}
 
 
 class ResultItem(BaseModel):
@@ -170,10 +208,14 @@ async def submit_result(item: ResultItem):
 @app.websocket("/ws/{room_id}/{player_name}")
 async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
     await websocket.accept()
-    is_queue = (room_id == QUEUE_ROOM_ID)
+    is_queue = _is_queue_room(room_id)
 
     if room_id not in rooms:
-        rooms[room_id] = {"players": [], "started": False, "is_queue": is_queue}
+        target_size = QUEUE_MIN if is_queue else 2
+        rooms[room_id] = {
+            "players": [], "started": False,
+            "is_queue": is_queue, "target_size": target_size,
+        }
     room = rooms[room_id]
 
     pid    = len(room["players"])
@@ -207,6 +249,11 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
                 player["char_type"] = int(data.get("char_type", 0))
                 await _broadcast_room_update(room_id)
 
+            elif t == "set_room_size":
+                if not is_queue and pid == 0:
+                    room["target_size"] = max(2, min(4, int(data.get("size", 2))))
+                    await _broadcast_room_update(room_id)
+
             elif t == "player_ready":
                 player["ready"] = True
                 await _broadcast_room_update(room_id)
@@ -216,7 +263,7 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
             elif t == "start_game":
                 if not is_queue and pid == 0:
                     ps = room["players"]
-                    if (len(ps) >= 2
+                    if (len(ps) >= room["target_size"]
                             and all(p["ready"]    for p in ps)
                             and all(p["pub_port"] != 0 for p in ps)):
                         await _initiate_match(room_id, host_id=0)
@@ -236,8 +283,9 @@ async def _broadcast_room_update(room_id: str):
     if room_id not in rooms:
         return
     room = rooms[room_id]
-    host_id = 0 if not room["is_queue"] else -1
+    host_id = 0 if not room.get("is_queue") else -1
     msg = {"type": "room_update", "host_id": host_id,
+           "target_size": room.get("target_size", 2),
            "players": [_pub(p) for p in room["players"]]}
     for p in room["players"]:
         try:
@@ -251,7 +299,7 @@ async def _try_queue_start(room_id: str):
     if not room or room.get("started"):
         return
     ps = room["players"]
-    if (len(ps) >= QUEUE_MIN
+    if (len(ps) >= room["target_size"]
             and all(p["ready"]    for p in ps)
             and all(p["pub_port"] != 0 for p in ps)):
         host_id = random.choice([p["id"] for p in ps])

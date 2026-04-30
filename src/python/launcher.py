@@ -11,6 +11,7 @@ import time
 import random
 import string
 import urllib.request
+import urllib.parse
 
 PROJECT_ROOT = os.path.abspath(
     os.path.join(os.path.dirname(__file__), '../..'))
@@ -36,7 +37,13 @@ LOBBY_WS_URL = (
 LOBBY_HTTP_URL = LOBBY_WS_URL.replace(
     "ws://", "http://").replace("wss://", "https://")
 
-CHAR_NAMES = ["Knight", "Mage", "Archer", "Paladin", "Wizard"]
+CHAR_NAMES   = ["Knight", "Mage", "Archer", "Paladin", "Wizard"]
+_TIER_LABELS = {
+    "placement": "定位賽",
+    "bronze":    "銅牌",
+    "silver":    "銀牌",
+    "gold":      "金牌",
+}
 
 
 _FONTS_DIR = os.path.join(PROJECT_ROOT, "src", "assets", "fonts")
@@ -149,7 +156,8 @@ class LauncherApp(ctk.CTk):
         self._is_host = False
         self._is_queue = False
         self._room_id = ""
-        self._local_ct = 0   # 本玩家選的 char_type
+        self._local_ct = 0    # 本玩家選的 char_type
+        self._room_data: dict = {}  # 最後一次 room_update 快取，供樂觀更新使用
 
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
@@ -184,14 +192,17 @@ class LauncherApp(ctk.CTk):
         # 線上按鈕列
         btn_grid = ctk.CTkFrame(f, fg_color="transparent")
         btn_grid.grid(row=3, column=0, pady=4)
-        ctk.CTkButton(btn_grid, text="排隊",    width=130, command=self._on_queue).grid(
+        ctk.CTkButton(btn_grid, text="排隊（天梯）", width=130,
+                      command=self._on_queue).grid(
             row=0, column=0, padx=5, pady=4)
-        ctk.CTkButton(btn_grid, text="開房",  width=130, command=self._on_create).grid(
+        ctk.CTkButton(btn_grid, text="開房", width=130,
+                      command=self._on_create).grid(
             row=0, column=1, padx=5, pady=4)
         self._entry_room = ctk.CTkEntry(
             btn_grid, placeholder_text="請輸入房間碼", width=130)
         self._entry_room.grid(row=1, column=0, padx=5, pady=4)
-        ctk.CTkButton(btn_grid, text="加入", width=130, command=self._on_join_click).grid(
+        ctk.CTkButton(btn_grid, text="加入", width=130,
+                      command=self._on_join_click).grid(
             row=1, column=1, padx=5, pady=4)
 
         ctk.CTkButton(f, text="離線模式", fg_color="gray40",
@@ -330,9 +341,21 @@ class LauncherApp(ctk.CTk):
         self._rows_frame.grid(row=1, column=0, padx=15, pady=8, sticky="ew")
         self._rows_frame.grid_columnconfigure(1, weight=1)
 
+        # 房間人數（房主在自訂房間時可調整）
+        self._size_frame = ctk.CTkFrame(f, fg_color="transparent")
+        self._size_frame.grid(row=2, column=0, pady=(0, 4))
+        ctk.CTkLabel(self._size_frame, text="房間人數",
+                     font=_font(12)).pack(side="left", padx=(0, 8))
+        self._room_size_seg = ctk.CTkSegmentedButton(
+            self._size_frame, values=["2人", "3人", "4人"], width=150,
+            command=self._on_room_size_change)
+        self._room_size_seg.set("2人")
+        self._room_size_seg.pack(side="left")
+        self._size_frame.grid_remove()   # 預設隱藏
+
         # 底列按鈕
         bot = ctk.CTkFrame(f, fg_color="transparent")
-        bot.grid(row=2, column=0, pady=10)
+        bot.grid(row=3, column=0, pady=10)
         self._btn_ready = ctk.CTkButton(bot, text="準備好了", width=130,
                                         command=self._on_ready)
         self._btn_ready.grid(row=0, column=0, padx=10)
@@ -343,11 +366,13 @@ class LauncherApp(ctk.CTk):
 
         self._lbl_status_room = ctk.CTkLabel(f, text="等待玩家...",
                                              font=_font(12))
-        self._lbl_status_room.grid(row=3, column=0, pady=8)
+        self._lbl_status_room.grid(row=4, column=0, pady=8)
 
     def _update_room_ui(self, data: dict):
-        players = data.get("players", [])
-        host_id = data.get("host_id", 0)
+        self._room_data = data
+        players     = data.get("players", [])
+        host_id     = data.get("host_id", 0)
+        target_size = data.get("target_size", 2)
 
         # 清除舊列
         for w in self._rows_frame.winfo_children():
@@ -392,8 +417,8 @@ class LauncherApp(ctk.CTk):
                          corner_radius=6).grid(
                 row=row, column=2, padx=4, pady=4)
 
-        # 空槽位
-        for i in range(len(players), 4):
+        # 空槽位（依 target_size 決定顯示幾列）
+        for i in range(len(players), target_size):
             row = i + 1
             ctk.CTkLabel(self._rows_frame, text=f"P{i} (空)",
                          width=120, anchor="w",
@@ -405,12 +430,20 @@ class LauncherApp(ctk.CTk):
                          width=70, anchor="center",
                          text_color="gray50").grid(row=row, column=2, padx=4, pady=4)
 
-        # 開始按鈕（房主且全員準備）
-        all_ready = len(players) >= 2 and all(p.get("ready") for p in players)
+        # 人數選擇器（房主且非天梯）
+        if self._is_host and not self._is_queue:
+            self._room_size_seg.set(f"{target_size}人")
+            self._size_frame.grid()
+        else:
+            self._size_frame.grid_remove()
+
+        # 開始按鈕（房主且全員準備且人數達標）
+        all_ready = (len(players) >= target_size
+                     and all(p.get("ready") for p in players))
         if self._is_host and not self._is_queue:
             self._btn_start.configure(
                 state="normal" if all_ready else "disabled",
-                text="開始遊戲")
+                text=f"開始遊戲 ({len(players)}/{target_size})")
         else:
             self._btn_start.configure(
                 state="disabled",
@@ -424,7 +457,12 @@ class LauncherApp(ctk.CTk):
 
     def _show_room(self, room_id: str, is_queue: bool):
         self._room_id = room_id
-        label = "Room: 排隊中" if is_queue else f"Room: {room_id}"
+        if is_queue:
+            tier = room_id.removeprefix("__queue_").removesuffix("__")
+            tier_label = _TIER_LABELS.get(tier, tier)
+            label = f"Room: 配對中（{tier_label}）"
+        else:
+            label = f"Room: {room_id}"
         self._lbl_room_code.configure(text=label)
         self.main_frame.grid_remove()
         self.room_frame.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
@@ -470,6 +508,16 @@ class LauncherApp(ctk.CTk):
             asyncio.run_coroutine_threadsafe(
                 self._client.send_char_select(ct), self.loop)
 
+    def _on_room_size_change(self, label: str):
+        size_map = {"2人": 2, "3人": 3, "4人": 4}
+        size = size_map.get(label, 2)
+        if self._room_data:
+            self._update_room_ui({**self._room_data, "target_size": size})
+        if self.loop and self._client:
+            asyncio.run_coroutine_threadsafe(
+                self._client.send_data({"type": "set_room_size", "size": size}),
+                self.loop)
+
     def _on_ready(self):
         self._btn_ready.configure(state="disabled", text="已準備")
         if self.loop and self._client:
@@ -490,7 +538,7 @@ class LauncherApp(ctk.CTk):
         self._set_status_main("已離開房間。")
 
     def _copy_room_code(self):
-        if self._room_id and self._room_id != "__queue__":
+        if self._room_id and not self._room_id.startswith("__queue_"):
             self.clipboard_clear()
             self.clipboard_append(self._room_id)
             self._set_status_room("房間碼已複製！")
@@ -518,8 +566,27 @@ class LauncherApp(ctk.CTk):
             self.loop.close()
             self.loop = None
 
+    async def _fetch_tier_async(self, nickname: str) -> str:
+        try:
+            loop = asyncio.get_event_loop()
+            url = f"{LOBBY_HTTP_URL}/player_tier/{urllib.parse.quote(nickname)}"
+            def _get():
+                with urllib.request.urlopen(url, timeout=3) as r:
+                    return json.loads(r.read()).get("tier", "placement")
+            return await loop.run_in_executor(None, _get)
+        except Exception:
+            return "placement"
+
     async def _lobby_task(self, room_id: str):
         nickname = self.entry_nickname.get() or "Player"
+
+        # 排隊模式：查詢段位並路由至對應子佇列
+        if room_id == "__queue__":
+            self._set_status_main("查詢段位中...")
+            tier = await self._fetch_tier_async(nickname)
+            room_id = f"__queue_{tier}__"
+            self._set_status_main(
+                f"段位：{_TIER_LABELS.get(tier, tier)}，尋找對手中...")
 
         # 1. 找可用 UDP port
         local_port = 5000
@@ -576,7 +643,7 @@ class LauncherApp(ctk.CTk):
                 if t == "join_ack":
                     self._my_id = msg["player_id"]
                     self._is_host = msg["is_host"]
-                    is_q = (room_id == "__queue__")
+                    is_q = room_id.startswith("__queue_")
                     self.after(0, lambda m=msg,
                                q=is_q: self._show_room(m["room_id"], q))
 
@@ -662,6 +729,8 @@ class LauncherApp(ctk.CTk):
         self._is_queue = False
         self._room_id = ""
         self._local_ct = 0
+        self._room_data = {}
+        self._size_frame.grid_remove()
         self._btn_ready.configure(state="normal", text="準備好了")
         self._btn_start.configure(state="disabled", text="開始遊戲")
 
