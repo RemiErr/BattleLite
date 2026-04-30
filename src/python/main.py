@@ -96,23 +96,24 @@ def parse_args():
     return parser.parse_args()
 
 
-def get_input_mask():
+_KEY_PRESETS = [
+    # Preset 0: 方向鍵 + Z/X + Space
+    {INPUT_RIGHT: pygame.K_RIGHT, INPUT_LEFT: pygame.K_LEFT,
+     INPUT_UP: pygame.K_UP,       INPUT_DOWN: pygame.K_DOWN,
+     INPUT_JUMP: pygame.K_SPACE,  INPUT_ATTACK: pygame.K_z, INPUT_SKILL: pygame.K_x},
+    # Preset 1: WASD + J/K + Space
+    {INPUT_RIGHT: pygame.K_d,    INPUT_LEFT: pygame.K_a,
+     INPUT_UP: pygame.K_w,       INPUT_DOWN: pygame.K_s,
+     INPUT_JUMP: pygame.K_SPACE, INPUT_ATTACK: pygame.K_j, INPUT_SKILL: pygame.K_k},
+]
+
+
+def get_input_mask(key_map: dict) -> int:
     keys = pygame.key.get_pressed()
     mask = 0
-    if keys[pygame.K_RIGHT]:
-        mask |= INPUT_RIGHT
-    if keys[pygame.K_LEFT]:
-        mask |= INPUT_LEFT
-    if keys[pygame.K_UP]:
-        mask |= INPUT_UP
-    if keys[pygame.K_DOWN]:
-        mask |= INPUT_DOWN
-    if keys[pygame.K_SPACE]:
-        mask |= INPUT_JUMP
-    if keys[pygame.K_z]:
-        mask |= INPUT_ATTACK
-    if keys[pygame.K_x]:
-        mask |= INPUT_SKILL
+    for bit, k in key_map.items():
+        if keys[k]:
+            mask |= bit
     return mask
 
 
@@ -173,16 +174,20 @@ def run_game():
     debug_manager = DebugManager()
     fx_manager = FxManager()
 
-    # 從 settings.json 讀音量（0–100 → 0.0–1.0）
+    # 從 settings.json 讀音量與按鍵組合
     _settings_path = os.path.join(os.path.dirname(__file__), '..', '..', 'settings.json')
     _vol = 50
+    _preset_idx = 0
     if os.path.exists(_settings_path):
         try:
             with open(_settings_path) as _f:
-                _vol = json.load(_f).get("volume", 50)
+                _s = json.load(_f)
+                _vol = _s.get("volume", 50)
+                _preset_idx = int(_s.get("key_preset", 0))
         except Exception:
             pass
     sfx_manager = SfxManager(volume=_vol / 100.0)
+    key_map = _KEY_PRESETS[_preset_idx % len(_KEY_PRESETS)]
 
     char_assets: dict[int, BaseCharacter] = {
         0: Knight(), 1: Mage(), 2: Archer(), 3: Paladin(), 4: Wizard()}
@@ -298,7 +303,7 @@ def run_game():
                     last_states[controlled_idx] = STATE_IDLE
 
         # 1. 邏輯推進
-        input_mask = get_input_mask()
+        input_mask = get_input_mask(key_map)
 
         if match_result is None:
             prev_z            = [session.get_player(i).z for i in range(num_players)]

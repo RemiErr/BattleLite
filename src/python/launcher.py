@@ -42,6 +42,12 @@ CHAR_NAMES = ["Knight", "Mage", "Archer", "Paladin", "Wizard"]
 _FONTS_DIR = os.path.join(PROJECT_ROOT, "src", "assets", "fonts")
 _FC_TMP_CONF: str | None = None
 
+_CJK_FONT = "Noto Sans TC"
+
+
+def _font(size: int, weight: str = "normal") -> ctk.CTkFont:
+    return ctk.CTkFont(family=_CJK_FONT, size=size, weight=weight)
+
 
 def _setup_project_font() -> None:
     """點 Tk 初始化前，透過 fontconfig 臨時 config 載入專案內的字型目錄。"""
@@ -75,18 +81,20 @@ def _gen_room_code(length: int = 6) -> str:
 
 # ── 設定對話框 ────────────────────────────────────────────────────────────
 
+_PRESET_LABELS = ["方向鍵 + Z/X", "WASD + J/K"]
+
+
 class SettingsDialog(ctk.CTkToplevel):
     def __init__(self, parent, settings_mgr: SettingsManager):
         super().__init__(parent)
         self.title("設定")
-        self.geometry("320x180")
+        self.geometry("320x240")
         self.resizable(False, False)
         self.wait_visibility()
         self.grab_set()
         self._mgr = settings_mgr
 
-        ctk.CTkLabel(self, text="音量", font=ctk.CTkFont(
-            size=14)).pack(pady=(20, 4))
+        ctk.CTkLabel(self, text="音量", font=_font(14)).pack(pady=(20, 4))
         self._vol = ctk.IntVar(value=settings_mgr.get("volume"))
         self._slider = ctk.CTkSlider(
             self, from_=0, to=100, variable=self._vol, width=240)
@@ -96,10 +104,18 @@ class SettingsDialog(ctk.CTkToplevel):
         self._slider.configure(
             command=lambda v: self._lbl.configure(text=f"{int(v)}%"))
 
-        ctk.CTkButton(self, text="儲存", command=self._save).pack(pady=18)
+        ctk.CTkLabel(self, text="按鍵組合", font=_font(14)).pack(pady=(16, 4))
+        self._preset_seg = ctk.CTkSegmentedButton(
+            self, values=_PRESET_LABELS, width=240)
+        self._preset_seg.set(_PRESET_LABELS[settings_mgr.get("key_preset")])
+        self._preset_seg.pack(pady=4)
+
+        ctk.CTkButton(self, text="儲存", command=self._save).pack(pady=16)
 
     def _save(self):
         self._mgr.set("volume", int(self._vol.get()))
+        self._mgr.set("key_preset", _PRESET_LABELS.index(
+            self._preset_seg.get()))
         self._mgr.save()
         self.destroy()
 
@@ -153,11 +169,11 @@ class LauncherApp(ctk.CTk):
         self.main_frame = f
 
         ctk.CTkLabel(f, text="BATTLE LITE",
-                     font=ctk.CTkFont(size=32, weight="bold")).grid(
+                     font=_font(32, "bold")).grid(
             row=0, column=0, pady=(20, 4))
 
         self._lbl_online_main = ctk.CTkLabel(f, text="Online: -",
-                                             font=ctk.CTkFont(size=12))
+                                             font=_font(12))
         self._lbl_online_main.grid(row=1, column=0)
 
         self.entry_nickname = ctk.CTkEntry(
@@ -186,15 +202,15 @@ class LauncherApp(ctk.CTk):
         ctk.CTkButton(bot_row, text="設定", width=80, fg_color="gray30",
                       command=self._open_settings).grid(row=0, column=0, padx=4)
         ctk.CTkButton(bot_row, text="排行榜", width=80, fg_color="gray30",
-                      command=self._toggle_leaderboard).grid(row=0, column=1, padx=4)
+                      command=self._open_leaderboard).grid(row=0, column=1, padx=4)
 
         self._lbl_status_main = ctk.CTkLabel(
-            f, text="Ready.", font=ctk.CTkFont(size=12))
+            f, text="Ready.", font=_font(12))
         self._lbl_status_main.grid(row=7, column=0, pady=10)
 
     # ── Leaderboard Window ────────────────────────────────────────────────
 
-    def _toggle_leaderboard(self):
+    def _open_leaderboard(self):
         if self._lb_win is not None and self._lb_win.winfo_exists():
             self._lb_win.focus()
             return
@@ -209,12 +225,12 @@ class LauncherApp(ctk.CTk):
         self._lb_win = win
 
         ctk.CTkLabel(win, text="排行榜",
-                     font=ctk.CTkFont(size=18, weight="bold")).pack(pady=(14, 4))
+                     font=_font(18, "bold")).pack(pady=(14, 4))
 
         top = ctk.CTkFrame(win, fg_color="transparent")
         top.pack(fill="x", padx=14)
         lbl_status = ctk.CTkLabel(top, text="",
-                                  font=ctk.CTkFont(size=11), text_color="gray60")
+                                  font=_font(11), text_color="gray60")
         lbl_status.pack(side="left")
         scroll = ctk.CTkScrollableFrame(win, fg_color="transparent")
 
@@ -236,7 +252,7 @@ class LauncherApp(ctk.CTk):
         for col, (label, w) in enumerate([
                 ("#", 30), ("Nickname", 170), ("場", 40), ("勝", 40), ("負", 40), ("勝%", 60)]):
             ctk.CTkLabel(hdr, text=label, width=w, anchor="center",
-                         font=ctk.CTkFont(size=11, weight="bold"),
+                         font=_font(11, "bold"),
                          text_color="gray70").grid(row=0, column=col)
 
         scroll.pack(fill="both", expand=True, padx=14, pady=(0, 14))
@@ -247,7 +263,7 @@ class LauncherApp(ctk.CTk):
         self._lb_win = None
 
     def _do_fetch_leaderboard(self, lbl_status: ctk.CTkLabel,
-                               scroll: ctk.CTkScrollableFrame):
+                              scroll: ctk.CTkScrollableFrame):
         try:
             with urllib.request.urlopen(
                     f"{LOBBY_HTTP_URL}/leaderboard", timeout=5) as r:
@@ -260,8 +276,8 @@ class LauncherApp(ctk.CTk):
                 text=f"無法取得資料: {m}"))
 
     def _render_leaderboard(self, entries: list,
-                             lbl_status: ctk.CTkLabel,
-                             scroll: ctk.CTkScrollableFrame):
+                            lbl_status: ctk.CTkLabel,
+                            scroll: ctk.CTkScrollableFrame):
         for w in scroll.winfo_children():
             w.destroy()
 
@@ -281,7 +297,7 @@ class LauncherApp(ctk.CTk):
             for col, (text, w) in enumerate(zip(row_data, WIDTHS)):
                 anchor = "w" if col == 1 else "center"
                 ctk.CTkLabel(row_frame, text=text, width=w, anchor=anchor,
-                             font=ctk.CTkFont(size=11)).grid(row=0, column=col)
+                             font=_font(11)).grid(row=0, column=col)
 
         count = len(entries)
         lbl_status.configure(text=f"{count} 位玩家" if count else "目前無紀錄")
@@ -301,12 +317,12 @@ class LauncherApp(ctk.CTk):
         ctk.CTkButton(hdr, text="← 離開", width=80, fg_color="gray30",
                       command=self._leave_room).grid(row=0, column=0)
         self._lbl_room_code = ctk.CTkLabel(hdr, text="Room: ------",
-                                           font=ctk.CTkFont(size=16, weight="bold"))
+                                           font=_font(16, "bold"))
         self._lbl_room_code.grid(row=0, column=1, padx=10)
         ctk.CTkButton(hdr, text="複製", width=60, fg_color="gray40",
                       command=self._copy_room_code).grid(row=0, column=2)
         self._lbl_online_room = ctk.CTkLabel(hdr, text="Online: -",
-                                             font=ctk.CTkFont(size=12))
+                                             font=_font(12))
         self._lbl_online_room.grid(row=0, column=3, padx=10)
 
         # 玩家列表區
@@ -326,7 +342,7 @@ class LauncherApp(ctk.CTk):
         self._btn_start.grid(row=0, column=1, padx=10)
 
         self._lbl_status_room = ctk.CTkLabel(f, text="等待玩家...",
-                                             font=ctk.CTkFont(size=12))
+                                             font=_font(12))
         self._lbl_status_room.grid(row=3, column=0, pady=8)
 
     def _update_room_ui(self, data: dict):
@@ -340,7 +356,7 @@ class LauncherApp(ctk.CTk):
         # 欄標題
         for col, txt in enumerate(["玩家", "角色選擇", "狀態"]):
             ctk.CTkLabel(self._rows_frame, text=txt,
-                         font=ctk.CTkFont(size=11, weight="bold"),
+                         font=_font(11, "bold"),
                          width=[120, 380, 70][col], anchor="w").grid(
                 row=0, column=col, padx=4, pady=2, sticky="w")
 
@@ -695,7 +711,8 @@ class LauncherApp(ctk.CTk):
             self.after(1000, self._monitor_game)
 
     def _on_closing(self):
-        self.settings_mgr.set("window_size", [self.winfo_width(), self.winfo_height()])
+        self.settings_mgr.set(
+            "window_size", [self.winfo_width(), self.winfo_height()])
         self.settings_mgr.set("window_pos",  [self.winfo_x(), self.winfo_y()])
         self.settings_mgr.save()
         if self._udp_sock:
