@@ -9,8 +9,8 @@ import os
 import datetime
 import aiosqlite
 
-DB_PATH        = os.path.join(os.path.dirname(__file__), "leaderboard.db")
-QUEUE_MIN      = 4
+DB_PATH = os.path.join(os.path.dirname(__file__), "leaderboard.db")
+QUEUE_MIN = 2  # TODO: for testing, default is 4
 PUNCH_DURATION = 2.0
 
 TIER_THRESHOLDS = {"games": 10, "silver_min": 40.0, "gold_min": 60.0}
@@ -28,6 +28,7 @@ def _calc_tier(games: int, win_rate: float) -> str:
     if win_rate <= TIER_THRESHOLDS["gold_min"]:
         return "silver"
     return "gold"
+
 
 rooms: Dict[str, dict] = {}
 _db: aiosqlite.Connection | None = None
@@ -64,7 +65,8 @@ async def _init_db():
 
 def _secs_until_next_taiwan_sunday_4am() -> float:
     """計算距下一個台灣時間週日 04:00 的秒數。"""
-    now_tw = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=8)
+    now_tw = datetime.datetime.now(
+        datetime.timezone.utc) + datetime.timedelta(hours=8)
     days_ahead = (6 - now_tw.weekday()) % 7   # weekday() Sunday=6
     if days_ahead == 0 and now_tw.hour < 4:
         target = now_tw.replace(hour=4, minute=0, second=0, microsecond=0)
@@ -110,9 +112,11 @@ def _make_player(name: str, ws: WebSocket, pid: int, pub_ip: str) -> dict:
         "websocket": ws,
     }
 
+
 def _pub(p: dict) -> dict:
     return {"id": p["id"], "name": p["name"],
             "char_type": p["char_type"], "ready": p["ready"]}
+
 
 def _net(p: dict) -> dict:
     return {"id": p["id"], "name": p["name"], "char_type": p["char_type"],
@@ -126,9 +130,11 @@ def _net(p: dict) -> dict:
 async def root():
     return {"status": "BattleLite Lobby is Running"}
 
+
 @app.get("/online")
 async def online_count():
     return {"count": sum(len(r["players"]) for r in rooms.values())}
+
 
 @app.get("/leaderboard")
 async def get_leaderboard(limit: int = 30):
@@ -173,7 +179,7 @@ async def get_player_tier(nickname: str):
         (nickname,)
     ) as cur:
         row = await cur.fetchone()
-    games    = row[0] or 0
+    games = row[0] or 0
     win_rate = row[1] or 0.0
     return {"tier": _calc_tier(games, win_rate), "games": games, "win_rate": win_rate}
 
@@ -184,6 +190,7 @@ class ResultItem(BaseModel):
     nickname:  str
     char_type: int
     result:    str
+
 
 @app.post("/submit_result")
 async def submit_result(item: ResultItem):
@@ -219,7 +226,7 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
         }
     room = rooms[room_id]
 
-    pid    = len(room["players"])
+    pid = len(room["players"])
     pub_ip = websocket.client.host if websocket.client else "unknown"
     player = _make_player(player_name, websocket, pid, pub_ip)
     room["players"].append(player)
@@ -240,11 +247,12 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
             t = data.get("type")
 
             if t == "report_endpoint":
-                player["pub_ip"]    = data["pub_ip"]
-                player["pub_port"]  = data["pub_port"]
-                player["local_ip"]  = data["local_ip"]
-                player["local_port"]= data["local_port"]
-                print(f"📍 {player_name} pub={player['pub_ip']}:{player['pub_port']}")
+                player["pub_ip"] = data["pub_ip"]
+                player["pub_port"] = data["pub_port"]
+                player["local_ip"] = data["local_ip"]
+                player["local_port"] = data["local_port"]
+                print(
+                    f"📍 {player_name} pub={player['pub_ip']}:{player['pub_port']}")
 
             elif t == "char_select":
                 player["char_type"] = int(data.get("char_type", 0))
@@ -252,7 +260,8 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
 
             elif t == "set_room_size":
                 if not is_queue and pid == 0:
-                    room["target_size"] = max(2, min(4, int(data.get("size", 2))))
+                    room["target_size"] = max(
+                        2, min(4, int(data.get("size", 2))))
                     await _broadcast_room_update(room_id)
 
             elif t == "player_ready":
@@ -265,12 +274,13 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
                 if not is_queue and pid == 0:
                     ps = room["players"]
                     if (len(ps) >= room["target_size"]
-                            and all(p["ready"]    for p in ps)
+                            and all(p["ready"] for p in ps)
                             and all(p["pub_port"] != 0 for p in ps)):
                         await _initiate_match(room_id, host_id=0)
 
     except WebSocketDisconnect:
-        room["players"] = [p for p in room["players"] if p["websocket"] != websocket]
+        room["players"] = [p for p in room["players"]
+                           if p["websocket"] != websocket]
         print(f"➖ {player_name} left {room_id}")
         if not room["players"]:
             del rooms[room_id]
@@ -301,7 +311,7 @@ async def _try_queue_start(room_id: str):
         return
     ps = room["players"]
     if (len(ps) >= room["target_size"]
-            and all(p["ready"]    for p in ps)
+            and all(p["ready"] for p in ps)
             and all(p["pub_port"] != 0 for p in ps)):
         host_id = random.choice([p["id"] for p in ps])
         await _initiate_match(room_id, host_id=host_id)
@@ -311,7 +321,7 @@ async def _initiate_match(room_id: str, host_id: int):
     room = rooms[room_id]
     if room.get("started"):
         return
-    room["started"]  = True
+    room["started"] = True
     match_id = str(uuid.uuid4())
     seed = random.randint(1, 1_000_000)
     players_info = [_net(p) for p in room["players"]]
