@@ -123,6 +123,7 @@ class LauncherApp(ctk.CTk):
         self._room_id = ""
         self._local_ct = 0    # 本玩家選的 char_type
         self._room_data: dict = {}  # 最後一次 room_update 快取，供樂觀更新使用
+        self._tier_cache: dict[str, str] = {}  # nickname → tier，由排行榜資料填入
 
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
@@ -275,6 +276,10 @@ class LauncherApp(ctk.CTk):
                 text=f"無法取得資料: {m}"))
 
     def _render_leaderboard(self, entries: list):
+        for e in entries:
+            if "nickname" in e and "tier" in e:
+                self._tier_cache[e["nickname"]] = e["tier"]
+
         for w in self._lb_scroll.winfo_children():
             w.destroy()
 
@@ -378,13 +383,18 @@ class LauncherApp(ctk.CTk):
         for i, p in enumerate(players):
             row = i + 1
             is_local = (p["id"] == self._my_id)
-            # tier 可以用來顯示牌位或 AI等級標示
-            # 排位：★★★ ☆★★ ☆☆★ ✖
+            # 排位：gold=★★★  silver=☆★★  bronze=☆☆★  placement=✖
             # 機器人：⌥♚ ⌥♜ ⌥♞
-            tier = "⌘" if p["id"] == host_id else ""
+            _TIER_ICONS = {"gold": "★★★", "silver": "☆★★",
+                           "bronze": "☆☆★", "placement": "✖"}
+            if self._is_queue:
+                tier_badge = _TIER_ICONS.get(
+                    self._tier_cache.get(p["name"], "placement"), "✖")
+            else:
+                tier_badge = "⌘" if p["id"] == host_id else ""
 
             ctk.CTkLabel(self._rows_frame,
-                         text=f"P{p['id']} {p['name']} {tier}",
+                         text=f"P{p['id']} {p['name']} {tier_badge}".strip(),
                          width=120, anchor="w").grid(
                 row=row, column=0, padx=4, pady=4, sticky="w")
 
@@ -614,6 +624,7 @@ class LauncherApp(ctk.CTk):
         if is_queue:
             self._set_status_main("查詢段位中...")
             tier = await self._fetch_tier_async(nickname)
+            self._tier_cache[nickname] = tier
             tier_label = _TIER_LABELS.get(tier, tier)
             # 等待時間 = 120 + 60 = 3分鐘，優先排同段位玩家，之後放寬段位限制
             phases = [
@@ -682,6 +693,7 @@ class LauncherApp(ctk.CTk):
         """加入 room_id，等待 game_start 或 timeout。
         Returns: 'matched' | 'timeout' | 'cancelled' | 'error'
         """
+        self._is_queue = room_id.startswith("__queue_")
         self._client = LobbyClient(LOBBY_WS_URL)
         if not await self._client.join_room(room_id, nickname):
             self._set_status_main("無法連線至大廳伺服器。")
@@ -697,7 +709,6 @@ class LauncherApp(ctk.CTk):
         punch_stop = threading.Event()
         punch_thread: threading.Thread | None = None
         result = "timeout"
-
         async def _listen_loop():
             nonlocal punch_thread, result
             try:
