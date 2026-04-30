@@ -26,9 +26,6 @@ _COL_HP_VAL = (220,  220, 220)
 _COL_MP_VAL = (180,  200, 255)
 _COL_SHIELD = (255,  215,   0)  # 護盾啟動時的金色邊框
 
-_STATE_SKILL = 4
-
-
 class HUD:
     """
     橫排對戰 HUD，固定在畫面頂部。
@@ -49,13 +46,13 @@ class HUD:
         self.max_mp: dict[int, int] = {}
         self.char_names: dict[int, str] = {}
 
-        self.has_shield: dict[int, bool] = {}
+        self.shield_states: dict[int, set[int]] = {}
 
         for char_type, asset in char_assets.items():
-            self.max_hp[char_type] = asset.stats.max_hp
-            self.max_mp[char_type] = asset.stats.max_mp
+            self.max_hp[char_type] = asset.physics.max_hp
+            self.max_mp[char_type] = asset.physics.max_mp
             self.char_names[char_type] = asset.name
-            self.has_shield[char_type] = asset.stats.skl_damage_absorb > 0
+            self.shield_states[char_type] = {ab.state_id for ab in asset.abilities if ab.damage_absorb > 0}
             if asset.faceset_path:
                 try:
                     img = pygame.image.load(asset.faceset_path).convert_alpha()
@@ -85,10 +82,7 @@ class HUD:
         char_type = getattr(p, "character_type", 0)
 
         # 頭像
-        is_shielding = (
-            getattr(p, "state", -1) == _STATE_SKILL
-            and self.has_shield.get(char_type, False)
-        )
+        is_shielding = getattr(p, "state", -1) in self.shield_states.get(char_type, set())
         face = self.faces.get(char_type)
         if face:
             face_surf = pygame.transform.flip(

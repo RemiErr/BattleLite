@@ -6,10 +6,49 @@ STATE_ATTACK = 2
 STATE_HURT   = 3
 STATE_SKILL  = 4
 
-INPUT_SKILL = 1 << 6
+INPUT_ATTACK = 1 << 5
+INPUT_SKILL  = 1 << 6
 
 CHAR_TYPE_KNIGHT = 0
 CHAR_TYPE_MAGE   = 1
+
+
+def _setup_mage_config(session) -> None:
+    """設定 Mage（char_type=1）的物理與技能參數（對應舊版 set_char_config 值）。"""
+    session.set_physics_config(
+        CHAR_TYPE_MAGE,
+        400, 9000, 5000, 3000, 4,   # gravity, jump_impulse, walk_speed_x, walk_speed_y, hitstop_frames
+        70000, 80000,                # max_hp, max_mp
+        0, 35000, 43500, 0,         # hurt_front, hurt_half_w, hurt_half_h, hurt_z_offset
+    )
+    session.set_ability(
+        CHAR_TYPE_MAGE, 0,
+        INPUT_ATTACK, 0, STATE_ATTACK,
+        0, 20,                       # mp_cost, timer
+        8000, 0, 0, 25000, 0, 0,    # dmg, front, half_w, depth, half_h, z_offset
+        5000, 3000, 20,              # kb_vx, kb_vz, kb_timer
+        True, 0, 9999,              # melee_enabled, hit_start, hit_end
+        0, 0, 0,                     # damage_absorb, hp_regen_per_tick, on_hit_hp_restore
+        0, 30, 10,                   # projectile_vx, projectile_lifetime, spawn_timer
+        0, 0,                        # entity_spawn_offset, entity_spawn_z_offset
+        False,                       # spawn_entity
+        0, 0,                        # dash_vx, dash_tick
+        False,                       # is_skill
+    )
+    session.set_ability(
+        CHAR_TYPE_MAGE, 1,
+        INPUT_SKILL, 0, STATE_SKILL,
+        15000, 40,                   # mp_cost, timer
+        20000, 0, 0, 40000, 0, 0,   # dmg, front, half_w, depth, half_h, z_offset
+        7000, 5000, 30,              # kb_vx, kb_vz, kb_timer
+        True, 0, 9999,              # melee_enabled, hit_start, hit_end
+        0, 0, 0,                     # damage_absorb, hp_regen_per_tick, on_hit_hp_restore
+        15000, 60, 35,              # projectile_vx, projectile_lifetime, spawn_timer
+        0, 0,                        # entity_spawn_offset, entity_spawn_z_offset
+        False,                       # spawn_entity
+        0, 0,                        # dash_vx, dash_tick
+        True,                        # is_skill
+    )
 
 
 def _make_adjacent(session, attacker_idx=0, victim_idx=1, gap=25000):
@@ -32,7 +71,6 @@ def test_attack_knockback_pushes_victim_right():
     session = OfflineSession(2)
     _make_adjacent(session)
 
-    # 設定攻擊者 timer=16，下一幀 timer==15 觸發判定
     a = session.get_player(0)
     a.state = STATE_ATTACK
     a.timer = 16
@@ -72,7 +110,6 @@ def test_attack_knockback_pushes_victim_left():
 
 def test_skill_knockback_stronger_than_attack():
     """Knight 技能（格擋反擊）的擊飛高度應大於普通攻擊。"""
-    # 普通攻擊
     s1 = OfflineSession(2)
     _make_adjacent(s1)
     a1 = s1.get_player(0)
@@ -82,13 +119,12 @@ def test_skill_knockback_stronger_than_attack():
     s1.advance([0, 0])
     atk_vz = s1.get_player(1).vz
 
-    # Knight 技能
     s2 = OfflineSession(2)
     _make_adjacent(s2)
     a2 = s2.get_player(0)
     a2.character_type = CHAR_TYPE_KNIGHT
     a2.state = STATE_SKILL
-    a2.timer = 16        # timer > 10，觸發技能近戰判定
+    a2.timer = 16
     a2.mp = 50000
     s2.set_player(0, a2)
     s2.advance([0, 0])
@@ -149,7 +185,6 @@ def test_landing_reduces_vx():
     v.vx = 10000
     session.set_player(0, v)
 
-    # 推進直到落地
     for _ in range(5):
         session.advance([0, 0])
 
@@ -163,27 +198,7 @@ def test_landing_reduces_vx():
 def test_entity_knockback_follows_projectile_direction():
     """向右飛行的投擲物擊中後，受擊者應向右被推（vx > 0）。"""
     session = OfflineSession(2)
-    # 設定 Mage 投射物參數（projectile_vx > 0 才會生成）
-    session.set_char_config(
-        CHAR_TYPE_MAGE,
-        400, 9000, 5000, 3000, 4,
-        70000, 80000, 15000, 8000, 20000,
-        0, 0, 25000, 0, 0,
-        0, 0, 40000, 0, 0,
-        5000, 3000, 20, 7000, 5000, 30,
-        0, 35000, 43500, 0,
-        15000, 60, 35,
-        0, 0,
-        0, 0,
-        20, 40,
-        0, 30, 10,
-        True, True,
-        0,
-        0, 9999,
-        0, 9999,
-        0, 0,
-        False,
-    )
+    _setup_mage_config(session)
 
     mage = session.get_player(0)
     mage.x, mage.y, mage.z = 100000, 200000, 0

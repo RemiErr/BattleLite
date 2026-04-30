@@ -1,5 +1,9 @@
+from src.python.game_constants import STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL
 import os
-from src.python.assets_manager.base_character import BaseCharacter, HitboxDef, CharStats
+from src.python.assets_manager.base_character import (
+    BaseCharacter, HitboxDef, PhysicsStats, AbilityDef,
+    SfxDef, CharSfxConfig, INPUT_ATTACK, INPUT_SKILL
+)
 
 _SHEET_PATH = os.path.join(
     os.path.dirname(__file__), "..", "..", "..", "..",
@@ -11,12 +15,17 @@ _FACE_PATH = os.path.normpath(os.path.join(
     "src", "assets", "char", "knight", "faceset.png"
 ))
 
+_SFX_DIR = os.path.normpath(os.path.join(
+    os.path.dirname(__file__), "..", "..", "..", "..",
+    "src", "assets", "sound"
+))
+
 _FRAME_W = 182
 _FRAME_H = 122
 
 # (state, row, num_frames, loop, speed)
 _STATE_ROWS = [
-    (0, 0, 6, True,  6),  # IDLE:   Row0, 6 frame
+    (0, 0, 6, True,  6),  # IDLE:   Row0, 6 frames
     (1, 0, 6, True,  6),  # WALK:   Row0, 6 frames
     (2, 1, 6, False, 4),  # ATTACK: Row1
     (4, 2, 6, False, 4),  # SKILL:  Row2 (Guard)
@@ -24,35 +33,19 @@ _STATE_ROWS = [
 ]
 
 # ---------------------------------------------------------------------------
-# 判定框（以 Sprite 中心為原點，單位 px，預設 sheet 角色朝左）
-#
-#   Sprite 中心 = (91, 61)（183//2, 123//2）
-#
-#   hurt_box（身體被打到的範圍）
-#     Row0 量測：角色身體大約 frame x=18–85, y=10–108
-#     → ox = 18-91 = -73, oy = 10-61 = -51, w=67, h=98
-#
-#   hit_box（攻擊傷害範圍）
-#     ATTACK Row1 幀2–3 的弧形特效大約 frame x=0–55, y=8–82
-#     （角色朝左，弧形出現在 frame 左側 = 角色前方）
-#     → ox = 0-91 = -91, oy = 8-61 = -53, w=55, h=74
-#
-#     SKILL Row2 幀4–5 的盾牌光暈大約 frame x=40–100, y=15–90
-#     → ox = 40-91 = -51, oy = 15-61 = -46, w=60, h=75
+# 判定框（以 Sprite 中心 (91, 61) 為原點，單位 px，sheet 角色朝左）
 # ---------------------------------------------------------------------------
 
-_HURT_BODY = HitboxDef(ox=-35, oy=-80, w=80, h=100)   # bottom=0（腳）
+_HURT_BODY = HitboxDef(ox=-35, oy=-80, w=80, h=100)
 _HURT_HURT = HitboxDef(ox=-15, oy=-80, w=70, h=90)
 
 _HIT_ATTACK = HitboxDef(ox=-86, oy=-92, w=75, h=110)
-
-STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
 
 
 class Knight(BaseCharacter):
     def __init__(self):
         super().__init__("Knight")
-        self.anchor_y = 41   # 幀中心偏移量 (向下)
+        self.anchor_y = 41
         self.faceset_path = _FACE_PATH
         self.load_sheet(
             os.path.normpath(_SHEET_PATH),
@@ -60,27 +53,40 @@ class Knight(BaseCharacter):
             _STATE_ROWS,
         )
 
-        # atk_timer = 6 frames * speed 4 = 24 ticks
-        # skl_timer = 6 frames * speed 4 = 24 ticks
-        self.stats = CharStats(
+        self.physics = PhysicsStats(
             max_hp=100_000,
             max_mp=50_000,
-            skill_cost=10_000,
-            atk_dmg=10_000,
-            skill_dmg=0,        # 格擋不造成傷害
-            atk_depth=25_000,
-            skl_depth=40_000,
-            atk_kb_vx=8_000,
-            atk_kb_vz=4_000,
-            atk_kb_timer=30,
-            skl_kb_vx=0,        # 格擋不擊飛
-            skl_kb_vz=0,
-            skl_kb_timer=0,
-            atk_timer=24,
-            skl_timer=24,
-            skl_melee_enabled=False,  # 格擋不攻擊對手
-            skl_damage_absorb=30_000,  # 格擋每次命中吸收傷害
         )
+
+        # atk_timer = 6 frames × speed 4 = 24 ticks
+        # skl_timer = 6 frames × speed 4 = 24 ticks
+        self.abilities = [
+            AbilityDef(
+                trigger_button=INPUT_ATTACK,
+                state_id=STATE_ATTACK,
+                timer=24,
+                dmg=10_000,
+                depth=40_000,
+                on_hit_restore=5_000,
+                kb_vx=5_000, kb_vz=6_000, kb_timer=30,
+                dash_vx=10_000, dash_frame=2,
+                melee_enabled=True,
+                hit_box=_HIT_ATTACK,
+                is_skill=False,
+            ),
+            AbilityDef(
+                trigger_button=INPUT_SKILL,
+                state_id=STATE_SKILL,
+                mp_cost=10_000,
+                timer=24,
+                dmg=0,
+                depth=40_000,
+                damage_absorb=30_000,
+                kb_vx=0, kb_vz=0, kb_timer=0,
+                melee_enabled=False,
+                is_skill=True,
+            ),
+        ]
 
         self.hurt_boxes = {
             STATE_IDLE:   _HURT_BODY,
@@ -90,10 +96,9 @@ class Knight(BaseCharacter):
             STATE_HURT:   _HURT_HURT,
         }
 
-        self.hit_boxes = {
-            STATE_IDLE:   None,
-            STATE_WALK:   None,
-            STATE_ATTACK: _HIT_ATTACK,
-            STATE_SKILL:  None,   # 格擋不攻擊
-            STATE_HURT:   None,
-        }
+        def _s(n): return SfxDef(os.path.join(_SFX_DIR, f"{n}.ogg"))
+        self.sfx = CharSfxConfig(
+            on_ability={STATE_SKILL: _s(29)},
+            on_hit={STATE_ATTACK: _s(1)},
+            on_hurt=_s(13), on_jump=_s(27), on_land=_s(23), on_dead=_s(15),
+        )

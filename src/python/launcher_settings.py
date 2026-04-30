@@ -9,10 +9,10 @@ class SettingsManager:
     DEFAULT_SETTINGS = {
         "nickname": "Player",
         "volume": 50,
-        "window_size": [800, 600],
         "window_pos": [100, 100],
         "fullscreen": False,
-        "last_room": ""
+        "last_room": "",
+        "key_preset": 0,
     }
 
     def __init__(self, filepath="settings.json"):

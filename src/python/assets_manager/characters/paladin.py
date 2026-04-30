@@ -1,5 +1,9 @@
+from src.python.game_constants import STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL
 import os
-from src.python.assets_manager.base_character import BaseCharacter, HitboxDef, CharStats
+from src.python.assets_manager.base_character import (
+    BaseCharacter, HitboxDef, PhysicsStats, AbilityDef,
+    SfxDef, CharSfxConfig, INPUT_ATTACK, INPUT_SKILL
+)
 
 _SHEET_PATH = os.path.normpath(os.path.join(
     os.path.dirname(__file__), "..", "..", "..", "..",
@@ -11,23 +15,21 @@ _FACE_PATH = os.path.normpath(os.path.join(
     "src", "assets", "char", "paladin", "faceset.png"
 ))
 
+_SFX_DIR = os.path.normpath(os.path.join(
+    os.path.dirname(__file__), "..", "..", "..", "..",
+    "src", "assets", "sound"
+))
+
 _FRAME_W = 249
 _FRAME_H = 100
 _COLS = 6
 
-# ---------------------------------------------------------------------------
-# 線性幀索引（6 cols/row）
-#   Row 0 (0-7)   : IDLE / WALK（idle.gif 8 幀）
-#   Row 1-2 (8-18): ATTACK（attack.gif 11 幀）
-#   Row 3-5 (19-21): HURT（hit.gif 3 幀）
-#   Row 3-6 (22-39): SKILL 聖光斬（attack2.gif 18 幀）
 # (state, start_frame, num_frames, loop, speed)
-# ---------------------------------------------------------------------------
 _STATE_FRAMES = [
     (0,  0,  8, True,  8),   # IDLE
     (1,  0,  8, True,  8),   # WALK
-    (2,  8, 11, False, 6),   # ATTACK
-    (4, 22, 18, False, 4),   # SKILL
+    (2,  8, 11, False, 6),   # ATTACK  speed=6
+    (4, 22, 18, False, 4),   # SKILL   speed=4
     (3, 19,  3, False, 3),   # HURT
 ]
 
@@ -35,13 +37,12 @@ _STATE_FRAMES = [
 # 判定框（以 Sprite 中心 (124, 50) 為原點，px，sheet 角色朝左）
 # ---------------------------------------------------------------------------
 
-_HURT_BODY = HitboxDef(ox=-20, oy=-82, w=60, h=82)   # bottom=0（腳）
+_HURT_BODY = HitboxDef(ox=-20, oy=-82, w=60, h=82)
 _HURT_HURT = HitboxDef(ox=-15, oy=-78, w=48, h=78)
 
 _HIT_ATTACK = HitboxDef(ox=-140, oy=-62, w=130, h=36)
 _HIT_SKILL = HitboxDef(ox=-160, oy=-92, w=180, h=100)
 
-STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL = 0, 1, 2, 3, 4
 
 CHAR_TYPE_PALADIN = 3
 
@@ -55,36 +56,47 @@ class Paladin(BaseCharacter):
         self.load_sheet_linear(_SHEET_PATH, _FRAME_W,
                                _FRAME_H, _COLS, _STATE_FRAMES)
 
-        # atk_timer = 11 frames * speed 4 = 44 ticks
-        # skl_timer = 18 frames * speed 4 = 72 ticks
-        # atk_timer = 11 frames * speed 4 = 44 ticks
-        # skl_timer = 18 frames * speed 4 = 72 ticks
-        self.stats = CharStats(
-            max_hp=120_000,
+        self.physics = PhysicsStats(
+            max_hp=90_000,
             max_mp=75_000,
-            skill_cost=30_000,
-            atk_dmg=15_000,
-            skill_dmg=30_000,
-            atk_depth=25_000,
-            skl_depth=40_000,
-            atk_kb_vx=8_500,
-            atk_kb_vz=5_000,
-            atk_kb_timer=30,
-            skl_kb_vx=16_500,
-            skl_kb_vz=12_000,
-            skl_kb_timer=65,
-            atk_timer=44,
-            skl_timer=72,
-            atk_melee_enabled=True,
-            skl_melee_enabled=True,
-            atk_hit_frame_start=4,
-            atk_hit_frame_end=7,
-            skl_hit_frame_start=13,
-            skl_hit_frame_end=17,
-            skl_damage_absorb=10_000,
-            atk_dash_vx=80_000,   # 衝刺距離 80px
-            atk_dash_frame=4,        # 第 n 幀觸發
         )
+
+        # atk_timer = 44 ticks（與舊 CharStats 對齊）；atk_spd=6 用於 hit/dash 幀轉 ticks
+        # skl_timer = 18 frames × speed 4 = 72 ticks
+        # atk_hit_frame 4-7 × speed 6 = ticks 24-42
+        # skl_hit_frame 13-17 × speed 4 = ticks 52-68
+        # dash_frame 4 × speed 6 = tick 24
+        self.abilities = [
+            AbilityDef(
+                trigger_button=INPUT_ATTACK,
+                state_id=STATE_ATTACK,
+                mp_cost=5_000,
+                timer=44,
+                dmg=10_000,
+                depth=20_000,
+                kb_vx=8_500, kb_vz=5_000, kb_timer=30,
+                melee_enabled=True,
+                hit_frame_start=4, hit_frame_end=7,
+                dash_vx=80_000, dash_frame=4,
+                on_hit_restore=15_000,
+                hit_box=_HIT_ATTACK,
+                is_skill=False,
+            ),
+            AbilityDef(
+                trigger_button=INPUT_SKILL,
+                state_id=STATE_SKILL,
+                mp_cost=25_000,
+                timer=72,
+                dmg=30_000,
+                depth=40_000,
+                kb_vx=16_500, kb_vz=12_000, kb_timer=65,
+                melee_enabled=True,
+                hit_frame_start=13, hit_frame_end=17,
+                damage_absorb=10_000,
+                hit_box=_HIT_SKILL,
+                is_skill=True,
+            ),
+        ]
 
         self.hurt_boxes = {
             STATE_IDLE:   _HURT_BODY,
@@ -94,10 +106,9 @@ class Paladin(BaseCharacter):
             STATE_HURT:   _HURT_HURT,
         }
 
-        self.hit_boxes = {
-            STATE_IDLE:   None,
-            STATE_WALK:   None,
-            STATE_ATTACK: _HIT_ATTACK,
-            STATE_SKILL:  _HIT_SKILL,
-            STATE_HURT:   None,
-        }
+        def _s(n): return SfxDef(os.path.join(_SFX_DIR, f"{n}.ogg"))
+        self.sfx = CharSfxConfig(
+            on_ability={STATE_SKILL: _s(20)},
+            on_hit={STATE_ATTACK: _s(14), STATE_SKILL: _s(24)},
+            on_hurt=_s(13), on_jump=_s(27), on_land=_s(23), on_dead=_s(15),
+        )
