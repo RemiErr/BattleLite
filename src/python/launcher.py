@@ -137,9 +137,13 @@ class LauncherApp(ctk.CTk):
 
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=0)
+
+        self._leaderboard_visible = False
 
         self._build_main_frame()
         self._build_room_frame()
+        self._build_leaderboard_frame()
         self._show_main()
         self._poll_online()
 
@@ -178,12 +182,110 @@ class LauncherApp(ctk.CTk):
 
         ctk.CTkButton(f, text="離線模式", fg_color="gray40",
                       command=self._on_offline).grid(row=5, column=0, pady=6)
-        ctk.CTkButton(f, text="設定", width=80, fg_color="gray30",
-                      command=self._open_settings).grid(row=6, column=0, pady=2)
+
+        bot_row = ctk.CTkFrame(f, fg_color="transparent")
+        bot_row.grid(row=6, column=0, pady=2)
+        ctk.CTkButton(bot_row, text="設定", width=80, fg_color="gray30",
+                      command=self._open_settings).grid(row=0, column=0, padx=4)
+        ctk.CTkButton(bot_row, text="排行榜", width=80, fg_color="gray30",
+                      command=self._toggle_leaderboard).grid(row=0, column=1, padx=4)
 
         self._lbl_status_main = ctk.CTkLabel(
             f, text="Ready.", font=ctk.CTkFont(size=12))
         self._lbl_status_main.grid(row=7, column=0, pady=10)
+
+    # ── Leaderboard Frame ─────────────────────────────────────────────────
+
+    def _build_leaderboard_frame(self):
+        f = ctk.CTkFrame(self, corner_radius=10, width=360)
+        f.grid_propagate(False)
+        self.lb_frame = f
+
+        ctk.CTkLabel(f, text="排行榜",
+                     font=ctk.CTkFont(size=18, weight="bold")).pack(pady=(14, 4))
+
+        top = ctk.CTkFrame(f, fg_color="transparent")
+        top.pack(fill="x", padx=12)
+        self._lbl_lb_status = ctk.CTkLabel(
+            top, text="", font=ctk.CTkFont(size=11), text_color="gray60")
+        self._lbl_lb_status.pack(side="left")
+        ctk.CTkButton(top, text="↻ 重新整理", width=90,
+                      fg_color="gray30", height=24,
+                      command=self._fetch_leaderboard).pack(side="right")
+
+        # 表頭
+        hdr = ctk.CTkFrame(f, fg_color="transparent")
+        hdr.pack(fill="x", padx=12, pady=(8, 2))
+        for col, (label, w) in enumerate([
+                ("#", 28), ("Nickname", 148), ("場", 38), ("勝", 38), ("負", 38), ("勝%", 54)]):
+            ctk.CTkLabel(hdr, text=label, width=w, anchor="center",
+                         font=ctk.CTkFont(size=11, weight="bold"),
+                         text_color="gray70").grid(row=0, column=col)
+
+        # 資料區（可捲動）
+        self._lb_scroll = ctk.CTkScrollableFrame(f, fg_color="transparent")
+        self._lb_scroll.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        self._lb_row_labels: list[list[ctk.CTkLabel]] = []
+
+    _LB_EXTRA_W = 380   # 面板寬 360 + 右 padding 20
+
+    def _toggle_leaderboard(self):
+        w, h = self.winfo_width(), self.winfo_height()
+        if self._leaderboard_visible:
+            self.lb_frame.grid_remove()
+            self._leaderboard_visible = False
+            self.geometry(f"{w - self._LB_EXTRA_W}x{h}")
+        else:
+            self.lb_frame.grid(row=0, column=1, padx=(0, 20), pady=20, sticky="nsew")
+            self._leaderboard_visible = True
+            self.geometry(f"{w + self._LB_EXTRA_W}x{h}")
+            self._fetch_leaderboard()
+
+    def _fetch_leaderboard(self):
+        self._lbl_lb_status.configure(text="載入中…")
+        threading.Thread(target=self._do_fetch_leaderboard, daemon=True).start()
+
+    def _do_fetch_leaderboard(self):
+        try:
+            with urllib.request.urlopen(
+                    f"{LOBBY_HTTP_URL}/leaderboard", timeout=5) as r:
+                entries = json.loads(r.read()).get("entries", [])
+            self.after(0, lambda e=entries: self._render_leaderboard(e))
+        except Exception as ex:
+            self.after(0, lambda: self._lbl_lb_status.configure(
+                text=f"無法取得資料: {ex}"))
+
+    def _render_leaderboard(self, entries: list):
+        for row_labels in self._lb_row_labels:
+            for lbl in row_labels:
+                lbl.destroy()
+        self._lb_row_labels.clear()
+
+        WIDTHS = [28, 148, 38, 38, 38, 54]
+        for rank, e in enumerate(entries, 1):
+            row_data = [
+                str(rank),
+                e.get("nickname", ""),
+                str(e.get("games", 0)),
+                str(e.get("wins", 0)),
+                str(e.get("losses", 0)),
+                f"{e.get('win_rate', 0.0)}%",
+            ]
+            bg = "gray20" if rank % 2 == 0 else "transparent"
+            row_frame = ctk.CTkFrame(self._lb_scroll, fg_color=bg, corner_radius=4)
+            row_frame.pack(fill="x", pady=1)
+            lbls: list[ctk.CTkLabel] = []
+            for col, (text, w) in enumerate(zip(row_data, WIDTHS)):
+                anchor = "w" if col == 1 else "center"
+                lbl = ctk.CTkLabel(row_frame, text=text, width=w, anchor=anchor,
+                                   font=ctk.CTkFont(size=11))
+                lbl.grid(row=0, column=col)
+                lbls.append(lbl)
+            self._lb_row_labels.append(lbls)
+
+        count = len(entries)
+        self._lbl_lb_status.configure(
+            text=f"{count} 位玩家" if count else "目前無紀錄")
 
     # ── Room Frame ────────────────────────────────────────────────────────
 
@@ -510,6 +612,8 @@ class LauncherApp(ctk.CTk):
                         "players":     resolved,
                         "seed":        msg["seed"],
                         "host_id":     msg.get("host_id", 0),
+                        "match_id":    msg.get("match_id", ""),
+                        "lobby_url":   LOBBY_HTTP_URL,
                     }
                     await self._client.close()
                     self.after(50, lambda sd=session_data: self._do_launch(sd))

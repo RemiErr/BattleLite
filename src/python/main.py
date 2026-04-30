@@ -3,6 +3,8 @@ import sys
 import os
 import argparse
 import json
+import threading
+import urllib.request
 
 # 確保路徑正確
 PROJECT_ROOT = os.path.abspath(
@@ -114,6 +116,34 @@ def get_input_mask():
     return mask
 
 
+def _submit_result(config: dict, controlled_idx: int, char_type: int, match_result: int):
+    lobby_url = config.get("lobby_url", "")
+    match_id  = config.get("match_id", "")
+    if not lobby_url or not match_id:
+        return
+    if match_result == controlled_idx:
+        result = "win"
+    elif match_result == -2:
+        result = "draw"
+    else:
+        result = "lose"
+    payload = json.dumps({
+        "match_id":  match_id,
+        "room_code": config.get("room", ""),
+        "nickname":  config.get("nickname", "Player"),
+        "char_type": char_type,
+        "result":    result,
+    }).encode()
+    try:
+        req = urllib.request.Request(
+            f"{lobby_url}/submit_result", data=payload,
+            headers={"Content-Type": "application/json"}, method="POST")
+        urllib.request.urlopen(req, timeout=5)
+        print(f"✅ Result submitted: {result}")
+    except Exception as e:
+        print(f"⚠️ Failed to submit result: {e}")
+
+
 def run_game():
     args = parse_args()
 
@@ -209,6 +239,7 @@ def run_game():
     sync_wait_frames = 0
     switch_player = 0
     match_result: int | None = None  # None=進行中, -2=平手, 0..n=勝者 idx
+    _result_submitted = False
     result_font_big   = pygame.font.SysFont("Arial", 56, bold=True)
     result_font_small = pygame.font.SysFont("Arial", 24)
 
@@ -313,6 +344,14 @@ def run_game():
 
             if num_players > 1:
                 match_result = _check_match(num_players)
+                if match_result is not None and not _result_submitted and not is_offline:
+                    _result_submitted = True
+                    ct = session.get_player(controlled_idx).character_type
+                    threading.Thread(
+                        target=_submit_result,
+                        args=(config, controlled_idx, ct, match_result),
+                        daemon=True,
+                    ).start()
 
         # 2. 渲染
         screen.fill((30, 30, 30))
