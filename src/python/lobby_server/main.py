@@ -13,7 +13,7 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "leaderboard.db")
 QUEUE_MIN = 2  # TODO: for testing, default is 4
 PUNCH_DURATION = 2.0
 
-TIER_THRESHOLDS = {"games": 10, "silver_min": 40.0, "gold_min": 60.0}
+TIER_THRESHOLDS = {"games": 5, "silver_min": 40.0, "gold_min": 60.0}
 
 
 def _is_queue_room(room_id: str) -> bool:
