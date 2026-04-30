@@ -114,6 +114,7 @@ class LauncherApp(ctk.CTk):
         self._client: LobbyClient | None = None
         self._udp_sock: socket.socket | None = None
         self._punch_stop = threading.Event()
+        self._queue_cancelled = False
 
         # 房間狀態
         self._my_id = 0
@@ -132,6 +133,8 @@ class LauncherApp(ctk.CTk):
         self._build_leaderboard_frame()
         self._show_main()
         self._poll_online()
+        self.bind_all(
+            "<Button-1>", func=lambda event: event.widget.focus_set())
 
     # ── Main Frame ────────────────────────────────────────────────────────
 
@@ -509,6 +512,7 @@ class LauncherApp(ctk.CTk):
             self._set_status_main("請輸入房間碼")
             return
         self._start_online(code)
+        self._entry_room.delete(0, "end")
 
     def _on_offline(self):
         self._do_launch({
@@ -553,6 +557,7 @@ class LauncherApp(ctk.CTk):
                 self._client.send_start_game(), self.loop)
 
     def _leave_room(self):
+        self._queue_cancelled = True
         if self.loop and self._client:
             asyncio.run_coroutine_threadsafe(self._client.close(), self.loop)
         self._reset_room_state()
@@ -602,16 +607,23 @@ class LauncherApp(ctk.CTk):
 
     async def _lobby_task(self, room_id: str):
         nickname = self.entry_nickname.get() or "Player"
+        is_queue = (room_id == "__queue__")
+        self._queue_cancelled = False
 
-        # 排隊模式：查詢段位並路由至對應子佇列
-        if room_id == "__queue__":
+        # 定義配對階段（排隊模式才有擴段）
+        if is_queue:
             self._set_status_main("查詢段位中...")
             tier = await self._fetch_tier_async(nickname)
-            room_id = f"__queue_{tier}__"
-            self._set_status_main(
-                f"段位：{_TIER_LABELS.get(tier, tier)}，尋找對手中...")
+            tier_label = _TIER_LABELS.get(tier, tier)
+            # 等待時間 = 120 + 60 = 3分鐘，優先排同段位玩家，之後放寬段位限制
+            phases = [
+                (f"__queue_{tier}__", 120,  f"段位：{tier_label}，尋找對手中..."),
+                ("__queue_all__",      60,  f"放寬段位限制，尋找對手中..."),
+            ]
+        else:
+            phases = [(room_id, None, "")]
 
-        # 1. 找可用 UDP port
+        # STUN（一次，所有階段共用 socket）
         local_port = 5000
         for p in range(5000, 5020):
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -623,7 +635,6 @@ class LauncherApp(ctk.CTk):
             except OSError:
                 s.close()
 
-        # 2. STUN 探測
         udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         udp_sock.bind(('0.0.0.0', local_port))
@@ -639,104 +650,163 @@ class LauncherApp(ctk.CTk):
             self._set_status_main(f"STUN 失敗: {e}")
             return
 
-        # 3. 連線大廳
+        local_ip = get_local_ip()
+
+        # 逐階段配對
+        for phase_idx, (phase_room, phase_timeout, phase_status) in enumerate(phases):
+            if is_queue:
+                self._set_status_main(phase_status)
+            result = await self._phase_listen(
+                phase_room, nickname, udp_sock, pub_ip, pub_port,
+                local_ip, local_port, phase_timeout,
+                auto_ready=(is_queue and phase_idx > 0))
+            if result in ("matched", "cancelled", "error"):
+                return
+
+        # 所有階段都超時 → 玩家不足提示
+        try:
+            udp_sock.close()
+        except Exception:
+            pass
+        self._udp_sock = None
+        self._set_status_main(
+            "歡迎使用自訂房間邀請朋友對戰。")
+        self.after(0, self._show_main)
+
+    async def _phase_listen(
+            self, room_id: str, nickname: str,
+            udp_sock, pub_ip: str, pub_port: int,
+            local_ip: str, local_port: int,
+            timeout_secs: float | None,
+            auto_ready: bool = False) -> str:
+        """加入 room_id，等待 game_start 或 timeout。
+        Returns: 'matched' | 'timeout' | 'cancelled' | 'error'
+        """
         self._client = LobbyClient(LOBBY_WS_URL)
         if not await self._client.join_room(room_id, nickname):
-            udp_sock.close()
-            self._udp_sock = None
             self._set_status_main("無法連線至大廳伺服器。")
-            return
+            return "error"
 
-        # 4. 回報 endpoint
-        local_ip = get_local_ip()
-        await self._client.send_data({
+        client = self._client  # 捕捉非 None 的參考，供 nested function 使用
+        await client.send_data({
             "type": "report_endpoint",
             "pub_ip": pub_ip, "pub_port": pub_port,
             "local_ip": local_ip, "local_port": local_port,
         })
 
-        # 5. 監聽訊息
         punch_stop = threading.Event()
         punch_thread: threading.Thread | None = None
+        result = "timeout"
 
-        try:
-            async for msg in self._client.listen():
-                t = msg.get("type")
+        async def _listen_loop():
+            nonlocal punch_thread, result
+            try:
+                async for msg in client.listen():
+                    if self._queue_cancelled:
+                        result = "cancelled"
+                        return
+                    t = msg.get("type")
 
-                if t == "join_ack":
-                    self._my_id = msg["player_id"]
-                    self._is_host = msg["is_host"]
-                    is_q = room_id.startswith("__queue_")
-                    self.after(0, lambda m=msg,
-                               q=is_q: self._show_room(m["room_id"], q))
+                    if t == "join_ack":
+                        self._my_id = msg["player_id"]
+                        self._is_host = msg["is_host"]
+                        is_q = room_id.startswith("__queue_")
+                        self.after(0, lambda m=msg,
+                                   q=is_q: self._show_room(m["room_id"], q))
+                        if auto_ready:
+                            await client.send_data({"type": "player_ready"})
 
-                elif t == "room_update":
-                    self.after(0, lambda m=msg: self._update_room_ui(m))
+                    elif t == "room_update":
+                        self.after(0, lambda m=msg: self._update_room_ui(m))
 
-                elif t == "punch_start":
-                    my_pub = next((p["pub_ip"] for p in msg["players"]
-                                   if p["id"] == self._my_id), pub_ip)
-                    remotes = [
-                        (p["local_ip"], p["local_port"])
-                        if p["pub_ip"] == my_pub else (p["pub_ip"], p["pub_port"])
-                        for p in msg["players"]
-                        if p["id"] != self._my_id and p["pub_port"] != 0
-                    ]
-                    punch_stop.clear()
-                    punch_thread = threading.Thread(
-                        target=self._punch_loop,
-                        args=(udp_sock, remotes, punch_stop), daemon=True)
-                    punch_thread.start()
-                    self._set_status_room("打洞中...")
+                    elif t == "punch_start":
+                        my_pub = next((p["pub_ip"] for p in msg["players"]
+                                       if p["id"] == self._my_id), pub_ip)
+                        remotes = [
+                            (p["local_ip"], p["local_port"])
+                            if p["pub_ip"] == my_pub else (p["pub_ip"], p["pub_port"])
+                            for p in msg["players"]
+                            if p["id"] != self._my_id and p["pub_port"] != 0
+                        ]
+                        punch_stop.clear()
+                        punch_thread = threading.Thread(
+                            target=self._punch_loop,
+                            args=(udp_sock, remotes, punch_stop), daemon=True)
+                        punch_thread.start()
+                        self._set_status_room("打洞中...")
 
-                elif t == "game_start":
-                    punch_stop.set()
-                    if punch_thread:
-                        punch_thread.join(timeout=1.0)
-                    try:
-                        udp_sock.close()
-                    except Exception:
-                        pass
-                    self._udp_sock = None
+                    elif t == "game_start":
+                        punch_stop.set()
+                        if punch_thread:
+                            punch_thread.join(timeout=1.0)
+                        try:
+                            udp_sock.close()
+                        except Exception:
+                            pass
+                        self._udp_sock = None
 
-                    my_pub = next((p["pub_ip"] for p in msg["players"]
-                                   if p["id"] == self._my_id), "")
-                    resolved = []
-                    for p in msg["players"]:
-                        same_lan = (p["pub_ip"] ==
-                                    my_pub and p["id"] != self._my_id)
-                        resolved.append({**p,
-                                         "ip":   p["local_ip"] if same_lan else p["pub_ip"],
-                                         "port": p["local_port"] if same_lan else p["pub_port"],
-                                         })
+                        my_pub = next((p["pub_ip"] for p in msg["players"]
+                                       if p["id"] == self._my_id), "")
+                        resolved = []
+                        for p in msg["players"]:
+                            same_lan = (p["pub_ip"] == my_pub
+                                        and p["id"] != self._my_id)
+                            resolved.append({**p,
+                                             "ip":   p["local_ip"] if same_lan else p["pub_ip"],
+                                             "port": p["local_port"] if same_lan else p["pub_port"],
+                                             })
+                        session_data = {
+                            "nickname":    nickname,
+                            "room":        room_id,
+                            "is_offline":  False,
+                            "local_id":    self._my_id,
+                            "local_port":  local_port,
+                            "num_players": len(msg["players"]),
+                            "players":     resolved,
+                            "seed":        msg["seed"],
+                            "host_id":     msg.get("host_id", 0),
+                            "match_id":    msg.get("match_id", ""),
+                            "lobby_url":   LOBBY_HTTP_URL,
+                        }
+                        await client.close()
+                        self.after(
+                            50, lambda sd=session_data: self._do_launch(sd))
+                        result = "matched"
+                        return
 
-                    session_data = {
-                        "nickname":    nickname,
-                        "room":        room_id,
-                        "is_offline":  False,
-                        "local_id":    self._my_id,
-                        "local_port":  local_port,
-                        "num_players": len(msg["players"]),
-                        "players":     resolved,
-                        "seed":        msg["seed"],
-                        "host_id":     msg.get("host_id", 0),
-                        "match_id":    msg.get("match_id", ""),
-                        "lobby_url":   LOBBY_HTTP_URL,
-                    }
-                    await self._client.close()
-                    self.after(50, lambda sd=session_data: self._do_launch(sd))
-                    break
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                self._set_status_main(f"連線錯誤: {e}")
+                self.after(0, self._show_main)
+                result = "cancelled"
 
-        except Exception as e:
-            punch_stop.set()
-            if self._udp_sock and not getattr(udp_sock, '_closed', False):
+        if timeout_secs is not None:
+            listen_task = asyncio.create_task(_listen_loop())
+            timer_task = asyncio.create_task(asyncio.sleep(timeout_secs))
+            done, pending = await asyncio.wait(
+                {listen_task, timer_task}, return_when=asyncio.FIRST_COMPLETED)
+            for task in pending:
+                task.cancel()
                 try:
-                    udp_sock.close()
+                    await task
+                except asyncio.CancelledError:
+                    pass
+            if timer_task in done:
+                # timeout：清理 punch 與連線，切回主頁面準備下一階段
+                punch_stop.set()
+                if punch_thread and punch_thread.is_alive():
+                    punch_thread.join(timeout=1.0)
+                try:
+                    await client.close()
                 except Exception:
                     pass
-            self._udp_sock = None
-            self._set_status_main(f"連線錯誤: {e}")
-            self.after(0, self._show_main)
+                self._reset_room_state()
+                self.after(0, self._show_main)
+        else:
+            await _listen_loop()
+
+        return result
 
     # ── 工具方法 ──────────────────────────────────────────────────────────
 
