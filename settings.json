@@ -10,5 +10,6 @@
         300
     ],
     "fullscreen": false,
-    "last_room": "offline"
+    "last_room": "offline",
+    "key_preset": 1
 }
