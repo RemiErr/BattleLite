@@ -1,16 +1,87 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from pydantic import BaseModel
 from typing import Dict
 import random
 import asyncio
+import uuid
+import os
+import datetime
+import aiosqlite
 
-app = FastAPI(title="BattleLite Signaling Lobby")
-
+DB_PATH         = os.path.join(os.path.dirname(__file__), "leaderboard.db")
 QUEUE_ROOM_ID   = "__queue__"
-QUEUE_MIN       = 2       # 排隊最少人數
-PUNCH_DURATION  = 2.0     # 打洞等待秒數
+QUEUE_MIN       = 2
+PUNCH_DURATION  = 2.0
 
-# rooms[room_id] = { "players": [...], "started": bool, "is_queue": bool }
 rooms: Dict[str, dict] = {}
+_db: aiosqlite.Connection | None = None
+
+
+# ── DB 初始化 ──────────────────────────────────────────────────────────────
+
+async def _init_db():
+    global _db
+    _db = await aiosqlite.connect(DB_PATH)
+    await _db.executescript("""
+        PRAGMA foreign_keys = ON;
+
+        CREATE TABLE IF NOT EXISTS matches (
+            match_id   TEXT PRIMARY KEY,
+            room_code  TEXT NOT NULL,
+            started_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS match_results (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            match_id     TEXT    NOT NULL REFERENCES matches(match_id) ON DELETE CASCADE,
+            nickname     TEXT    NOT NULL,
+            char_type    INTEGER NOT NULL,
+            result       TEXT    NOT NULL CHECK(result IN ('win', 'lose', 'draw')),
+            submitted_at TEXT    NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(match_id, nickname)
+        );
+    """)
+    await _db.commit()
+
+
+# ── 週清 ───────────────────────────────────────────────────────────────────
+
+def _secs_until_next_taiwan_sunday_4am() -> float:
+    """計算距下一個台灣時間週日 04:00 的秒數。"""
+    now_tw = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=8)
+    days_ahead = (6 - now_tw.weekday()) % 7   # weekday() Sunday=6
+    if days_ahead == 0 and now_tw.hour < 4:
+        target = now_tw.replace(hour=4, minute=0, second=0, microsecond=0)
+    else:
+        if days_ahead == 0:
+            days_ahead = 7
+        target = (now_tw + datetime.timedelta(days=days_ahead)).replace(
+            hour=4, minute=0, second=0, microsecond=0)
+    return (target - now_tw).total_seconds()
+
+
+async def _weekly_purge_loop():
+    while True:
+        await asyncio.sleep(_secs_until_next_taiwan_sunday_4am())
+        if _db:
+            await _db.execute("DELETE FROM matches")
+            await _db.commit()
+            print("🗑 Weekly leaderboard purge completed.")
+
+
+# ── Lifespan ───────────────────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await _init_db()
+    asyncio.create_task(_weekly_purge_loop())
+    yield
+    if _db:
+        await _db.close()
+
+
+app = FastAPI(title="BattleLite Signaling Lobby", lifespan=lifespan)
 
 
 # ── 玩家資料工廠 ──────────────────────────────────────────────────────────
@@ -25,12 +96,10 @@ def _make_player(name: str, ws: WebSocket, pid: int, pub_ip: str) -> dict:
     }
 
 def _pub(p: dict) -> dict:
-    """給 room_update 廣播用（不含 websocket）。"""
     return {"id": p["id"], "name": p["name"],
             "char_type": p["char_type"], "ready": p["ready"]}
 
 def _net(p: dict) -> dict:
-    """給 punch_start / game_start 用（含網路位址）。"""
     return {"id": p["id"], "name": p["name"], "char_type": p["char_type"],
             "pub_ip": p["pub_ip"], "pub_port": p["pub_port"],
             "local_ip": p["local_ip"], "local_port": p["local_port"]}
@@ -45,6 +114,55 @@ async def root():
 @app.get("/online")
 async def online_count():
     return {"count": sum(len(r["players"]) for r in rooms.values())}
+
+@app.get("/leaderboard")
+async def get_leaderboard(limit: int = 30):
+    if not _db:
+        raise HTTPException(503, "DB not ready")
+    async with _db.execute(
+        """SELECT nickname, games, wins, losses, draws, win_rate
+           FROM (
+               SELECT nickname,
+                      COUNT(*) AS games,
+                      SUM(CASE WHEN result='win'  THEN 1 ELSE 0 END) AS wins,
+                      SUM(CASE WHEN result='lose' THEN 1 ELSE 0 END) AS losses,
+                      SUM(CASE WHEN result='draw' THEN 1 ELSE 0 END) AS draws,
+                      ROUND(100.0 * SUM(CASE WHEN result='win' THEN 1 ELSE 0 END) / COUNT(*), 1) AS win_rate
+               FROM match_results
+               GROUP BY nickname
+               ORDER BY win_rate DESC, wins DESC
+           ) LIMIT ?""",
+        (limit,)
+    ) as cur:
+        cols = [d[0] for d in cur.description]
+        rows = [dict(zip(cols, r)) for r in await cur.fetchall()]
+    return {"entries": rows}
+
+
+class ResultItem(BaseModel):
+    match_id:  str
+    room_code: str
+    nickname:  str
+    char_type: int
+    result:    str
+
+@app.post("/submit_result")
+async def submit_result(item: ResultItem):
+    if item.result not in ("win", "lose", "draw"):
+        raise HTTPException(400, "result must be win / lose / draw")
+    if not _db:
+        raise HTTPException(503, "DB not ready")
+    await _db.execute(
+        "INSERT OR IGNORE INTO matches (match_id, room_code) VALUES (?, ?)",
+        (item.match_id, item.room_code),
+    )
+    await _db.execute(
+        """INSERT OR IGNORE INTO match_results (match_id, nickname, char_type, result)
+           VALUES (?, ?, ?, ?)""",
+        (item.match_id, item.nickname, item.char_type, item.result),
+    )
+    await _db.commit()
+    return {"ok": True}
 
 
 # ── WebSocket ─────────────────────────────────────────────────────────────
@@ -64,7 +182,6 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
     room["players"].append(player)
     print(f"➕ {player_name}(id={pid}) → {'queue' if is_queue else room_id}")
 
-    # 通知新玩家自己的 id 與是否為房主
     is_host = (pid == 0 and not is_queue)
     await websocket.send_json({
         "type": "join_ack",
@@ -97,7 +214,6 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
                     await _try_queue_start(room_id)
 
             elif t == "start_game":
-                # 只有一般房間的房主（pid=0）可以觸發
                 if not is_queue and pid == 0:
                     ps = room["players"]
                     if (len(ps) >= 2
@@ -131,7 +247,6 @@ async def _broadcast_room_update(room_id: str):
 
 
 async def _try_queue_start(room_id: str):
-    """排隊房：所有人 ready 且都有 endpoint → 隨機選房主並開始。"""
     room = rooms.get(room_id)
     if not room or room.get("started"):
         return
@@ -147,7 +262,8 @@ async def _initiate_match(room_id: str, host_id: int):
     room = rooms[room_id]
     if room.get("started"):
         return
-    room["started"] = True
+    room["started"]  = True
+    match_id = str(uuid.uuid4())
     seed = random.randint(1, 1_000_000)
     players_info = [_net(p) for p in room["players"]]
 
@@ -160,16 +276,23 @@ async def _initiate_match(room_id: str, host_id: int):
         except Exception:
             pass
 
-    asyncio.create_task(_delayed_game_start(room_id, seed, players_info, host_id))
+    asyncio.create_task(
+        _delayed_game_start(room_id, seed, players_info, host_id, match_id))
 
 
-async def _delayed_game_start(room_id: str, seed: int, players_info: list, host_id: int):
+async def _delayed_game_start(
+        room_id: str, seed: int, players_info: list, host_id: int, match_id: str):
     await asyncio.sleep(PUNCH_DURATION)
     if room_id not in rooms:
         return
-    game_msg = {"type": "game_start", "seed": seed,
-                "host_id": host_id, "players": players_info}
-    print(f"🎮 game_start room={room_id}")
+    game_msg = {
+        "type":     "game_start",
+        "seed":     seed,
+        "host_id":  host_id,
+        "players":  players_info,
+        "match_id": match_id,
+    }
+    print(f"🎮 game_start room={room_id} match={match_id}")
     for p in rooms.get(room_id, {}).get("players", []):
         try:
             await p["websocket"].send_json(game_msg)
@@ -179,6 +302,5 @@ async def _delayed_game_start(room_id: str, seed: int, players_info: list, host_
 
 if __name__ == "__main__":
     import uvicorn
-    import os
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
