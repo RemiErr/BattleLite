@@ -134,13 +134,14 @@ async def online_count():
 async def get_leaderboard(limit: int = 30):
     if not _db:
         raise HTTPException(503, "DB not ready")
+    t = TIER_THRESHOLDS
     async with _db.execute(
-        """SELECT nickname, games, wins, losses, draws, win_rate,
+        f"""SELECT nickname, games, wins, losses, draws, win_rate,
                   CASE
-                      WHEN games < 10            THEN 'placement'
-                      WHEN win_rate < 40.0       THEN 'bronze'
-                      WHEN win_rate <= 60.0      THEN 'silver'
-                      ELSE                            'gold'
+                      WHEN games < {t['games']}             THEN 'placement'
+                      WHEN win_rate < {t['silver_min']}     THEN 'bronze'
+                      WHEN win_rate <= {t['gold_min']}      THEN 'silver'
+                      ELSE                                       'gold'
                   END AS tier
            FROM (
                SELECT nickname,
