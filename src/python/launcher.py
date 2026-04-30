@@ -38,6 +38,7 @@ LOBBY_HTTP_URL = LOBBY_WS_URL.replace(
     "ws://", "http://").replace("wss://", "https://")
 
 CHAR_NAMES = ["Knight", "Mage", "Archer", "Paladin", "Wizard"]
+_WIN_W, _WIN_H = 600, 400
 _TIER_LABELS = {
     "placement": "定位賽",
     "bronze":    "銅牌",
@@ -100,10 +101,9 @@ class LauncherApp(ctk.CTk):
         self.title("BattleLite Launcher")
         self.protocol("WM_DELETE_WINDOW", self._on_closing)
 
-        sz = self.settings_mgr.get("window_size")
         pos = self.settings_mgr.get("window_pos")
         self.resizable(False, False)
-        self.geometry(f"{sz[0]}x{sz[1]}+{pos[0]}+{pos[1]}")
+        self.geometry(f"{_WIN_W}x{_WIN_H}+{pos[0]}+{pos[1]}")
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
@@ -709,6 +709,7 @@ class LauncherApp(ctk.CTk):
         punch_stop = threading.Event()
         punch_thread: threading.Thread | None = None
         result = "timeout"
+
         async def _listen_loop():
             nonlocal punch_thread, result
             try:
@@ -890,9 +891,7 @@ class LauncherApp(ctk.CTk):
             self.after(1000, self._monitor_game)
 
     def _on_closing(self):
-        self.settings_mgr.set(
-            "window_size", [self.winfo_width(), self.winfo_height()])
-        self.settings_mgr.set("window_pos",  [self.winfo_x(), self.winfo_y()])
+        self.settings_mgr.set("window_pos", [self.winfo_x(), self.winfo_y()])
         self.settings_mgr.save()
         if self._udp_sock:
             try:
