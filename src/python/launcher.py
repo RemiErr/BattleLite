@@ -693,7 +693,10 @@ class LauncherApp(ctk.CTk):
                     punch_stop.set()
                     if punch_thread:
                         punch_thread.join(timeout=1.0)
-                    udp_sock.close()
+                    try:
+                        udp_sock.close()
+                    except Exception:
+                        pass
                     self._udp_sock = None
 
                     my_pub = next((p["pub_ip"] for p in msg["players"]
@@ -787,6 +790,9 @@ class LauncherApp(ctk.CTk):
             self.game_process = subprocess.Popen(
                 [sys.executable, script, "--payload", payload],
                 env=os.environ.copy())
+            self._reset_room_state()
+            self._show_main()
+            self._set_status_main("遊戲進行中...")
             self.iconify()
             self._monitor_game()
         except Exception as e:

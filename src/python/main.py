@@ -278,11 +278,12 @@ def run_game():
             if event.type == pygame.QUIT:
                 running = False
             if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    running = False
+                    continue
                 if match_result is not None:
                     if event.key == pygame.K_r and is_offline:
                         _restart_offline()
-                    elif event.key == pygame.K_ESCAPE:
-                        running = False
                     continue
                 if event.key == pygame.K_F1:
                     debug_manager.toggle()
@@ -498,7 +499,11 @@ def run_game():
         # 同步等待提示
         if not is_offline and not session.is_synchronized():
             sync_wait_frames += 1
-            if sync_wait_frames % (60 * 5) == 0:
+            if sync_wait_frames == 1:
+                remotes = [(p["id"], p["ip"], p["port"]) for p in config.get(
+                    "players", []) if p["id"] != controlled_idx]
+                print(f"[SYNC] start  my_id={controlled_idx}  my_port={config['local_port']}  remotes={remotes}")
+            elif sync_wait_frames % (60 * 5) == 0:
                 remotes = [(p["id"], p["ip"], p["port"]) for p in config.get(
                     "players", []) if p["id"] != controlled_idx]
                 print(
@@ -548,6 +553,7 @@ def run_game():
         pygame.display.flip()
         clock.tick(60)
 
+    del session  # 確保 GGRS UDP socket 在 pygame.quit() 前釋放
     pygame.quit()
 
 
