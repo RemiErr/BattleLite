@@ -39,6 +39,16 @@ except ImportError as e:
 INPUT_RIGHT, INPUT_LEFT, INPUT_UP, INPUT_DOWN, INPUT_JUMP, INPUT_ATTACK, INPUT_SKILL = [
     1 << i for i in range(7)]
 
+# --- 世界邊界與出生點 ---
+WORLD_PX_W  = SCREEN_W * 3        # 橫向世界寬度（3 個畫面寬）
+WORLD_X_MIN = 0
+WORLD_X_MAX = WORLD_PX_W * 1000
+WORLD_Y_MIN = 250_000
+WORLD_Y_MAX = 520_000
+# 最多 4 人的初始出生位置（世界中央左右各散開）
+_SPAWN_X = [1_336_000, 1_736_000, 1_136_000, 1_936_000]
+_SPAWN_Y = [  385_000,   385_000,   370_000,   400_000]
+
 
 def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
     """PhysicsStats + AbilityDef → Rust PhysicsConfig + AbilityConfig。"""
@@ -117,6 +127,31 @@ def get_input_mask(key_map: dict) -> int:
         if keys[k]:
             mask |= bit
     return mask
+
+
+def _set_spawn_positions(session, num_players: int):
+    for i in range(num_players):
+        p = session.get_player(i)
+        p.x = _SPAWN_X[i] if i < len(_SPAWN_X) else WORLD_X_MAX // 2
+        p.y = _SPAWN_Y[i] if i < len(_SPAWN_Y) else 385_000
+        p.vx = p.vy = p.vz = 0
+        session.set_player(i, p)
+
+
+def _clamp_world_bounds(session, num_players: int):
+    for i in range(num_players):
+        p = session.get_player(i)
+        changed = False
+        if p.x < WORLD_X_MIN:
+            p.x, p.vx = WORLD_X_MIN, 0; changed = True
+        elif p.x > WORLD_X_MAX:
+            p.x, p.vx = WORLD_X_MAX, 0; changed = True
+        if p.y < WORLD_Y_MIN:
+            p.y, p.vy = WORLD_Y_MIN, 0; changed = True
+        elif p.y > WORLD_Y_MAX:
+            p.y, p.vy = WORLD_Y_MAX, 0; changed = True
+        if changed:
+            session.set_player(i, p)
 
 
 def _submit_result(config: dict, controlled_idx: int, char_type: int, match_result: int):
@@ -260,6 +295,8 @@ def run_game():
             session.set_player(pid, p)
             ai_controllers[pid] = make_ai(ct, ai_info.get("level", 1), seed)
 
+    _set_spawn_positions(session, num_players)
+
     player_elapsed_frames = [0] * num_players
     last_states = [STATE_IDLE] * num_players
     sync_wait_frames = 0
@@ -286,9 +323,9 @@ def run_game():
             p.mp    = asset.physics.max_mp
             p.state = STATE_IDLE
             p.timer = 0
-            p.vx = p.vy = p.vz = 0
-            p.z  = 0
+            p.z     = 0
             session.set_player(i, p)
+        _set_spawn_positions(session, num_players)
         match_result = None
         player_elapsed_frames = [0] * num_players
         last_states = [STATE_IDLE] * num_players
@@ -347,6 +384,7 @@ def run_game():
                 session.advance(inputs)
             else:
                 session.advance(input_mask)
+            _clamp_world_bounds(session, num_players)
 
             # --- SFX 事件偵測 ---
             for i in range(num_players):
@@ -391,6 +429,11 @@ def run_game():
                     ).start()
 
         # 2. 渲染
+        # 鏡頭：跟隨受控角色，夾在世界邊界內
+        _ctrl_p = session.get_player(controlled_idx)
+        cam_x = _ctrl_p.x / 1000.0 - SCREEN_W / 2
+        cam_x = max(0.0, min(cam_x, float(WORLD_PX_W - SCREEN_W)))
+
         screen.fill((30, 30, 30))
         pygame.draw.line(screen, (60, 60, 60), (0, 300 + HUD_H),
                          (SCREEN_W, 300 + HUD_H), 1)
@@ -413,6 +456,7 @@ def run_game():
 
         for original_idx, p in render_list:
             sx, sy = get_screen_pos(p)
+            sx -= cam_x
             asset = char_assets.get(p.character_type, char_assets[0])
             if p.state == STATE_DEAD:
                 sprite = asset.get_sprite(STATE_HURT, 9999, p.facing_right)
@@ -476,7 +520,7 @@ def run_game():
         # 渲染投擲物實體
         for eid in range(session.get_entity_count()):
             e = session.get_entity(eid)
-            ex = int(e.x / 1000.0)
+            ex = int(e.x / 1000.0 - cam_x)
             ey = int((e.y / 1000.0) - (e.z / 1000.0) + HUD_H)
 
             owner_asset = char_assets.get(e.character_type, char_assets[0])
