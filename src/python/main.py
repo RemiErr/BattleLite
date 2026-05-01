@@ -150,13 +150,18 @@ def _submit_result(config: dict, controlled_idx: int, char_type: int, match_resu
 def run_game():
     args = parse_args()
 
-    # 預設啟動設定
+    # 預設啟動設定（離線開發用，P1~P3 為 FSM lv1 AI）
     config = {
         "nickname": "DevPlayer",
         "is_offline": True,
         "local_id": 0,
         "num_players": 4,
-        "local_port": 5000
+        "local_port": 5000,
+        "ai_players": {
+            "1": {"char_type": 0, "level": 1},
+            "2": {"char_type": 1, "level": 1},
+            "3": {"char_type": 2, "level": 1},
+        }
     }
 
     if args.payload:
