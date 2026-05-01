@@ -375,9 +375,21 @@ def run_game():
                         inputs.append(input_mask)
                     elif pid in ai_controllers:
                         ai_p     = session.get_player(pid)
-                        opp_p    = session.get_player(controlled_idx)
                         entities = [session.get_entity(i)
                                     for i in range(session.get_entity_count())]
+
+                        alive_opponents = [
+                            session.get_player(j)
+                            for j in range(num_players)
+                            if j != pid
+                            and session.get_player(j).state != STATE_DEAD
+                        ]
+                        opp_p = min(
+                            alive_opponents,
+                            key=lambda q: max(abs(ai_p.x - q.x), abs(ai_p.y - q.y)),
+                            default=session.get_player(controlled_idx),
+                        )
+
                         inputs.append(ai_controllers[pid].decide(ai_p, opp_p, entities))
                     else:
                         inputs.append(0)
