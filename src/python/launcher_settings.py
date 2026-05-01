@@ -29,7 +29,7 @@ class SettingsManager:
                     # 使用 update 確保新加入的設定項也能獲得預設值
                     self.settings.update(loaded)
             except Exception as e:
-                print(f"⚠️ 無法載入設定檔: {e}，將使用預設值。")
+                print(f"[WARN] 無法載入設定檔: {e}，將使用預設值。")
 
     def save(self):
         """將目前設定寫入檔案。"""
@@ -37,7 +37,7 @@ class SettingsManager:
             with open(self.filepath, 'w', encoding='utf-8') as f:
                 json.dump(self.settings, f, indent=4, ensure_ascii=False)
         except Exception as e:
-            print(f"❌ 儲存設定失敗: {e}")
+            print(f"[ERR] 儲存設定失敗: {e}")
 
     def get(self, key: str):
         """獲取特定設定項，保證有 DEFAULT_SETTINGS 中定義的 key 一定有值。"""
