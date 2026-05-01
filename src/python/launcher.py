@@ -869,15 +869,21 @@ class LauncherApp(ctk.CTk):
         payload = encrypt_payload(session_data)
         self.settings_mgr.set("nickname", session_data["nickname"])
         self.settings_mgr.save()
+        log_path = os.path.join(os.path.dirname(sys.executable)
+                                if getattr(sys, 'frozen', False) else PROJECT_ROOT,
+                                "game_launch.log")
         try:
             if getattr(sys, 'frozen', False):
-                # 打包後：呼叫同目錄的 BattleLiteGame 執行檔
-                game_exe = os.path.join(os.path.dirname(sys.executable), "BattleLiteGame")
+                game_exe = os.path.join(os.path.dirname(sys.executable), "Game")
                 cmd = [game_exe, "--payload", payload]
             else:
                 script = os.path.join(PROJECT_ROOT, "src", "python", "main.py")
                 cmd = [sys.executable, script, "--payload", payload]
-            self.game_process = subprocess.Popen(cmd, env=os.environ.copy())
+            with open(log_path, "w") as _lf:
+                _lf.write(f"cmd: {cmd}\nexe_exists: {os.path.exists(cmd[0])}\n")
+            self.game_process = subprocess.Popen(
+                cmd, env=os.environ.copy(),
+                stdout=open(log_path, "a"), stderr=subprocess.STDOUT)
             self._reset_room_state()
             self._show_main()
             self._set_status_main("遊戲進行中...")
@@ -888,9 +894,10 @@ class LauncherApp(ctk.CTk):
 
     def _monitor_game(self):
         if self.game_process and self.game_process.poll() is not None:
+            exit_code = self.game_process.returncode
             self._reset_room_state()
             self._show_main()
-            self._set_status_main("遊戲結束。")
+            self._set_status_main(f"遊戲結束（exit {exit_code}）。")
             self.deiconify()
             self.game_process = None
         else:
