@@ -33,7 +33,7 @@ try:
     from src.python.ai.controllers.base import AIController
     from src.python.ai.factory import make_ai
 except ImportError as e:
-    print(f"❌ 匯入失敗: {e}")
+    print(f"[ERR] 匯入失敗: {e}")
     sys.exit(1)
 
 # --- 輸入常數 ---
@@ -178,9 +178,9 @@ def _submit_result(config: dict, controlled_idx: int, char_type: int, match_resu
             f"{lobby_url}/submit_result", data=payload,
             headers={"Content-Type": "application/json"}, method="POST")
         urllib.request.urlopen(req, timeout=5)
-        print(f"✅ Result submitted: {result}")
+        print(f"[OK] Result submitted: {result}")
     except Exception as e:
-        print(f"⚠️ Failed to submit result: {e}")
+        print(f"[WARN] Failed to submit result: {e}")
 
 
 def run_game():
@@ -205,9 +205,9 @@ def run_game():
             decrypted_str = battlelite_core.decrypt_payload(
                 args.payload, SHARED_SECRET)
             config.update(json.loads(decrypted_str))
-            print(f"✅ Session Handoff Success: Hello {config['nickname']}")
+            print(f"[OK] Session Handoff Success: Hello {config['nickname']}")
         except Exception as e:
-            print(f"❌ Handshake Decryption Failed: {e}")
+            print(f"[ERR] Handshake Decryption Failed: {e}")
             sys.exit(1)
 
     pygame.init()
@@ -251,12 +251,12 @@ def run_game():
     controlled_idx = config["local_id"]
 
     if is_offline:
-        print("🕹 Mode: Offline Sandbox (Pure Rust Simulation)")
+        print("[Mode] Offline Sandbox (Pure Rust Simulation)")
         session = OfflineSession(num_players)
         for char_type, asset in char_assets.items():
             apply_char_config(session, char_type, asset)
     else:
-        print("🌐 Mode: Online P2P (GGRS Rollback)")
+        print("[Mode] Online P2P (GGRS Rollback)")
         print(
             f"  local_id={controlled_idx}  local_port={config['local_port']}")
         remote_players_list = []
