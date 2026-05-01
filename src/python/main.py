@@ -29,6 +29,8 @@ try:
     from src.python.crypto_utils import SHARED_SECRET
     from src.python.game_constants import (
         STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL, STATE_DEAD)
+    from src.python.ai.controllers.base import AIController
+    from src.python.ai.factory import make_ai
 except ImportError as e:
     print(f"❌ 匯入失敗: {e}")
     sys.exit(1)
@@ -239,6 +241,20 @@ def run_game():
                 p.mp = char_assets[ct].physics.max_mp
                 session.set_player(pid, p)
 
+    # AI 玩家初始化
+    ai_controllers: dict[int, AIController] = {}
+    seed = config.get("seed", 0)
+    for p_id_str, ai_info in config.get("ai_players", {}).items():
+        pid = int(p_id_str)
+        ct  = ai_info.get("char_type", 0)
+        if 0 <= pid < num_players and ct in char_assets:
+            p = session.get_player(pid)
+            p.character_type = ct
+            p.hp = char_assets[ct].physics.max_hp
+            p.mp = char_assets[ct].physics.max_mp
+            session.set_player(pid, p)
+            ai_controllers[pid] = make_ai(ct, ai_info.get("level", 1), seed)
+
     player_elapsed_frames = [0] * num_players
     last_states = [STATE_IDLE] * num_players
     sync_wait_frames = 0
@@ -311,8 +327,18 @@ def run_game():
             prev_entity_count = session.get_entity_count()
 
             if is_offline:
-                inputs = [0] * num_players
-                inputs[controlled_idx] = input_mask
+                inputs = []
+                for pid in range(num_players):
+                    if pid == controlled_idx:
+                        inputs.append(input_mask)
+                    elif pid in ai_controllers:
+                        ai_p     = session.get_player(pid)
+                        opp_p    = session.get_player(controlled_idx)
+                        entities = [session.get_entity(i)
+                                    for i in range(session.get_entity_count())]
+                        inputs.append(ai_controllers[pid].decide(ai_p, opp_p, entities))
+                    else:
+                        inputs.append(0)
                 session.advance(inputs)
             else:
                 session.advance(input_mask)
