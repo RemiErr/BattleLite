@@ -2,6 +2,8 @@
 
 BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透過 P2P 連線對戰，延遲對策採用 GGRS (Rollback Netcode) 回滾機制。
 
+<img width="1024" height="640" alt="image" src="https://github.com/user-attachments/assets/12048438-c4f8-4bff-bfc7-f339735e61dc" />
+
 ---
 
 ## 目錄
