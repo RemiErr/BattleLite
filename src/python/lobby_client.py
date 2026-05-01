@@ -13,10 +13,10 @@ class LobbyClient:
         uri = f"{self.server_url}/ws/{room_id}/{player_name}"
         try:
             self.websocket = await websockets.connect(uri)
-            print(f"📡 Connected: room={room_id}")
+            print(f"[Lobby] Connected: room={room_id}")
             return True
         except Exception as e:
-            print(f"❌ Connection failed: {e}")
+            print(f"[ERR] Connection failed: {e}")
             return False
 
     async def send_data(self, data: dict):
@@ -39,9 +39,9 @@ class LobbyClient:
             async for message in self.websocket:
                 yield json.loads(message)
         except websockets.exceptions.ConnectionClosed:
-            print("🔌 Connection closed.")
+            print("[Lobby] Connection closed.")
         except Exception as e:
-            print(f"⚠️ Lobby error: {e}")
+            print(f"[WARN] Lobby error: {e}")
 
     async def close(self):
         if self.websocket:

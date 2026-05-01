@@ -37,5 +37,5 @@ def decrypt_payload_py(payload_str: str) -> dict:
         plaintext = cipher.decrypt(nonce, ciphertext, None)
         return json.loads(plaintext.decode('utf-8'))
     except Exception as e:
-        print(f"❌ Python 解密失敗: {e}")
+        print(f"[ERR] Python 解密失敗: {e}")
         return {}
