@@ -3,7 +3,8 @@ from dataclasses import dataclass
 from src.python.ai.controllers.base import AIController
 from src.python.ai.world_state import build_fsm_world_state
 from src.python.game_constants import (
-    INPUT_RIGHT, INPUT_LEFT, INPUT_JUMP, INPUT_ATTACK, INPUT_SKILL)
+    INPUT_RIGHT, INPUT_LEFT, INPUT_UP, INPUT_DOWN,
+    INPUT_JUMP, INPUT_ATTACK, INPUT_SKILL)
 
 
 @dataclass
@@ -65,12 +66,12 @@ class FSMAIController(AIController):
         self_mp   = ws["self_mp"]
 
         if s == "APPROACH":
-            if self_mp >= p.skill_mp and dist <= p.skill_range:
-                return "SKILL"
             if self_hp < p.low_hp_threshold and dist < p.flee_dist:
                 return "RETREAT"
             if dist <= p.attack_range:
                 return "ATTACK"
+            if self_mp >= p.skill_mp and dist <= p.skill_range:
+                return "SKILL"
 
         elif s == "ATTACK":
             if self_mp >= p.skill_mp:
@@ -108,18 +109,20 @@ class FSMAIController(AIController):
     # ── 輸入遮罩生成 ──────────────────────────────────────────────────────
 
     def _state_to_input(self, state: str, ai_p, opp_p) -> int:
-        move_toward = INPUT_RIGHT if opp_p.x > ai_p.x else INPUT_LEFT
-        move_away   = INPUT_LEFT  if opp_p.x > ai_p.x else INPUT_RIGHT
+        x_toward = INPUT_RIGHT if opp_p.x > ai_p.x else INPUT_LEFT
+        x_away   = INPUT_LEFT  if opp_p.x > ai_p.x else INPUT_RIGHT
+        y_toward = INPUT_DOWN  if opp_p.y > ai_p.y else INPUT_UP
+        y_away   = INPUT_UP    if opp_p.y > ai_p.y else INPUT_DOWN
 
         if state == "APPROACH":
-            mask = move_toward
+            mask = x_toward | y_toward
             if self.rng.random() < self.params.jump_prob and ai_p.z == 0:
                 mask |= INPUT_JUMP
             return mask
         if state == "ATTACK":
             return INPUT_ATTACK
         if state == "RETREAT":
-            return move_away
+            return x_away | y_away
         if state == "SKILL":
             return INPUT_SKILL
         return 0  # WAIT
