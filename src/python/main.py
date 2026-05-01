@@ -5,10 +5,8 @@ import argparse
 import json
 import threading
 import urllib.request
+from src.python.app_root import ROOT as PROJECT_ROOT
 
-# 確保路徑正確
-PROJECT_ROOT = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), '../..'))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
@@ -217,7 +215,7 @@ def run_game():
     fx_manager = FxManager()
 
     # 從 settings.json 讀音量與按鍵組合
-    _settings_path = os.path.join(os.path.dirname(__file__), '..', '..', 'settings.json')
+    _settings_path = os.path.join(PROJECT_ROOT, 'settings.json')
     _vol = 50
     _preset_idx = 0
     if os.path.exists(_settings_path):

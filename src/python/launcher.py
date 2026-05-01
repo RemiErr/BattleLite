@@ -3,6 +3,7 @@ import customtkinter as ctk
 import os
 import sys
 import json
+from src.python.app_root import ROOT as PROJECT_ROOT
 import subprocess
 import threading
 import asyncio
@@ -13,8 +14,6 @@ import string
 import urllib.request
 import urllib.parse
 
-PROJECT_ROOT = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), '../..'))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
@@ -868,10 +867,14 @@ class LauncherApp(ctk.CTk):
         self.settings_mgr.set("nickname", session_data["nickname"])
         self.settings_mgr.save()
         try:
-            script = os.path.join(PROJECT_ROOT, "src", "python", "main.py")
-            self.game_process = subprocess.Popen(
-                [sys.executable, script, "--payload", payload],
-                env=os.environ.copy())
+            if getattr(sys, 'frozen', False):
+                # 打包後：呼叫同目錄的 BattleLiteGame 執行檔
+                game_exe = os.path.join(os.path.dirname(sys.executable), "BattleLiteGame")
+                cmd = [game_exe, "--payload", payload]
+            else:
+                script = os.path.join(PROJECT_ROOT, "src", "python", "main.py")
+                cmd = [sys.executable, script, "--payload", payload]
+            self.game_process = subprocess.Popen(cmd, env=os.environ.copy())
             self._reset_room_state()
             self._show_main()
             self._set_status_main("遊戲進行中...")
