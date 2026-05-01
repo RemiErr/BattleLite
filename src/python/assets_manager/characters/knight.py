@@ -1,24 +1,14 @@
 from src.python.game_constants import STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL
 import os
+from src.python.app_root import ROOT
 from src.python.assets_manager.base_character import (
     BaseCharacter, HitboxDef, PhysicsStats, AbilityDef,
     SfxDef, CharSfxConfig, INPUT_ATTACK, INPUT_SKILL
 )
 
-_SHEET_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "..", "..", "..",
-    "src", "assets", "char", "knight", "sprite-sheet-183-123.png"
-)
-
-_FACE_PATH = os.path.normpath(os.path.join(
-    os.path.dirname(__file__), "..", "..", "..", "..",
-    "src", "assets", "char", "knight", "faceset.png"
-))
-
-_SFX_DIR = os.path.normpath(os.path.join(
-    os.path.dirname(__file__), "..", "..", "..", "..",
-    "src", "assets", "sound"
-))
+_SHEET_PATH = os.path.join(ROOT, "src", "assets", "char", "knight", "sprite-sheet-183-123.png")
+_FACE_PATH  = os.path.join(ROOT, "src", "assets", "char", "knight", "faceset.png")
+_SFX_DIR    = os.path.join(ROOT, "src", "assets", "sound")
 
 _FRAME_W = 182
 _FRAME_H = 122
