@@ -9,7 +9,8 @@ import urllib.request
 if getattr(sys, 'frozen', False):
     PROJECT_ROOT = sys._MEIPASS
 else:
-    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+    PROJECT_ROOT = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), '../..'))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
@@ -41,14 +42,14 @@ INPUT_RIGHT, INPUT_LEFT, INPUT_UP, INPUT_DOWN, INPUT_JUMP, INPUT_ATTACK, INPUT_S
     1 << i for i in range(7)]
 
 # --- 世界邊界與出生點 ---
-WORLD_PX_W  = SCREEN_W * 3        # 橫向世界寬度（3 個畫面寬）
+WORLD_PX_W = SCREEN_W * 3        # 橫向世界寬度（3 個畫面寬）
 WORLD_X_MIN = 0
 WORLD_X_MAX = WORLD_PX_W * 1000
 WORLD_Y_MIN = 250_000
 WORLD_Y_MAX = 520_000
 # 最多 4 人的初始出生位置（世界中央左右各散開）
 _SPAWN_X = [1_336_000, 1_736_000, 1_136_000, 1_936_000]
-_SPAWN_Y = [  385_000,   385_000,   370_000,   400_000]
+_SPAWN_Y = [385_000,   385_000,   370_000,   400_000]
 
 
 def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
@@ -56,7 +57,8 @@ def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
     p = asset.physics
 
     # Hurt box 從 STATE_IDLE 推導（所有狀態共用同一 Rust hurt box）
-    hurt_hb = asset.hurt_boxes.get(STATE_IDLE) or next(iter(asset.hurt_boxes.values()), None)
+    hurt_hb = asset.hurt_boxes.get(STATE_IDLE) or next(
+        iter(asset.hurt_boxes.values()), None)
     if hurt_hb is not None:
         hurt_f, hurt_hw, hurt_hh, hurt_zo = hurt_hb.to_rust_params()
     else:
@@ -72,7 +74,7 @@ def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
     for slot_idx, ab in enumerate(asset.abilities):
         spd = asset.speed_map.get(ab.state_id, 4)
         hit_start = ab.hit_frame_start * spd
-        hit_end   = ab.hit_frame_end   * spd
+        hit_end = ab.hit_frame_end * spd
         dash_tick = ab.dash_frame * spd
         # spawn_timer：幀索引優先於舊版 timer 倒數值
         spawn_timer = (ab.timer - ab.spawn_frame * spd
@@ -83,7 +85,7 @@ def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
         else:
             ab_f, ab_hw, ab_hh, ab_zo = 0, 0, 0, 0
 
-        entity_offset   = (ab.proj_fx.offset_x * 1000) if ab.proj_fx else 0
+        entity_offset = (ab.proj_fx.offset_x * 1000) if ab.proj_fx else 0
         entity_z_offset = (ab.proj_fx.offset_y * 1000) if ab.proj_fx else 0
 
         session.set_ability(
@@ -144,20 +146,24 @@ def _clamp_world_bounds(session, num_players: int):
         p = session.get_player(i)
         changed = False
         if p.x < WORLD_X_MIN:
-            p.x, p.vx = WORLD_X_MIN, 0; changed = True
+            p.x, p.vx = WORLD_X_MIN, 0
+            changed = True
         elif p.x > WORLD_X_MAX:
-            p.x, p.vx = WORLD_X_MAX, 0; changed = True
+            p.x, p.vx = WORLD_X_MAX, 0
+            changed = True
         if p.y < WORLD_Y_MIN:
-            p.y, p.vy = WORLD_Y_MIN, 0; changed = True
+            p.y, p.vy = WORLD_Y_MIN, 0
+            changed = True
         elif p.y > WORLD_Y_MAX:
-            p.y, p.vy = WORLD_Y_MAX, 0; changed = True
+            p.y, p.vy = WORLD_Y_MAX, 0
+            changed = True
         if changed:
             session.set_player(i, p)
 
 
 def _submit_result(config: dict, controlled_idx: int, char_type: int, match_result: int):
     lobby_url = config.get("lobby_url", "")
-    match_id  = config.get("match_id", "")
+    match_id = config.get("match_id", "")
     if not lobby_url or not match_id:
         return
     if match_result == controlled_idx:
@@ -274,7 +280,7 @@ def run_game():
     if not is_offline:
         for p_info in config.get("players", []):
             pid = p_info.get("id", 0)
-            ct  = p_info.get("char_type", 0)
+            ct = p_info.get("char_type", 0)
             if 0 <= pid < num_players and ct in char_assets:
                 p = session.get_player(pid)
                 p.character_type = ct
@@ -287,7 +293,7 @@ def run_game():
     seed = config.get("seed", 0)
     for p_id_str, ai_info in config.get("ai_players", {}).items():
         pid = int(p_id_str)
-        ct  = ai_info.get("char_type", 0)
+        ct = ai_info.get("char_type", 0)
         if 0 <= pid < num_players and ct in char_assets:
             p = session.get_player(pid)
             p.character_type = ct
@@ -304,11 +310,12 @@ def run_game():
     switch_player = 0
     match_result: int | None = None  # None=進行中, -2=平手, 0..n=勝者 idx
     _result_submitted = False
-    result_font_big   = pygame.font.SysFont("Arial", 56, bold=True)
+    result_font_big = pygame.font.SysFont("Arial", 56, bold=True)
     result_font_small = pygame.font.SysFont("Arial", 24)
 
     def _check_match(n: int) -> int | None:
-        alive = [i for i in range(n) if session.get_player(i).state != STATE_DEAD]
+        alive = [i for i in range(n) if session.get_player(
+            i).state != STATE_DEAD]
         if len(alive) == 1:
             return alive[0]
         if len(alive) == 0:
@@ -320,11 +327,11 @@ def run_game():
         for i in range(num_players):
             p = session.get_player(i)
             asset = char_assets.get(p.character_type, char_assets[0])
-            p.hp    = asset.physics.max_hp
-            p.mp    = asset.physics.max_mp
+            p.hp = asset.physics.max_hp
+            p.mp = asset.physics.max_mp
             p.state = STATE_IDLE
             p.timer = 0
-            p.z     = 0
+            p.z = 0
             session.set_player(i, p)
         _set_spawn_positions(session, num_players)
         match_result = None
@@ -350,7 +357,8 @@ def run_game():
                     player_names.pop(controlled_idx, None)
                     switch_player = (switch_player + 1) % num_players
                     controlled_idx = switch_player
-                    player_names[controlled_idx] = config.get("nickname", "Player")
+                    player_names[controlled_idx] = config.get(
+                        "nickname", "Player")
                 if event.key == pygame.K_F3 and is_offline:
                     p = session.get_player(controlled_idx)
                     new_type = (p.character_type + 1) % len(char_assets)
@@ -366,7 +374,7 @@ def run_game():
         input_mask = get_input_mask(key_map)
 
         if match_result is None:
-            prev_z            = [session.get_player(i).z for i in range(num_players)]
+            prev_z = [session.get_player(i).z for i in range(num_players)]
             prev_entity_count = session.get_entity_count()
 
             if is_offline:
@@ -375,7 +383,7 @@ def run_game():
                     if pid == controlled_idx:
                         inputs.append(input_mask)
                     elif pid in ai_controllers:
-                        ai_p     = session.get_player(pid)
+                        ai_p = session.get_player(pid)
                         entities = [session.get_entity(i)
                                     for i in range(session.get_entity_count())]
 
@@ -387,11 +395,13 @@ def run_game():
                         ]
                         opp_p = min(
                             alive_opponents,
-                            key=lambda q: max(abs(ai_p.x - q.x), abs(ai_p.y - q.y)),
+                            key=lambda q: max(
+                                abs(ai_p.x - q.x), abs(ai_p.y - q.y)),
                             default=session.get_player(controlled_idx),
                         )
 
-                        inputs.append(ai_controllers[pid].decide(ai_p, opp_p, entities))
+                        inputs.append(ai_controllers[pid].decide(
+                            ai_p, opp_p, entities))
                     else:
                         inputs.append(0)
                 session.advance(inputs)
@@ -401,7 +411,7 @@ def run_game():
 
             # --- SFX 事件偵測 ---
             for i in range(num_players):
-                p  = session.get_player(i)
+                p = session.get_player(i)
                 ct = p.character_type
                 old_state = last_states[i]
                 if p.state != old_state:
@@ -412,9 +422,11 @@ def run_game():
                             if j == i:
                                 continue
                             atk = session.get_player(j)
-                            ab  = char_assets.get(atk.character_type, char_assets[0]).get_ability(last_states[j])
+                            ab = char_assets.get(
+                                atk.character_type, char_assets[0]).get_ability(last_states[j])
                             if ab and ab.melee_enabled:
-                                sfx_manager.on_hit(atk.character_type, last_states[j])
+                                sfx_manager.on_hit(
+                                    atk.character_type, last_states[j])
                                 break
                     elif p.state == STATE_DEAD:
                         sfx_manager.on_dead(ct)
@@ -499,10 +511,12 @@ def run_game():
                     fxdef = ab.fx
                     hit_def = ab.hit_box
                     if hit_def is not None:
-                        fx_x, fx_y = hit_def.screen_center(sx, sy, p.facing_right)
+                        fx_x, fx_y = hit_def.screen_center(
+                            sx, sy, p.facing_right)
                         fx_x, fx_y = int(fx_x), int(fx_y)
                     else:
-                        fx_x = int(sx + (fxdef.offset_x if p.facing_right else -fxdef.offset_x))
+                        fx_x = int(
+                            sx + (fxdef.offset_x if p.facing_right else -fxdef.offset_x))
                         fx_y = int(sy + fxdef.offset_y)
                     fx_manager.spawn(fxdef.path, fxdef.frame_w, fxdef.frame_h,
                                      fx_x, fx_y, speed=fxdef.speed, scale=fxdef.scale)
@@ -538,9 +552,9 @@ def run_game():
 
             owner_asset = char_assets.get(e.character_type, char_assets[0])
             ab = owner_asset.get_ability(e.ability_state_id)
-            fxdef    = ab.proj_fx if ab else None
-            hit_def  = ab.hit_box if ab else None
-            total    = ab.projectile_lifetime if ab else 30
+            fxdef = ab.proj_fx if ab else None
+            hit_def = ab.hit_box if ab else None
+            total = ab.projectile_lifetime if ab else 30
 
             if hit_def is not None:
                 fx_cx, fx_cy = hit_def.entity_screen_center(ex, ey)
@@ -559,7 +573,8 @@ def run_game():
 
             if fxdef is not None:
                 elapsed = max(0, total - e.lifetime)
-                frames = fx_manager._load(fxdef.path, fxdef.frame_w, fxdef.frame_h)
+                frames = fx_manager._load(
+                    fxdef.path, fxdef.frame_w, fxdef.frame_h)
                 idx = (elapsed // max(1, fxdef.speed)) % len(frames)
                 frame = frames[idx]
                 if e.vx < 0:
@@ -590,7 +605,8 @@ def run_game():
             if sync_wait_frames == 1:
                 remotes = [(p["id"], p["ip"], p["port"]) for p in config.get(
                     "players", []) if p["id"] != controlled_idx]
-                print(f"[SYNC] start  my_id={controlled_idx}  my_port={config['local_port']}  remotes={remotes}")
+                print(
+                    f"[SYNC] start  my_id={controlled_idx}  my_port={config['local_port']}  remotes={remotes}")
             elif sync_wait_frames % (60 * 5) == 0:
                 remotes = [(p["id"], p["ip"], p["port"]) for p in config.get(
                     "players", []) if p["id"] != controlled_idx]
@@ -602,7 +618,8 @@ def run_game():
             screen.blit(overlay, (0, 0))
             cx, cy = SCREEN_W // 2, SCREEN_H // 2
             wait_font = pygame.font.SysFont("Arial", 36, bold=True)
-            text_surf = wait_font.render("WAITING FOR SYNC...", True, (255, 255, 0))
+            text_surf = wait_font.render(
+                "WAITING FOR SYNC...", True, (255, 255, 0))
             screen.blit(text_surf, text_surf.get_rect(center=(cx, cy)))
 
             info_font = pygame.font.SysFont("Arial", 16)
@@ -610,8 +627,10 @@ def run_game():
                 "players", []) if p["id"] != controlled_idx)
             info1 = info_font.render(
                 f"My id={controlled_idx}  local_port={config['local_port']}", True, (200, 200, 200))
-            info2 = info_font.render(f"Remote: {remotes_str}", True, (200, 200, 200))
-            info3 = info_font.render(f"Waiting {sync_wait_frames // 60}s", True, (150, 150, 150))
+            info2 = info_font.render(
+                f"Remote: {remotes_str}", True, (200, 200, 200))
+            info3 = info_font.render(
+                f"Waiting {sync_wait_frames // 60}s", True, (150, 150, 150))
             screen.blit(info1, info1.get_rect(center=(cx, cy + 50)))
             screen.blit(info2, info2.get_rect(center=(cx, cy + 75)))
             screen.blit(info3, info3.get_rect(center=(cx, cy + 100)))
@@ -626,7 +645,8 @@ def run_game():
                 msg = "DRAW!"
                 color = (200, 200, 200)
             else:
-                name = player_names.get(match_result, f"Player {match_result + 1}")
+                name = player_names.get(
+                    match_result, f"Player {match_result + 1}")
                 char_name = char_assets.get(
                     session.get_player(match_result).character_type,
                     char_assets[0]).name
