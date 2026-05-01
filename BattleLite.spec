@@ -3,18 +3,15 @@
 launcher_analysis = Analysis(
     ['src/python/launcher.py'],
     datas=[('src/assets', 'src/assets')],
+    hiddenimports=['battlelite_core'],
     excludes=['lobby_server', 'fastapi', 'uvicorn', 'starlette', 'pytest'],
 )
 
 game_analysis = Analysis(
     ['src/python/main.py'],
     datas=[('src/assets', 'src/assets')],
+    hiddenimports=['battlelite_core'],
     excludes=['lobby_server', 'fastapi', 'uvicorn', 'starlette', 'pytest'],
-)
-
-MERGE(
-    (launcher_analysis, 'launcher', 'BattleLite'),
-    (game_analysis,     'main',     'BattleLiteGame'),
 )
 
 launcher_pyz = PYZ(launcher_analysis.pure)
@@ -26,7 +23,7 @@ launcher_exe = EXE(
     [],
     exclude_binaries=True,
     name='BattleLite',
-    console=False,
+    console=True,
 )
 
 game_exe = EXE(
@@ -34,8 +31,8 @@ game_exe = EXE(
     game_analysis.scripts,
     [],
     exclude_binaries=True,
-    name='BattleLiteGame',
-    console=False,
+    name='Game',
+    console=True,
 )
 
 coll = COLLECT(
