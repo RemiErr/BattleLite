@@ -3,7 +3,6 @@ import customtkinter as ctk
 import os
 import sys
 import json
-from src.python.app_root import ROOT as PROJECT_ROOT
 import subprocess
 import threading
 import asyncio
@@ -14,6 +13,10 @@ import string
 import urllib.request
 import urllib.parse
 
+if getattr(sys, 'frozen', False):
+    PROJECT_ROOT = sys._MEIPASS
+else:
+    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
