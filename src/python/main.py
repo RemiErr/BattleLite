@@ -200,9 +200,9 @@ def run_game():
         "num_players": 4,
         "local_port": 5000,
         "ai_players": {
-            "1": {"char_type": 0, "level": 1},
-            "2": {"char_type": 1, "level": 1},
-            "3": {"char_type": 2, "level": 1},
+            "1": {"char_type": 0, "level": 2},
+            "2": {"char_type": 1, "level": 2},
+            "3": {"char_type": 2, "level": 2},
         }
     }
 
