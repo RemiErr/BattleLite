@@ -5,8 +5,11 @@ import argparse
 import json
 import threading
 import urllib.request
-from src.python.app_root import ROOT as PROJECT_ROOT
 
+if getattr(sys, 'frozen', False):
+    PROJECT_ROOT = sys._MEIPASS
+else:
+    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
