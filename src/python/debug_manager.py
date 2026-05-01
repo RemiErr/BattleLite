@@ -9,7 +9,7 @@ class DebugManager:
 
     def toggle(self):
         self.enabled = not self.enabled
-        print(f"🛠 Debug Overlay: {'ENABLED' if self.enabled else 'DISABLED'}")
+        print(f"[Debug] Overlay: {'ENABLED' if self.enabled else 'DISABLED'}")
 
     def draw(self, screen, session, players, fps):
         if not self.enabled:

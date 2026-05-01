@@ -26,7 +26,7 @@ try:
     from src.python.stun_utils import probe_stun_on_sock, get_local_ip
     from src.python.lobby_client import LobbyClient
 except ImportError as e:
-    print(f"❌ 匯入失敗: {e}")
+    print(f"[ERR] 匯入失敗: {e}")
     sys.exit(1)
 
 load_dotenv()
