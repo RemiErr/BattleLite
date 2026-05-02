@@ -1,11 +1,16 @@
 from src.python.ai.characters.profile import CharAIProfile
 from src.python.ai.controllers.pattern_ai import Pattern, TOWARD, AWAY
 from src.python.ai.predicates import can_use_skill, opponent_is_vulnerable, opponent_approaching
-from src.python.game_constants import INPUT_JUMP as J, INPUT_SKILL as SKL
+from src.python.ai.goap.action      import GOAPAction
+from src.python.ai.goap.world_state import HP_VAR, MP_VAR
+from src.python.ai.goap.base_actions import make_approach, make_retreat, make_attack
+from src.python.game_constants import (
+    INPUT_JUMP as J, INPUT_ATTACK as ATK, INPUT_SKILL as SKL)
 
 MAGE_PROFILE = CharAIProfile(
     preferred_range=200_000, skill_mp_threshold=20_000, aggression=0.4)
 
+# ── lv2 Pattern 表 ────────────────────────────────────────────────────────────
 MAGE_PATTERNS = [
     Pattern(
         name="近戰逃脫",
@@ -35,4 +40,44 @@ MAGE_PATTERNS = [
         step_duration=[10, 8, 8, 1, 1],
         priority=7, cooldown_frames=25,
     ),
+]
+
+# ── lv3 GOAP Action 表 ────────────────────────────────────────────────────────
+_MAGE_FIREBALL = GOAPAction(
+    name="魔法彈",
+    preconditions={"in_range": False, "self_mp": (">=", 20_000)},
+    effects={"opp_hp": ("delta", -15_000)},
+    base_cost=0.5,
+    input_mask=SKL,
+    duration_frames=1,
+    cost_fn=lambda ws: MP_VAR.weighted(
+        ws["self_mp"], {"low": 2.5, "mid": 1.0, "high": 0.3}),
+)
+
+_MAGE_CLOSE_ATTACK = GOAPAction(
+    name="被迫近戰",
+    preconditions={"in_range": True},
+    effects={"opp_hp": ("delta", -3_000)},
+    base_cost=2.0,
+    input_mask=ATK,
+    duration_frames=6,
+)
+
+_MAGE_JUMP_RETREAT = GOAPAction(
+    name="跳躍逃脫",
+    preconditions={"in_range": True, "self_airborne": False},
+    effects={"in_range": False, "self_airborne": True},
+    base_cost=0.6,
+    input_mask=J,
+    duration_frames=1,
+    cost_fn=lambda ws: HP_VAR.weighted(
+        ws["self_hp"], {"low": 0.2, "mid": 0.6, "high": 1.2}),
+)
+
+MAGE_GOAP_ACTIONS = [
+    make_approach(MAGE_PROFILE),
+    make_retreat(MAGE_PROFILE),
+    _MAGE_CLOSE_ATTACK,
+    _MAGE_FIREBALL,
+    _MAGE_JUMP_RETREAT,
 ]

@@ -1,11 +1,16 @@
 from src.python.ai.characters.profile import CharAIProfile
 from src.python.ai.controllers.pattern_ai import Pattern, TOWARD, AWAY
 from src.python.ai.predicates import can_use_skill, opponent_approaching
-from src.python.game_constants import INPUT_JUMP as J, INPUT_ATTACK as ATK, INPUT_SKILL as SKL
+from src.python.ai.goap.action      import GOAPAction
+from src.python.ai.goap.world_state import HP_VAR, MP_VAR
+from src.python.ai.goap.base_actions import make_approach, make_retreat
+from src.python.game_constants import (
+    INPUT_JUMP as J, INPUT_ATTACK as ATK, INPUT_SKILL as SKL)
 
 ARCHER_PROFILE = CharAIProfile(
     preferred_range=160_000, skill_mp_threshold=18_000, aggression=0.6)
 
+# ── lv2 Pattern 表 ────────────────────────────────────────────────────────────
 ARCHER_PATTERNS = [
     Pattern(
         name="跳躍閃避",
@@ -28,4 +33,45 @@ ARCHER_PATTERNS = [
         step_duration=[1, 4, 1, 4, 1],
         priority=7, cooldown_frames=20,
     ),
+]
+
+# ── lv3 GOAP Action 表 ────────────────────────────────────────────────────────
+_ARCHER_ARROW = GOAPAction(
+    name="普通箭矢",
+    preconditions={"in_range": False},
+    effects={"opp_hp": ("delta", -4_000)},
+    base_cost=0.8,
+    input_mask=ATK,
+    duration_frames=1,
+)
+
+_ARCHER_CHARGED = GOAPAction(
+    name="蓄力箭",
+    preconditions={"in_range": False, "self_mp": (">=", 18_000)},
+    effects={"opp_hp": ("delta", -12_000)},
+    base_cost=0.5,
+    input_mask=SKL,
+    duration_frames=1,
+    cost_fn=lambda ws: MP_VAR.weighted(
+        ws["self_mp"], {"low": 2.5, "mid": 1.0, "high": 0.3}),
+)
+
+_ARCHER_JUMP_ESCAPE = GOAPAction(
+    name="跳躍逃脫",
+    preconditions={"in_range": True, "self_airborne": False},
+    effects={"in_range": False, "self_airborne": True},
+    base_cost=0.5,
+    input_mask=J,
+    direction="away",
+    duration_frames=1,
+    cost_fn=lambda ws: HP_VAR.weighted(
+        ws["self_hp"], {"low": 0.2, "mid": 0.5, "high": 1.2}),
+)
+
+ARCHER_GOAP_ACTIONS = [
+    make_approach(ARCHER_PROFILE),
+    make_retreat(ARCHER_PROFILE),
+    _ARCHER_ARROW,
+    _ARCHER_CHARGED,
+    _ARCHER_JUMP_ESCAPE,
 ]
