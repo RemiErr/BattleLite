@@ -57,5 +57,5 @@ def _heuristic(ws: dict, goal: dict) -> float:
 
 def _ws_to_key(ws: dict) -> tuple:
     """取 Layer 1 離散欄位做 visited 去重（排除 fuzzy 向量，避免 unhashable）。"""
-    keys = ("in_range", "self_hp", "self_mp", "opp_hp", "opp_state")
+    keys = ("in_range", "in_danger", "self_hp", "self_mp", "opp_hp", "opp_state")
     return tuple(ws.get(k) for k in keys)

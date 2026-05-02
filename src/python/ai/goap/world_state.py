@@ -23,8 +23,21 @@ DIST_VAR = FuzzyVariable("dist", [
 ])
 
 # in_range 不加入離散鍵：邊界處頻繁切換會導致每幀重新規劃、左右震盪
-_DISCRETE_KEYS  = {"opp_state"}
-_FUZZY_DOM_KEYS = {"self_hp_dom", "self_mp_dom", "dist_dom"}
+_DOM_RANK       = {"low": 0, "mid": 1, "high": 2}
+_DISCRETE_KEYS  = {"opp_state", "hp_adv"}
+_FUZZY_DOM_KEYS = {"self_hp_dom", "self_mp_dom", "dist_dom", "opp_hp_dom"}
+
+
+def _hp_advantage(self_hp: int, opp_hp: int, self_dom: str, opp_dom: str) -> str:
+    sr = _DOM_RANK[self_dom]
+    or_ = _DOM_RANK[opp_dom]
+    if sr != or_:
+        return "ahead" if sr > or_ else "behind"
+    if opp_hp < self_hp * 0.8:
+        return "ahead"
+    if opp_hp > self_hp * 1.25:
+        return "behind"
+    return "even"
 MAX_PLAN_AGE    = 45
 
 
@@ -41,7 +54,8 @@ def build_goap_world_state(ai_p, opp_p) -> dict:
     return {
         # Layer 1：規劃器原始值（絕對值，不做正規化）
         "dist":          dist,
-        "in_range":      dist <= 100_000,
+        "in_range":      dist <= 80_000,     # 對應近戰有效攻擊距離
+        "in_danger":     dist <= 180_000,   # 生存目標用，比 in_range 更大的警戒圈
         "self_hp":       ai_p.hp,
         "self_mp":       ai_p.mp,
         "opp_hp":        opp_p.hp,
@@ -53,6 +67,10 @@ def build_goap_world_state(ai_p, opp_p) -> dict:
         "self_hp_dom":  HP_VAR.dominant(ai_p.hp),
         "self_mp_dom":  MP_VAR.dominant(ai_p.mp),
         "dist_dom":     DIST_VAR.dominant(dist),
+        "opp_hp_dom":   HP_VAR.dominant(opp_p.hp),
+        "hp_adv":       _hp_advantage(ai_p.hp, opp_p.hp,
+                                      HP_VAR.dominant(ai_p.hp),
+                                      HP_VAR.dominant(opp_p.hp)),
 
         # Layer 3：隸屬度向量（用於動態 cost）
         "self_hp_fuzzy": HP_VAR.evaluate(ai_p.hp),
