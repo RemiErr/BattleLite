@@ -29,8 +29,8 @@ class LobbyClient:
     async def send_ready(self):
         await self.send_data({"type": "player_ready"})
 
-    async def send_start_game(self):
-        await self.send_data({"type": "start_game"})
+    async def send_start_game(self, ai_count: int = 0):
+        await self.send_data({"type": "start_game", "ai_count": ai_count})
 
     async def listen(self):
         if not self.websocket:

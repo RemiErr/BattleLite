@@ -272,8 +272,9 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
 
             elif t == "start_game":
                 if not is_queue and pid == 0:
+                    ai_count = int(data.get("ai_count", 0))
                     ps = room["players"]
-                    if (len(ps) >= room["target_size"]
+                    if (len(ps) + ai_count >= room["target_size"]
                             and all(p["ready"] for p in ps)
                             and all(p["pub_port"] != 0 for p in ps)):
                         await _initiate_match(room_id, host_id=0)
