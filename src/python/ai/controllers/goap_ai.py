@@ -90,7 +90,7 @@ class GOAPAIController(AIController):
         self._replan_count: int = 0   # debug 用
 
     def decide(self, ai_p, opp_p, entities: list) -> int:
-        ws = build_goap_world_state(ai_p, opp_p, self.profile.attack_range)
+        ws = build_goap_world_state(ai_p, opp_p, self.profile.attack_range, self._prev_ws)
 
         needs_replan = (
             not self._plan

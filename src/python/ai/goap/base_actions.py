@@ -73,7 +73,7 @@ def make_y_align(base_cost: float = 0.4, duration_frames: int = 30) -> GOAPActio
     return GOAPAction(
         name="Y軸對位",
         preconditions={"y_aligned": False},
-        effects={"y_aligned": True, "in_range": False},
+        effects={"y_aligned": True},  # 移除強制 in_range=False，讓規劃器依現狀判斷
         base_cost=base_cost,
         input_mask=0,
         direction="away_x_toward_y",
@@ -84,7 +84,7 @@ def make_y_align(base_cost: float = 0.4, duration_frames: int = 30) -> GOAPActio
 def make_attack() -> GOAPAction:
     return GOAPAction(
         name="普攻",
-        preconditions={"in_range": True},
+        preconditions={"in_range": True, "y_aligned": True},
         effects={"opp_hp": ("delta", -5_000)},
         base_cost=1.0,
         input_mask=INPUT_ATTACK,

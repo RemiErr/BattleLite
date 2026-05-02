@@ -22,12 +22,13 @@ DIST_VAR = FuzzyVariable("dist", [
     FuzzySet("far",   trapezoidal(160_000, 240_000,  1e9,     1e9)),
 ])
 
-# in_range 不加入離散鍵：邊界處頻繁切換會導致每幀重新規劃、左右震盪
+# in_range 與 y_aligned 加入離散鍵，用於觸發 re-planning
 _DOM_RANK       = {"low": 0, "mid": 1, "high": 2}
-_DISCRETE_KEYS  = {"opp_state", "hp_adv", "y_aligned"}
+_DISCRETE_KEYS  = {"opp_state", "hp_adv", "y_aligned", "in_range"}
 _FUZZY_DOM_KEYS = {"self_hp_dom", "self_mp_dom", "dist_dom", "opp_hp_dom"}
 
-Y_ALIGN_THRESHOLD = 80_000   # dy 小於此值才允許遠程攻擊
+# 必須小於或等於 Rust Core 的 ATK_DEPTH_REACH (25,000)
+Y_ALIGN_THRESHOLD = 20_000
 
 
 def _hp_advantage(self_hp: int, opp_hp: int, self_dom: str, opp_dom: str) -> str:
@@ -40,13 +41,33 @@ def _hp_advantage(self_hp: int, opp_hp: int, self_dom: str, opp_dom: str) -> str
     if opp_hp > self_hp * 1.25:
         return "behind"
     return "even"
-MAX_PLAN_AGE    = 45
 
 
-def build_goap_world_state(ai_p, opp_p, attack_range: int = 80_000) -> dict:
+MAX_PLAN_AGE = 45
+
+
+def build_goap_world_state(ai_p, opp_p, attack_range: int = 80_000, prev_ws: dict = None) -> dict:
     dx   = abs(ai_p.x - opp_p.x)
     dy   = abs(ai_p.y - opp_p.y)
     dist = max(dx, dy)
+
+    # 引入遲滯機制（Hysteresis）防止在邊界處抖動
+    if prev_ws and "in_range" in prev_ws:
+        # 如果原本在範圍內，給予 10% 的緩衝空間才判定為離開
+        if prev_ws["in_range"]:
+            in_range = dist <= attack_range * 1.1
+        else:
+            in_range = dist <= attack_range * 0.9
+    else:
+        in_range = dist <= attack_range
+
+    if prev_ws and "y_aligned" in prev_ws:
+        if prev_ws["y_aligned"]:
+            y_aligned = dy <= Y_ALIGN_THRESHOLD * 1.2
+        else:
+            y_aligned = dy <= Y_ALIGN_THRESHOLD * 0.8
+    else:
+        y_aligned = dy <= Y_ALIGN_THRESHOLD
 
     opp_moving_toward = (
         (opp_p.vx > 0 and opp_p.x < ai_p.x) or
@@ -54,11 +75,11 @@ def build_goap_world_state(ai_p, opp_p, attack_range: int = 80_000) -> dict:
     )
 
     return {
-        # Layer 1：規劃器原始值（絕對值，不做正規化）
+        # Layer 1：規劃器原始值
         "dist":          dist,
-        "in_range":      dist <= attack_range,
-        "in_danger":     dist <= 180_000,   # 生存目標用，比 in_range 更大的警戒圈
-        "y_aligned":     dy  <= Y_ALIGN_THRESHOLD,  # Y 軸對位：遠程攻擊需此條件
+        "in_range":      in_range,
+        "in_danger":     dist <= 180_000,
+        "y_aligned":     y_aligned,
         "self_hp":       ai_p.hp,
         "self_mp":       ai_p.mp,
         "opp_hp":        opp_p.hp,

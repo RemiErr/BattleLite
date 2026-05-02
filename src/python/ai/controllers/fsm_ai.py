@@ -62,18 +62,25 @@ class FSMAIController(AIController):
         p   = self.params
         s   = self._state
         dist      = ws["dist"]
+        dist_y    = ws.get("dist_y", dist)
         self_hp   = ws["self_hp"]
         self_mp   = ws["self_mp"]
+
+        # 必須對齊 Y 軸才能攻擊，否則維持 APPROACH 狀態
+        # 20_000 匹配 Rust Core 的深度判定範圍
+        is_y_aligned = dist_y <= 20_000
 
         if s == "APPROACH":
             if self_hp < p.low_hp_threshold and dist < p.flee_dist:
                 return "RETREAT"
-            if dist <= p.attack_range:
+            if dist <= p.attack_range and is_y_aligned:
                 return "ATTACK"
-            if self_mp >= p.skill_mp and dist <= p.skill_range:
+            if self_mp >= p.skill_mp and dist <= p.skill_range and is_y_aligned:
                 return "SKILL"
 
         elif s == "ATTACK":
+            if not is_y_aligned:
+                return "APPROACH"
             if self_mp >= p.skill_mp:
                 return "SKILL"
             if self._attack_count >= p.combo_max:
