@@ -8,11 +8,11 @@
 
 遊戲 AI 採用層級化設計（Layered Architecture），將 AI 行為分為「反射」、「肌肉記憶」與「戰略思考」三個層次：
 
-| 等級 | 演算法 | 模擬對象 | 技術核心 |
-| :--- | :--- | :--- | :--- |
-| **LV1** | **FSM (有限狀態機)** | 脊椎反射 | 狀態轉移表 + 反應延遲 |
-| **LV2** | **Pattern AI** | 肌肉記憶 | 腳本序列播放 + 符號化方向解析 |
-| **LV3** | **GOAP + Fuzzy Logic** | 戰略大腦 | A* 規劃 + 模糊邏輯動態成本 |
+| 等級    | 演算法                 | 模擬對象 | 技術核心                      |
+| :------ | :--------------------- | :------- | :---------------------------- |
+| **LV1** | **FSM (有限狀態機)**   | 脊椎反射 | 狀態轉移表 + 反應延遲         |
+| **LV2** | **Pattern AI**         | 肌肉記憶 | 腳本序列播放 + 符號化方向解析 |
+| **LV3** | **GOAP + Fuzzy Logic** | 戰略大腦 | A* 規劃 + 模糊邏輯動態成本    |
 
 ---
 
@@ -52,3 +52,33 @@
 *   **規劃失誤**：GOAP Action 的 `preconditions` (先決條件) 可能只檢查了 `in_range` (X 軸)，而漏掉了 `y_aligned` (Y 軸) 的強制要求，導致 AI 認為不需要對齊就能攻擊。
 *   **數值失誤**：Python AI 判斷 `y_aligned` 的閾值（例如 50,000）大於 Rust 核心實際碰撞判定的深度（`ATK_DEPTH_REACH` = 25,000）。這導致 AI「以為」打得到，但物理引擎判定未碰撞。
 *   **執行修正能力不足**：雖然執行層會嘗試加入 `y_toward` 方向，但若動作持續時間太短，AI 來不及在攻擊幀結束前修正巨大的 Y 軸偏差。
+
+---
+
+## 4. 修復方案與紀錄 (2026-05-02)
+
+針對上述觀察到的異常行為，已完成以下修復工作：
+
+### 4.1 決策抖動修復：遲滯補償 (Hysteresis)
+*   **診斷**：AI 在攻擊範圍邊緣因 `dist` 微小跳動導致每幀 `in_range` 布林值改變，觸發無窮重新規劃。
+*   **修復**：在 `world_state.py` 中實作遲滯邏輯。
+    *   **進入條件**：目標進入 90% 範圍才判定為 `in_range`。
+    *   **離開條件**：目標離開 110% 範圍才判定為 `in_range` 失效。
+*   **結果**：AI 在邊緣處表現更為穩定，不再左右瘋狂擺動。
+
+### 4.2 對角線攻擊修復：Y 軸對齊強制化
+*   **診斷**：Python 層對位閾值 (80,000) 過大，且 Action 缺乏 Y 軸先決條件。
+*   **修復方案**：
+    1.  **數值同步**：將 `Y_ALIGN_THRESHOLD` 下調至 **20,000** (嚴於 Rust 核心的 25,000)，確保攻擊絕對有效。
+    2.  **條件補強**：
+        *   **GOAP**：在 `base_actions.py` 的 `make_attack` 與各角色的技能 Action（如 Knight 的突進斬、Mage 的近戰）中加入 `y_aligned: True` 的先決條件。
+        *   **Pattern AI**：更新 `mage_ai.py` 與 `archer_ai.py` 的腳本觸發條件，將 `dist_y` 判定從 80,000 修改為 20,000。
+        *   **FSM**：在 `fsm_ai.py` 的狀態轉換中強制加入 `is_y_aligned` 檢查。
+    3.  **規劃優化**：移除 `make_y_align` 中強制 `in_range: False` 的副作用，讓規劃器能更靈活地在範圍內進行微調對位。
+
+### 4.3 修正範圍彙整
+*   `src/python/ai/goap/world_state.py` (遲滯邏輯、閾值下調)
+*   `src/python/ai/controllers/goap_ai.py` (啟用歷史 WorldState 傳遞)
+*   `src/python/ai/controllers/fsm_ai.py` (LV1 對齊檢查)
+*   `src/python/ai/goap/base_actions.py` (通用動作條件補強)
+*   `src/python/ai/characters/*_ai.py` (全角色技能條件同步修復)
