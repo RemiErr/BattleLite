@@ -50,7 +50,7 @@ _PALADIN_SHIELD = GOAPAction(
 
 _PALADIN_HEAVY = GOAPAction(
     name="重擊",
-    preconditions={"in_range": True, "self_mp": (">=", 12_000)},
+    preconditions={"in_range": True, "y_aligned": True, "self_mp": (">=", 12_000)},
     effects={"opp_hp": ("delta", -8_000)},
     base_cost=0.7,
     input_mask=SKL,

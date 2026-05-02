@@ -47,7 +47,7 @@ KNIGHT_PATTERNS = [
 # ── lv3 GOAP Action 表 ────────────────────────────────────────────────────────
 _KNIGHT_CHARGE = GOAPAction(
     name="突進斬",
-    preconditions={"in_range": False, "self_mp": (">=", 15_000)},
+    preconditions={"in_range": False, "y_aligned": True, "self_mp": (">=", 15_000)},
     effects={"in_range": True, "opp_hp": ("delta", -8_000)},
     base_cost=0.8,
     input_mask=SKL,

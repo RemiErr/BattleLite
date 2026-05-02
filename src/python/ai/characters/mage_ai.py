@@ -25,7 +25,7 @@ MAGE_PATTERNS = [
         name="遠距魔法彈",
         condition=lambda ws: (can_use_skill(ws, MAGE_PROFILE)
                               and ws["dist"] >= 120_000
-                              and ws["dist_y"] <= 80_000),
+                              and ws["dist_y"] <= 20_000),
         action_sequence=[SKL],
         step_duration=[1],
         priority=9, cooldown_frames=30,
@@ -34,7 +34,7 @@ MAGE_PATTERNS = [
         name="對手受傷補刀",
         condition=lambda ws: (opponent_is_vulnerable(ws)
                               and ws["dist"] < 200_000
-                              and ws["dist_y"] <= 80_000),
+                              and ws["dist_y"] <= 20_000),
         action_sequence=[SKL],
         step_duration=[1],
         priority=8, cooldown_frames=15,
@@ -61,7 +61,7 @@ _MAGE_FIREBALL = GOAPAction(
 
 _MAGE_CLOSE_ATTACK = GOAPAction(
     name="被迫近戰",
-    preconditions={"in_range": True},
+    preconditions={"in_range": True, "y_aligned": True},
     effects={"opp_hp": ("delta", -3_000)},
     base_cost=2.0,
     input_mask=ATK,

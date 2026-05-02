@@ -25,14 +25,14 @@ ARCHER_PATTERNS = [
         name="蓄力箭",
         condition=lambda ws: (can_use_skill(ws, ARCHER_PROFILE)
                               and ws["dist"] >= 100_000
-                              and ws["dist_y"] <= 80_000),
+                              and ws["dist_y"] <= 20_000),
         action_sequence=[TOWARD, SKL, 0, 0, 0],
         step_duration=[1, 1, 15, 10, 1],
         priority=9, cooldown_frames=35,
     ),
     Pattern(
         name="連射",
-        condition=lambda ws: 80_000 <= ws["dist"] <= 200_000 and ws["dist_y"] <= 80_000,
+        condition=lambda ws: 80_000 <= ws["dist"] <= 200_000 and ws["dist_y"] <= 20_000,
         action_sequence=[ATK, 0, ATK, 0, ATK],
         step_duration=[1, 4, 1, 4, 1],
         priority=7, cooldown_frames=20,
