@@ -53,24 +53,27 @@ def _select_goal(ws: dict, profile: CharAIProfile) -> tuple[dict, str]:
 
 
 def _resolve_direction(action: GOAPAction, ai_p, opp_p) -> int:
+    dy = abs(opp_p.y - ai_p.y)
+    # Y 軸死區：當垂直距離小於 5,000 (略大於一幀 walk_speed_y) 時，停止上下修正
+    y_input = 0
+    if dy > 5000:
+        y_input = INPUT_DOWN if opp_p.y > ai_p.y else INPUT_UP
+
     if action.direction == "toward":
         x = INPUT_RIGHT if opp_p.x > ai_p.x else INPUT_LEFT
-        y = INPUT_DOWN  if opp_p.y > ai_p.y else INPUT_UP
-        return x | y
+        return x | y_input
     if action.direction == "away":
         x = INPUT_LEFT  if opp_p.x > ai_p.x else INPUT_RIGHT
-        y = INPUT_UP    if opp_p.y > ai_p.y else INPUT_DOWN
-        return x | y
+        y_away = INPUT_UP if opp_p.y > ai_p.y else INPUT_DOWN
+        return x | y_away
     if action.direction == "away_x_toward_y":
-        # 遠程角色 Y 對位：X 遠離對手（保持遠距射程），Y 靠近對手（對齊深度）
-        x = INPUT_LEFT  if opp_p.x > ai_p.x else INPUT_RIGHT
-        y = INPUT_DOWN  if opp_p.y > ai_p.y else INPUT_UP
-        return x | y
-    # 攻擊 / 技能：加入面向對手的 X + Y 方向，防止背對或 Y 軸錯位
+        # 遠程角色 Y 對位：X 遠離對手，Y 軸使用死區保護後的方向
+        x = INPUT_LEFT if opp_p.x > ai_p.x else INPUT_RIGHT
+        return x | y_input
+    # 攻擊 / 技能：加入面向對手的 X 方向，以及死區保護後的 Y 方向
     if action.input_mask & (INPUT_ATTACK | INPUT_SKILL):
-        x_face   = INPUT_RIGHT if opp_p.x > ai_p.x else INPUT_LEFT
-        y_toward = INPUT_DOWN  if opp_p.y > ai_p.y else INPUT_UP
-        return action.input_mask | x_face | y_toward
+        x_face = INPUT_RIGHT if opp_p.x > ai_p.x else INPUT_LEFT
+        return action.input_mask | x_face | y_input
     return action.input_mask
 
 

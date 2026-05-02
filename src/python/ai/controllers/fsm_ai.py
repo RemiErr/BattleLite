@@ -116,10 +116,16 @@ class FSMAIController(AIController):
     # ── 輸入遮罩生成 ──────────────────────────────────────────────────────
 
     def _state_to_input(self, state: str, ai_p, opp_p) -> int:
+        dy = abs(opp_p.y - ai_p.y)
         x_toward = INPUT_RIGHT if opp_p.x > ai_p.x else INPUT_LEFT
         x_away   = INPUT_LEFT  if opp_p.x > ai_p.x else INPUT_RIGHT
-        y_toward = INPUT_DOWN  if opp_p.y > ai_p.y else INPUT_UP
-        y_away   = INPUT_UP    if opp_p.y > ai_p.y else INPUT_DOWN
+        
+        # Y 軸死區：防止在 Y 軸極近時產生的上下震盪
+        y_toward = 0
+        y_away   = 0
+        if dy > 5000:
+            y_toward = INPUT_DOWN if opp_p.y > ai_p.y else INPUT_UP
+            y_away   = INPUT_UP    if opp_p.y > ai_p.y else INPUT_DOWN
 
         if state == "APPROACH":
             mask = x_toward | y_toward

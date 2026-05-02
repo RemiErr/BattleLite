@@ -19,15 +19,28 @@ _INPUT_MASK = 0x7F  # bit 0-6：標準輸入位元
 def _resolve_mask(mask: int, ai_p, opp_p) -> int:
     """將 TOWARD/AWAY 符號解析為實際方向，保留其餘輸入 bit。"""
     result = mask & _INPUT_MASK
+    dx = abs(opp_p.x - ai_p.x)
+    dy = abs(opp_p.y - ai_p.y)
+
+    # Y 軸死區控制：防止在播放 Pattern 序列時產生上下震盪
+    y_toward = INPUT_DOWN if opp_p.y > ai_p.y else INPUT_UP
+    y_away   = INPUT_UP    if opp_p.y > ai_p.y else INPUT_DOWN
+    if dy <= 5000:
+        y_toward = 0
+        y_away   = 0
+
     if mask & TOWARD:
         result |= INPUT_RIGHT if opp_p.x > ai_p.x else INPUT_LEFT
-        result |= INPUT_DOWN  if opp_p.y > ai_p.y else INPUT_UP
+        result |= y_toward
     if mask & AWAY:
         result |= INPUT_LEFT  if opp_p.x > ai_p.x else INPUT_RIGHT
-        result |= INPUT_UP    if opp_p.y > ai_p.y else INPUT_DOWN
+        result |= y_away
+    
+    # 攻擊 / 技能自動對位修正
     if result & (INPUT_ATTACK | INPUT_SKILL):
         result |= INPUT_RIGHT if opp_p.x > ai_p.x else INPUT_LEFT
-        result |= INPUT_DOWN  if opp_p.y > ai_p.y else INPUT_UP
+        result |= y_toward
+        
     return result
 
 
