@@ -4,7 +4,8 @@ from typing import Callable
 from src.python.ai.controllers.base import AIController
 from src.python.ai.characters.profile import CharAIProfile
 from src.python.ai.world_state import build_pattern_world_state
-from src.python.game_constants import INPUT_RIGHT, INPUT_LEFT
+from src.python.game_constants import (
+    INPUT_RIGHT, INPUT_LEFT, INPUT_DOWN, INPUT_UP, INPUT_ATTACK, INPUT_SKILL)
 
 # ── 相對方向符號 ──────────────────────────────────────────────────────────────
 # 用高位 bit（不與 INPUT_* bit 0-6 衝突），可與其他輸入組合：J | AWAY。
@@ -20,8 +21,13 @@ def _resolve_mask(mask: int, ai_p, opp_p) -> int:
     result = mask & _INPUT_MASK
     if mask & TOWARD:
         result |= INPUT_RIGHT if opp_p.x > ai_p.x else INPUT_LEFT
+        result |= INPUT_DOWN  if opp_p.y > ai_p.y else INPUT_UP
     if mask & AWAY:
         result |= INPUT_LEFT  if opp_p.x > ai_p.x else INPUT_RIGHT
+        result |= INPUT_UP    if opp_p.y > ai_p.y else INPUT_DOWN
+    if result & (INPUT_ATTACK | INPUT_SKILL):
+        result |= INPUT_RIGHT if opp_p.x > ai_p.x else INPUT_LEFT
+        result |= INPUT_DOWN  if opp_p.y > ai_p.y else INPUT_UP
     return result
 
 

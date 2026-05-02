@@ -42,6 +42,7 @@ def make_ai(char_type: int, level: int, seed: int) -> AIController:
         return PatternAIController(profile, patterns, fallback=fsm)
 
     if level == 3:
-        return GOAPAIController(profile, goap_actions, fallback=fsm)
+        pattern = PatternAIController(profile, patterns, fallback=fsm)
+        return GOAPAIController(profile, goap_actions, fallback=pattern)
 
     return fsm
