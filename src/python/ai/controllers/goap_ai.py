@@ -5,19 +5,51 @@ from src.python.ai.goap.planner          import plan
 from src.python.ai.goap.world_state      import (
     build_goap_world_state, should_replan, MAX_PLAN_AGE)
 from src.python.game_constants import (
-    INPUT_RIGHT, INPUT_LEFT, INPUT_UP, INPUT_DOWN)
+    INPUT_RIGHT, INPUT_LEFT, INPUT_UP, INPUT_DOWN,
+    INPUT_ATTACK, INPUT_SKILL)
 
-GOAL_WIN     = {"opp_hp": ("<=", 0)}
-GOAL_SURVIVE = {"in_range": False}
-GOAL_RECOVER = {"in_range": False}
+GOAL_WIN    = {"opp_hp": ("<=", 0)}
+GOAL_SURVIVE = {"in_danger": False}
 
 
-def _select_goal(ws: dict, profile: CharAIProfile) -> dict:
-    if ws["self_hp_dom"] == "low":
-        return GOAL_SURVIVE
-    if ws["self_mp_dom"] == "low" and profile.aggression < 0.6:
-        return GOAL_RECOVER
-    return GOAL_WIN
+def _select_goal(ws: dict, profile: CharAIProfile) -> tuple[dict, str]:
+    """
+    回傳 (goal, mode)。
+    mode 決定 cost_fn 的激進程度，注入 ws["mode"] 後由 plan() 讀取。
+
+    優先級（高→低）：
+      5. 雙方殘血              → 孤注一擲 (gamble)
+      4. 自身殘血              → 逃跑 (conservative)
+      MID + 對手血少於我       → 把握機會進攻 (aggressive)
+      MID + 平手或對手佔優     → 撤退迂迴 (conservative)  ← 阻止無腦攻擊
+      HIGH + 對手血 < 我       → 激進追殺 (aggressive)
+      HIGH + 平手              → 攻防平衡 (balanced)
+      HIGH + 對手血 > 我       → 偏保守攻擊 (conservative)
+    """
+    self_dom = ws["self_hp_dom"]
+    opp_dom  = ws["opp_hp_dom"]
+    adv      = ws["hp_adv"]
+
+    # 規則 5：雙方殘血 → 孤注一擲
+    if self_dom == "low" and opp_dom == "low":
+        return GOAL_WIN, "gamble"
+
+    # 規則 4：自身殘血 → 逃跑
+    if self_dom == "low":
+        return GOAL_SURVIVE, "conservative"
+
+    # MID 血量：謹慎決策，只有佔優才主動進攻
+    if self_dom == "mid":
+        if adv == "ahead":
+            return GOAL_WIN, "aggressive"     # 對手血少 → 把握機會
+        return GOAL_SURVIVE, "conservative"   # 平手或劣勢 → 撤退迂迴
+
+    # HIGH 血量：完整的 1-3 規則
+    if adv == "ahead":
+        return GOAL_WIN, "aggressive"
+    if adv == "behind":
+        return GOAL_WIN, "conservative"
+    return GOAL_WIN, "balanced"
 
 
 def _resolve_direction(action: GOAPAction, ai_p, opp_p) -> int:
@@ -29,6 +61,10 @@ def _resolve_direction(action: GOAPAction, ai_p, opp_p) -> int:
         x = INPUT_LEFT  if opp_p.x > ai_p.x else INPUT_RIGHT
         y = INPUT_UP    if opp_p.y > ai_p.y else INPUT_DOWN
         return x | y
+    # 攻擊 / 技能：強制加入面向對手的 X 方向，防止背對攻擊
+    if action.input_mask & (INPUT_ATTACK | INPUT_SKILL):
+        x_face = INPUT_RIGHT if opp_p.x > ai_p.x else INPUT_LEFT
+        return action.input_mask | x_face
     return action.input_mask
 
 
@@ -57,7 +93,8 @@ class GOAPAIController(AIController):
         )
 
         if needs_replan:
-            goal = _select_goal(ws, self.profile)
+            goal, mode = _select_goal(ws, self.profile)
+            ws["mode"] = mode
             self._plan      = plan(ws, goal, self.actions)
             self._plan_step = 0
             self._step_timer = 0

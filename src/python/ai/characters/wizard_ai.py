@@ -3,7 +3,8 @@ from src.python.ai.controllers.pattern_ai import Pattern, TOWARD, AWAY
 from src.python.ai.predicates import can_use_skill, opponent_is_vulnerable
 from src.python.ai.goap.action      import GOAPAction
 from src.python.ai.goap.world_state import MP_VAR
-from src.python.ai.goap.base_actions import make_approach, make_retreat, make_attack
+from src.python.ai.goap.base_actions import (
+    make_approach, make_retreat, make_attack, attack_mult, skill_mp_weights)
 from src.python.game_constants import INPUT_ATTACK as ATK, INPUT_SKILL as SKL
 
 WIZARD_PROFILE = CharAIProfile(
@@ -42,8 +43,7 @@ _WIZARD_AOE = GOAPAction(
     base_cost=0.6,
     input_mask=SKL,
     duration_frames=1,
-    cost_fn=lambda ws: MP_VAR.weighted(
-        ws["self_mp"], {"low": 2.5, "mid": 1.0, "high": 0.3}),
+    cost_fn=lambda ws: MP_VAR.weighted(ws["self_mp"], skill_mp_weights(ws)) * attack_mult(ws),
 )
 
 _WIZARD_PROJECTILE = GOAPAction(

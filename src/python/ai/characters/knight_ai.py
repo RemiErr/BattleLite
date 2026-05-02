@@ -3,7 +3,8 @@ from src.python.ai.controllers.pattern_ai import Pattern, TOWARD
 from src.python.ai.predicates import can_use_skill, opponent_is_vulnerable, self_hp_low
 from src.python.ai.goap.action      import GOAPAction
 from src.python.ai.goap.world_state import MP_VAR
-from src.python.ai.goap.base_actions import make_approach, make_retreat, make_attack
+from src.python.ai.goap.base_actions import (
+    make_approach, make_retreat, make_attack, attack_mult, skill_mp_weights)
 from src.python.game_constants import (
     INPUT_JUMP as J, INPUT_ATTACK as ATK, INPUT_SKILL as SKL)
 
@@ -50,8 +51,7 @@ _KNIGHT_CHARGE = GOAPAction(
     base_cost=0.8,
     input_mask=SKL,
     duration_frames=1,
-    cost_fn=lambda ws: MP_VAR.weighted(
-        ws["self_mp"], {"low": 2.0, "mid": 1.0, "high": 0.5}),
+    cost_fn=lambda ws: MP_VAR.weighted(ws["self_mp"], skill_mp_weights(ws)) * attack_mult(ws),
 )
 
 KNIGHT_GOAP_ACTIONS = [

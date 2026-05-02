@@ -3,7 +3,8 @@ from src.python.ai.controllers.pattern_ai import Pattern, TOWARD, AWAY
 from src.python.ai.predicates import can_use_skill, opponent_approaching
 from src.python.ai.goap.action      import GOAPAction
 from src.python.ai.goap.world_state import HP_VAR, MP_VAR
-from src.python.ai.goap.base_actions import make_approach, make_retreat
+from src.python.ai.goap.base_actions import (
+    make_approach, make_retreat, attack_mult, retreat_mult, skill_mp_weights)
 from src.python.game_constants import (
     INPUT_JUMP as J, INPUT_ATTACK as ATK, INPUT_SKILL as SKL)
 
@@ -52,8 +53,7 @@ _ARCHER_CHARGED = GOAPAction(
     base_cost=0.5,
     input_mask=SKL,
     duration_frames=1,
-    cost_fn=lambda ws: MP_VAR.weighted(
-        ws["self_mp"], {"low": 2.5, "mid": 1.0, "high": 0.3}),
+    cost_fn=lambda ws: MP_VAR.weighted(ws["self_mp"], skill_mp_weights(ws)) * attack_mult(ws),
 )
 
 _ARCHER_JUMP_ESCAPE = GOAPAction(
@@ -65,7 +65,7 @@ _ARCHER_JUMP_ESCAPE = GOAPAction(
     direction="away",
     duration_frames=1,
     cost_fn=lambda ws: HP_VAR.weighted(
-        ws["self_hp"], {"low": 0.2, "mid": 0.5, "high": 1.2}),
+        ws["self_hp"], {"low": 0.2, "mid": 0.5, "high": 1.2}) * retreat_mult(ws),
 )
 
 ARCHER_GOAP_ACTIONS = [
