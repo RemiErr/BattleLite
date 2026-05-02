@@ -8,6 +8,8 @@ venv/
 *.pyd
 *.dll
 *.dylib
+*.log
+*.json
 .pytest_cache/
 
 # --- Rust ---
