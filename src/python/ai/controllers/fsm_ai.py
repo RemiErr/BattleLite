@@ -139,3 +139,9 @@ class FSMAIController(AIController):
         if state == "SKILL":
             return INPUT_SKILL
         return 0  # WAIT
+
+    def get_debug_info(self) -> dict:
+        return {
+            "level": "lv1-FSM",
+            "state": self._state
+        }

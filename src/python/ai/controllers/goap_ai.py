@@ -135,3 +135,14 @@ class GOAPAIController(AIController):
                     self._plan = []
 
         return mask
+
+    def get_debug_info(self) -> dict:
+        info = {"level": "lv3-GOAP"}
+        if self._plan:
+            action = self._plan[self._plan_step]
+            info["goal"] = "WIN" if "opp_hp" in str(self._plan[-1].effects) else "SURVIVE"
+            info["plan"] = f"[{action.name}] step {self._plan_step+1}/{len(self._plan)}"
+        else:
+            info["goal"] = "REPLANNING"
+            info["plan"] = "N/A"
+        return info

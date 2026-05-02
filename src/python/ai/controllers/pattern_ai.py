@@ -111,3 +111,12 @@ class PatternAIController(AIController):
 
     def _tick_cooldowns(self):
         self._cooldowns = {k: max(0, v - 1) for k, v in self._cooldowns.items()}
+
+    def get_debug_info(self) -> dict:
+        if self._active:
+            return {
+                "level": "lv2-Pattern",
+                "pattern": self._active.name,
+                "step": f"{self._step+1}/{len(self._active.action_sequence)}"
+            }
+        return self.fallback.get_debug_info()
