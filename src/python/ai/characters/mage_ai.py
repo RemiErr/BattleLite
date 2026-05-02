@@ -4,7 +4,7 @@ from src.python.ai.predicates import can_use_skill, opponent_is_vulnerable, oppo
 from src.python.ai.goap.action      import GOAPAction
 from src.python.ai.goap.world_state import HP_VAR, MP_VAR
 from src.python.ai.goap.base_actions import (
-    make_approach, make_retreat, attack_mult, retreat_mult, skill_mp_weights)
+    make_approach, make_retreat, make_y_align, attack_mult, retreat_mult, skill_mp_weights)
 from src.python.game_constants import (
     INPUT_JUMP as J, INPUT_ATTACK as ATK, INPUT_SKILL as SKL)
 
@@ -23,14 +23,18 @@ MAGE_PATTERNS = [
     ),
     Pattern(
         name="遠距魔法彈",
-        condition=lambda ws: can_use_skill(ws, MAGE_PROFILE) and ws["dist"] >= 120_000,
+        condition=lambda ws: (can_use_skill(ws, MAGE_PROFILE)
+                              and ws["dist"] >= 120_000
+                              and ws["dist_y"] <= 80_000),
         action_sequence=[SKL],
         step_duration=[1],
         priority=9, cooldown_frames=30,
     ),
     Pattern(
         name="對手受傷補刀",
-        condition=lambda ws: opponent_is_vulnerable(ws) and ws["dist"] < 200_000,
+        condition=lambda ws: (opponent_is_vulnerable(ws)
+                              and ws["dist"] < 200_000
+                              and ws["dist_y"] <= 80_000),
         action_sequence=[SKL],
         step_duration=[1],
         priority=8, cooldown_frames=15,
@@ -47,7 +51,7 @@ MAGE_PATTERNS = [
 # ── lv3 GOAP Action 表 ────────────────────────────────────────────────────────
 _MAGE_FIREBALL = GOAPAction(
     name="魔法彈",
-    preconditions={"in_range": False, "self_mp": (">=", 20_000)},
+    preconditions={"in_range": False, "y_aligned": True, "self_mp": (">=", 20_000)},
     effects={"opp_hp": ("delta", -15_000)},
     base_cost=0.5,
     input_mask=SKL,
@@ -78,6 +82,7 @@ _MAGE_JUMP_RETREAT = GOAPAction(
 MAGE_GOAP_ACTIONS = [
     make_approach(MAGE_PROFILE),
     make_retreat(MAGE_PROFILE),
+    make_y_align(),
     _MAGE_CLOSE_ATTACK,
     _MAGE_FIREBALL,
     _MAGE_JUMP_RETREAT,

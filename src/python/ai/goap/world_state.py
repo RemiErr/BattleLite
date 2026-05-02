@@ -24,8 +24,10 @@ DIST_VAR = FuzzyVariable("dist", [
 
 # in_range 不加入離散鍵：邊界處頻繁切換會導致每幀重新規劃、左右震盪
 _DOM_RANK       = {"low": 0, "mid": 1, "high": 2}
-_DISCRETE_KEYS  = {"opp_state", "hp_adv"}
+_DISCRETE_KEYS  = {"opp_state", "hp_adv", "y_aligned"}
 _FUZZY_DOM_KEYS = {"self_hp_dom", "self_mp_dom", "dist_dom", "opp_hp_dom"}
+
+Y_ALIGN_THRESHOLD = 80_000   # dy 小於此值才允許遠程攻擊
 
 
 def _hp_advantage(self_hp: int, opp_hp: int, self_dom: str, opp_dom: str) -> str:
@@ -42,8 +44,8 @@ MAX_PLAN_AGE    = 45
 
 
 def build_goap_world_state(ai_p, opp_p, attack_range: int = 80_000) -> dict:
-    dx = abs(ai_p.x - opp_p.x)
-    dy = abs(ai_p.y - opp_p.y)
+    dx   = abs(ai_p.x - opp_p.x)
+    dy   = abs(ai_p.y - opp_p.y)
     dist = max(dx, dy)
 
     opp_moving_toward = (
@@ -56,6 +58,7 @@ def build_goap_world_state(ai_p, opp_p, attack_range: int = 80_000) -> dict:
         "dist":          dist,
         "in_range":      dist <= attack_range,
         "in_danger":     dist <= 180_000,   # 生存目標用，比 in_range 更大的警戒圈
+        "y_aligned":     dy  <= Y_ALIGN_THRESHOLD,  # Y 軸對位：遠程攻擊需此條件
         "self_hp":       ai_p.hp,
         "self_mp":       ai_p.mp,
         "opp_hp":        opp_p.hp,

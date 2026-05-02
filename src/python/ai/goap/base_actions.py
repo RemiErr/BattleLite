@@ -68,6 +68,19 @@ def make_retreat(profile) -> GOAPAction:
     )
 
 
+def make_y_align(base_cost: float = 0.4, duration_frames: int = 30) -> GOAPAction:
+    """遠程角色 Y 軸對位動作：X 遠離保持射程，Y 靠近對齊深度。"""
+    return GOAPAction(
+        name="Y軸對位",
+        preconditions={"y_aligned": False},
+        effects={"y_aligned": True, "in_range": False},
+        base_cost=base_cost,
+        input_mask=0,
+        direction="away_x_toward_y",
+        duration_frames=duration_frames,
+    )
+
+
 def make_attack() -> GOAPAction:
     return GOAPAction(
         name="普攻",

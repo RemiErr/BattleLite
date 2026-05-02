@@ -4,7 +4,7 @@ from src.python.ai.predicates import can_use_skill, opponent_approaching
 from src.python.ai.goap.action      import GOAPAction
 from src.python.ai.goap.world_state import HP_VAR, MP_VAR
 from src.python.ai.goap.base_actions import (
-    make_approach, make_retreat, attack_mult, retreat_mult, skill_mp_weights)
+    make_approach, make_retreat, make_y_align, attack_mult, retreat_mult, skill_mp_weights)
 from src.python.game_constants import (
     INPUT_JUMP as J, INPUT_ATTACK as ATK, INPUT_SKILL as SKL)
 
@@ -23,14 +23,16 @@ ARCHER_PATTERNS = [
     ),
     Pattern(
         name="蓄力箭",
-        condition=lambda ws: can_use_skill(ws, ARCHER_PROFILE) and ws["dist"] >= 100_000,
+        condition=lambda ws: (can_use_skill(ws, ARCHER_PROFILE)
+                              and ws["dist"] >= 100_000
+                              and ws["dist_y"] <= 80_000),
         action_sequence=[TOWARD, SKL, 0, 0, 0],
         step_duration=[1, 1, 15, 10, 1],
         priority=9, cooldown_frames=35,
     ),
     Pattern(
         name="連射",
-        condition=lambda ws: 80_000 <= ws["dist"] <= 200_000,
+        condition=lambda ws: 80_000 <= ws["dist"] <= 200_000 and ws["dist_y"] <= 80_000,
         action_sequence=[ATK, 0, ATK, 0, ATK],
         step_duration=[1, 4, 1, 4, 1],
         priority=7, cooldown_frames=20,
@@ -40,7 +42,7 @@ ARCHER_PATTERNS = [
 # ── lv3 GOAP Action 表 ────────────────────────────────────────────────────────
 _ARCHER_ARROW = GOAPAction(
     name="普通箭矢",
-    preconditions={"in_range": False},
+    preconditions={"in_range": False, "y_aligned": True},
     effects={"opp_hp": ("delta", -4_000)},
     base_cost=0.8,
     input_mask=ATK,
@@ -49,7 +51,7 @@ _ARCHER_ARROW = GOAPAction(
 
 _ARCHER_CHARGED = GOAPAction(
     name="蓄力箭",
-    preconditions={"in_range": False, "self_mp": (">=", 18_000)},
+    preconditions={"in_range": False, "y_aligned": True, "self_mp": (">=", 18_000)},
     effects={"opp_hp": ("delta", -12_000)},
     base_cost=0.5,
     input_mask=SKL,
@@ -72,6 +74,7 @@ _ARCHER_JUMP_ESCAPE = GOAPAction(
 ARCHER_GOAP_ACTIONS = [
     make_approach(ARCHER_PROFILE),
     make_retreat(ARCHER_PROFILE),
+    make_y_align(),
     _ARCHER_ARROW,
     _ARCHER_CHARGED,
     _ARCHER_JUMP_ESCAPE,
