@@ -90,6 +90,7 @@ class GOAPAIController(AIController):
         self._step_timer: int = 0
         self._plan_age:   int = 0
         self._prev_ws:    dict = {}
+        self._mode:       str  = "balanced"
         self._replan_count: int = 0   # debug 用
 
     def decide(self, ai_p, opp_p, entities: list) -> int:
@@ -104,6 +105,7 @@ class GOAPAIController(AIController):
         if needs_replan:
             goal, mode = _select_goal(ws, self.profile)
             ws["mode"] = mode
+            self._mode      = mode
             self._plan      = plan(ws, goal, self.actions)
             self._plan_step = 0
             self._step_timer = 0
@@ -145,4 +147,11 @@ class GOAPAIController(AIController):
         else:
             info["goal"] = "REPLANNING"
             info["plan"] = "N/A"
+        info["mode"]      = self._mode
+        info["hp_adv"]    = self._prev_ws.get("hp_adv", "-")
+        info["in_range"]  = self._prev_ws.get("in_range", False)
+        info["y_aligned"] = self._prev_ws.get("y_aligned", False)
+        info["fuzzy_hp"]   = self._prev_ws.get("self_hp_fuzzy", {})
+        info["fuzzy_mp"]   = self._prev_ws.get("self_mp_fuzzy", {})
+        info["fuzzy_dist"] = self._prev_ws.get("dist_fuzzy", {})
         return info

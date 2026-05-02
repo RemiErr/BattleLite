@@ -13,24 +13,30 @@ if PROJECT_ROOT not in sys.path:
 _FONTS_DIR = os.path.join(PROJECT_ROOT, "src", "assets", "fonts")
 
 
+def _fmt_fuzzy(d: dict) -> str:
+    """將隸屬度向量壓縮成 'lo:80% md:15% hi:5%' 格式。"""
+    abbr = {"low": "lo", "mid": "md", "high": "hi",
+            "close": "cl", "far": "fr"}
+    return " ".join(
+        f"{abbr.get(k, k[:2])}:{int(v * 100)}%"
+        for k, v in d.items()
+    )
+
+
 class DebugManager:
     def __init__(self, font_size=16):
         self.enabled = False
 
-        # 定位字型檔案路徑
         font_path = os.path.join(
             _FONTS_DIR, "NotoSansTC-VariableFont_wght.ttf")
 
         try:
             if os.path.exists(font_path):
-                # 直接載入支援中文的字型檔
                 self.font = pygame.font.Font(font_path, font_size)
             else:
-                # 若找不到則回退系統預設
                 self.font = pygame.font.SysFont(
                     "Microsoft JhengHei, Consolas, monospace", font_size)
         except Exception as e:
-
             print(f"[Debug] Font loading failed: {e}")
             self.font = pygame.font.SysFont("monospace", font_size)
 
@@ -42,64 +48,79 @@ class DebugManager:
         if not self.enabled:
             return
 
-        # players 為 [(original_idx, Player), ...] 依原始 id 排序顯示
         sorted_players = sorted(players, key=lambda t: t[0])
         ai_controllers = ai_controllers or {}
 
-        # 1. 根據玩家人數與 AI 資訊量調整面板寬度與高度
-        panel_width = 220
-        panel_height = 200 + (len(sorted_players) * 80)
-        overlay = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 120))
-        # 擺放位置稍作下移，避免與 HUD 衝突
-        screen.blit(overlay, (5, 65))
+        # 收集所有文字行，事後再依行數決定面板高度
+        info_lines: list[tuple[str, tuple]] = []  # (text, color)
 
-        # 2. 收集基礎資訊
-        info_lines = [
-            f"------  BattleLite Debug  ------",
-            f"GGRS Frame: {session.current_frame()}",
-            f"Status:     {'SYNCED' if session.is_synchronized() else 'WAITING'}",
-            f"FPS:        {int(fps)}",
-            f"Players:    {len(sorted_players)}",
-            f"--------------------------------------",
-        ]
+        WHITE = (255, 255, 255)
+        GREEN = (0,   255, 0)
+        YELLOW = (255, 255, 0)
+        CYAN = (0,   255, 255)
+        ORANGE = (255, 180, 0)
+        GRAY = (180, 180, 180)
 
-        # 每個玩家的狀態（座標、速度、AI 策略）
+        def add(text, color=WHITE):
+            info_lines.append((text, color))
+
+        add("------  BattleLite Debug  ------")
+        add(f"GGRS Frame: {session.current_frame()}")
+        synced = session.is_synchronized()
+        add(f"Status:     {'SYNCED' if synced else 'WAITING'}",
+            GREEN if synced else WHITE)
+        add(f"FPS:        {int(fps)}")
+        add(f"Players:    {len(sorted_players)}")
+        add("--------------------------------------")
+
         for pid, player in sorted_players:
-            info_lines.append(
-                f"P{pid} Pos: ({player.x//1000}, {player.y//1000}, {player.z//1000})")
+            add(f"P{pid} Pos: ({player.x//1000}, {player.y//1000}, {player.z//1000})")
 
             if pid in ai_controllers:
                 ai_info = ai_controllers[pid].get_debug_info()
                 level = ai_info.get("level", "Unknown")
-                info_lines.append(f"  AI: {level}")
+                add(f"  AI: {level}", YELLOW)
+
                 if level == "lv1-FSM":
-                    info_lines.append(f"  State: {ai_info.get('state')}")
+                    add(f"  State: {ai_info.get('state')}")
+
                 elif level == "lv2-Pattern":
-                    info_lines.append(
-                        f"  Patt: {ai_info.get('pattern')} ({ai_info.get('step')})")
+                    add(f"  Patt: {ai_info.get('pattern')} ({ai_info.get('step')})")
+
                 elif level == "lv3-GOAP":
-                    info_lines.append(f"  Goal: {ai_info.get('goal')}")
-                    # 這裡的 Plan 欄位可能會包含中文字，現在載入 NotoSans 後可正確顯示
-                    info_lines.append(f"  Plan: {ai_info.get('plan')}")
+                    add(f"  Goal: {ai_info.get('goal')}  Mode: {ai_info.get('mode', '-')}")
+                    add(f"  Plan: {ai_info.get('plan')}")
+
+                    # 模糊隸屬度
+                    hp_str = _fmt_fuzzy(ai_info.get("fuzzy_hp",   {}))
+                    mp_str = _fmt_fuzzy(ai_info.get("fuzzy_mp",   {}))
+                    dist_str = _fmt_fuzzy(ai_info.get("fuzzy_dist", {}))
+                    if hp_str:
+                        add(f"  HP  [{hp_str}]", ORANGE)
+                    if mp_str:
+                        add(f"  MP  [{mp_str}]", ORANGE)
+                    if dist_str:
+                        add(f"  Dst [{dist_str}]", ORANGE)
+
+                    # 離散狀態
+                    adv = ai_info.get("hp_adv",    "-")
+                    in_range = "T" if ai_info.get("in_range") else "F"
+                    y_align = "T" if ai_info.get("y_aligned") else "F"
+                    add(f"  Adv:{adv}  Rng:{in_range}  Y:{y_align}", GRAY)
+
             else:
-                info_lines.append(f"  P{pid}: HUMAN")
+                add(f"  P{pid}: HUMAN", CYAN)
 
-            info_lines.append(
-                f"  Vel: ({player.vx}, {player.vy}, {player.vz})")
+            add(f"  Vel: ({player.vx}, {player.vy}, {player.vz})")
 
-        # 3. 渲染文字
-        for idx, line in enumerate(info_lines):
-            color = (255, 255, 255)
-            if "SYNCED" in line:
-                color = (0, 255, 0)
-            elif "AI:" in line:
-                color = (255, 255, 0)  # 黃色標註 AI
-            elif "HUMAN" in line:
-                color = (0, 255, 255)  # 青色標註真人
+        # 依行數動態計算面板高度
+        panel_width = 260
+        panel_height = 20 + len(info_lines) * 20
+        overlay = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 120))
+        screen.blit(overlay, (5, 65))
 
+        for idx, (line, color) in enumerate(info_lines):
             text_surf = self.font.render(line, True, color)
-            # 設定文字透明度
             text_surf.set_alpha(200)
-            # 配合背景座標進行偏移
             screen.blit(text_surf, (20, 80 + idx * 20))
