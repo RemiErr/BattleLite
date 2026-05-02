@@ -76,9 +76,19 @@
         *   **FSM**：在 `fsm_ai.py` 的狀態轉換中強制加入 `is_y_aligned` 檢查。
     3.  **規劃優化**：移除 `make_y_align` 中強制 `in_range: False` 的副作用，讓規劃器能更靈活地在範圍內進行微調對位。
 
-### 4.3 修正範圍彙整
+### 4.3 視覺震盪修復：Y 軸死區控制 (Deadzone)
+*   **診斷**：AI 在橫向移動時會頻繁且微小地修正 Y 軸（上下跳動）。這是因為輸入解析層缺乏「死區」，只要 dy != 0 就會輸出位移指令，導致在目標線附近產生過衝 (Overshooting)。
+*   **修復方案**：
+    1.  在所有 AI 控制器（FSM, Pattern, GOAP）的輸入解析環節引入 **5,000 單位** 的 Y 軸死區。
+    2.  **邏輯**：只有當垂直距離 `dy > 5,000` 時才輸出 `UP/DOWN` 按鍵；若在死區內則保持垂直靜止。
+*   **結果**：AI 橫移表現變得極其平穩，消除了視覺上的抽搐感。
+
+### 4.4 修正範圍彙整
 *   `src/python/ai/goap/world_state.py` (遲滯邏輯、閾值下調)
-*   `src/python/ai/controllers/goap_ai.py` (啟用歷史 WorldState 傳遞)
-*   `src/python/ai/controllers/fsm_ai.py` (LV1 對齊檢查)
+*   `src/python/ai/controllers/base.py` (新增 debug 介面)
+*   `src/python/ai/controllers/fsm_ai.py` (實作 deadzone 與 debug 資訊回傳、LV1 對齊檢查)
+*   `src/python/ai/controllers/pattern_ai.py` (實作 deadzone 與 debug 資訊回傳)
+*   `src/python/ai/controllers/goap_ai.py` (實作 deadzone 與 debug 資訊回傳、啟用歷史 WorldState 傳遞)
 *   `src/python/ai/goap/base_actions.py` (通用動作條件補強)
 *   `src/python/ai/characters/*_ai.py` (全角色技能條件同步修復)
+*   `src/python/main.py` (更新離線模式 AI 預設參數)
