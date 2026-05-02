@@ -126,6 +126,7 @@ class LauncherApp(ctk.CTk):
         self._local_ct = 0    # 本玩家選的 char_type
         self._room_data: dict = {}  # 最後一次 room_update 快取，供樂觀更新使用
         self._tier_cache: dict[str, str] = {}  # nickname → tier，由排行榜資料填入
+        self._ai_players: dict[int, dict] = {}  # pid → {"char_type": int, "level": int}
 
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
@@ -134,10 +135,13 @@ class LauncherApp(ctk.CTk):
         self._build_room_frame()
         self._build_settings_frame()
         self._build_leaderboard_frame()
+        self._build_offline_frame()
         self._show_main()
         self._poll_online()
         self.bind_all(
-            "<Button-1>", func=lambda event: event.widget.focus_set())
+            "<Button-1>",
+            func=lambda event: event.widget.focus_set()
+            if hasattr(event.widget, "focus_set") else None)
 
     # ── Main Frame ────────────────────────────────────────────────────────
 
@@ -310,6 +314,104 @@ class LauncherApp(ctk.CTk):
         self._lb_status.configure(
             text=f"{count} 位玩家" if count else "目前無紀錄")
 
+    # ── Offline Config Frame ──────────────────────────────────────────────
+
+    def _build_offline_frame(self):
+        # 預設 AI 配置（對應 main.py 離線開發預設值）
+        _OFFLINE_DEFAULTS = [
+            {"char_type": 1, "level": 3},  # P1 Mage LV3
+            {"char_type": 4, "level": 2},  # P2 Wizard LV2
+            {"char_type": 0, "level": 1},  # P3 Knight LV1
+        ]
+
+        f = ctk.CTkFrame(self, corner_radius=10)
+        f.grid_columnconfigure(0, weight=1)
+        self.offline_frame = f
+
+        hdr = ctk.CTkFrame(f, fg_color="transparent")
+        hdr.grid(row=0, column=0, padx=15, pady=(15, 5), sticky="ew")
+        hdr.grid_columnconfigure(1, weight=1)
+        ctk.CTkButton(hdr, text="← 返回", width=80, fg_color="gray30",
+                      command=self._show_main).grid(row=0, column=0)
+        ctk.CTkLabel(hdr, text="離線模式設定",
+                     font=_font(16, "bold")).grid(row=0, column=1, padx=10)
+
+        size_row = ctk.CTkFrame(f, fg_color="transparent")
+        size_row.grid(row=1, column=0, pady=(10, 4))
+        ctk.CTkLabel(size_row, text="玩家人數",
+                     font=_font(12)).pack(side="left", padx=(0, 8))
+        self._offline_size_seg = ctk.CTkSegmentedButton(
+            size_row, values=["2人", "3人", "4人"], width=150,
+            command=self._on_offline_size_change)
+        self._offline_size_seg.set("2人")
+        self._offline_size_seg.pack(side="left")
+
+        col_hdr = ctk.CTkFrame(f, fg_color="transparent")
+        col_hdr.grid(row=2, column=0, padx=20, pady=(8, 2), sticky="ew")
+        for col, (label, w) in enumerate([("玩家", 80), ("角色", 250), ("難度", 140)]):
+            ctk.CTkLabel(col_hdr, text=label, width=w, anchor="w",
+                         font=_font(11, "bold"),
+                         text_color="gray70").grid(row=0, column=col, padx=4)
+
+        self._offline_char_segs: list[ctk.CTkSegmentedButton] = []
+        self._offline_level_segs: list[ctk.CTkSegmentedButton] = []
+        self._offline_ai_rows: list[ctk.CTkFrame] = []
+        for i, defaults in enumerate(_OFFLINE_DEFAULTS):
+            pid = i + 1
+            row_f = ctk.CTkFrame(f, fg_color="transparent")
+            row_f.grid(row=3 + i, column=0, padx=20, pady=2, sticky="ew")
+
+            ctk.CTkLabel(row_f, text=f"P{pid} (AI)",
+                         width=80, anchor="w",
+                         font=_font(12)).grid(row=0, column=0, padx=4)
+
+            char_seg = ctk.CTkSegmentedButton(row_f, values=CHAR_NAMES, width=250)
+            char_seg.set(CHAR_NAMES[defaults["char_type"]])
+            char_seg.grid(row=0, column=1, padx=4)
+
+            level_seg = ctk.CTkSegmentedButton(
+                row_f, values=["LV1", "LV2", "LV3"], width=140)
+            level_seg.set(f"LV{defaults['level']}")
+            level_seg.grid(row=0, column=2, padx=4)
+
+            self._offline_char_segs.append(char_seg)
+            self._offline_level_segs.append(level_seg)
+            self._offline_ai_rows.append(row_f)
+
+        self._offline_update_rows(1)  # 預設 2 人 = 1 個 AI
+
+        ctk.CTkButton(f, text="開始遊戲", width=200, fg_color="green4",
+                      command=self._on_offline_start).grid(row=6, column=0, pady=20)
+
+    def _on_offline_size_change(self, label: str):
+        num_ai = {"2人": 1, "3人": 2, "4人": 3}.get(label, 1)
+        self._offline_update_rows(num_ai)
+
+    def _offline_update_rows(self, num_ai: int):
+        for i, row_f in enumerate(self._offline_ai_rows):
+            if i < num_ai:
+                row_f.grid()
+            else:
+                row_f.grid_remove()
+
+    def _on_offline_start(self):
+        num_players = {"2人": 2, "3人": 3, "4人": 4}.get(
+            self._offline_size_seg.get(), 2)
+        ai_players: dict[str, dict] = {}
+        for i in range(num_players - 1):
+            ct = CHAR_NAMES.index(self._offline_char_segs[i].get())
+            lv = int(self._offline_level_segs[i].get().replace("LV", ""))
+            ai_players[str(i + 1)] = {"char_type": ct, "level": lv}
+        self._do_launch({
+            "nickname": self.entry_nickname.get() or "DevPlayer",
+            "room": "offline",
+            "is_offline": True,
+            "local_id": 0,
+            "local_port": 5000,
+            "num_players": num_players,
+            "ai_players": ai_players,
+        })
+
     # ── Room Frame ────────────────────────────────────────────────────────
 
     def _build_room_frame(self):
@@ -422,18 +524,75 @@ class LauncherApp(ctk.CTk):
                          corner_radius=6).grid(
                 row=row, column=2, padx=4, pady=4)
 
-        # 空槽位（依 target_size 決定顯示幾列）
+        # 清除已被真實玩家佔用的 AI 槽位
+        real_pids = {p["id"] for p in players}
+        for pid in list(self._ai_players.keys()):
+            if pid in real_pids:
+                del self._ai_players[pid]
+
+        # 空槽位：手動加入 AI
         for i in range(len(players), target_size):
             row = i + 1
-            ctk.CTkLabel(self._rows_frame, text=f"P{i} (空)",
-                         width=120, anchor="w",
-                         text_color="gray50").grid(row=row, column=0, padx=4, pady=4, sticky="w")
-            ctk.CTkLabel(self._rows_frame, text="---",
-                         width=380, anchor="center",
-                         text_color="gray50").grid(row=row, column=1, padx=4, pady=4)
-            ctk.CTkLabel(self._rows_frame, text="---",
-                         width=70, anchor="center",
-                         text_color="gray50").grid(row=row, column=2, padx=4, pady=4)
+            if self._is_host and not self._is_queue:
+                pid = i
+                if pid in self._ai_players:
+                    # 已加入 AI：顯示設定列
+                    ctk.CTkLabel(self._rows_frame,
+                                 text=f"P{pid} (機器人)",
+                                 width=120, anchor="w").grid(
+                        row=row, column=0, padx=4, pady=4, sticky="w")
+
+                    # 角色選單：與正常玩家槽寬度相同，直接 grid 在 col 1
+                    char_seg = ctk.CTkSegmentedButton(
+                        self._rows_frame, values=CHAR_NAMES, width=380)
+                    char_seg.set(CHAR_NAMES[self._ai_players[pid]["char_type"]])
+                    char_seg.configure(
+                        command=lambda v, p=pid: self._on_room_ai_char(p, v))
+                    char_seg.grid(row=row, column=1, padx=4, pady=4)
+
+                    # 難度 + 移除按鈕：擺在 col 2
+                    ai_ctrl = ctk.CTkFrame(self._rows_frame, fg_color="transparent")
+                    ai_ctrl.grid(row=row, column=2, padx=4, pady=4)
+
+                    level_seg = ctk.CTkSegmentedButton(
+                        ai_ctrl, values=["1", "2", "3"], width=46)
+                    level_seg.set(str(self._ai_players[pid]["level"]))
+                    level_seg.configure(
+                        command=lambda v, p=pid: self._on_room_ai_level(p, v))
+                    level_seg.pack(side="left", padx=(0, 2))
+
+                    ctk.CTkButton(
+                        ai_ctrl, text="✕", width=18, height=28,
+                        fg_color="gray30", hover_color="red4",
+                        command=lambda p=pid: self._on_remove_ai(p)).pack(side="left")
+                else:
+                    # 尚未加入 AI：顯示「加入AI」按鈕
+                    ctk.CTkLabel(self._rows_frame,
+                                 text=f"P{pid} (空)",
+                                 width=120, anchor="w",
+                                 text_color="gray50").grid(
+                        row=row, column=0, padx=4, pady=4, sticky="w")
+                    ctk.CTkButton(
+                        self._rows_frame, text="+ 加入 AI",
+                        width=380, height=28,
+                        fg_color=("gray70", "gray25"), hover_color=("gray60", "gray35"),
+                        command=lambda p=pid: self._on_add_ai(p)).grid(
+                        row=row, column=1, padx=4, pady=4)
+                    ctk.CTkLabel(self._rows_frame, text="---",
+                                 width=70, anchor="center",
+                                 text_color="gray50").grid(
+                        row=row, column=2, padx=4, pady=4)
+            else:
+                ctk.CTkLabel(self._rows_frame, text=f"P{i} (空)",
+                             width=120, anchor="w",
+                             text_color="gray50").grid(
+                    row=row, column=0, padx=4, pady=4, sticky="w")
+                ctk.CTkLabel(self._rows_frame, text="---",
+                             width=380, anchor="center",
+                             text_color="gray50").grid(row=row, column=1, padx=4, pady=4)
+                ctk.CTkLabel(self._rows_frame, text="---",
+                             width=70, anchor="center",
+                             text_color="gray50").grid(row=row, column=2, padx=4, pady=4)
 
         # 人數選擇器（房主且非天梯）
         if self._is_host and not self._is_queue:
@@ -442,13 +601,14 @@ class LauncherApp(ctk.CTk):
         else:
             self._size_frame.grid_remove()
 
-        # 開始按鈕（房主且全員準備且人數達標）
-        all_ready = (len(players) >= target_size
+        # 開始按鈕（房主且全員準備且真人+AI人數達標）
+        filled = len(players) + len(self._ai_players)
+        all_ready = (filled >= target_size
                      and all(p.get("ready") for p in players))
         if self._is_host and not self._is_queue:
             self._btn_start.configure(
                 state="normal" if all_ready else "disabled",
-                text=f"開始遊戲 ({len(players)}/{target_size})")
+                text=f"開始遊戲 ({filled}/{target_size})")
         else:
             self._btn_start.configure(
                 state="disabled",
@@ -458,7 +618,8 @@ class LauncherApp(ctk.CTk):
 
     def _hide_all_frames(self):
         for frame in (self.main_frame, self.room_frame,
-                      self.settings_frame, self.leaderboard_frame):
+                      self.settings_frame, self.leaderboard_frame,
+                      self.offline_frame):
             frame.grid_remove()
 
     def _show_main(self):
@@ -527,14 +688,8 @@ class LauncherApp(ctk.CTk):
         self._entry_room.delete(0, "end")
 
     def _on_offline(self):
-        self._do_launch({
-            "nickname": self.entry_nickname.get() or "DevPlayer",
-            "room": "offline",
-            "is_offline": True,
-            "local_id": 0,
-            "local_port": 5000,
-            "num_players": 4,
-        })
+        self._hide_all_frames()
+        self.offline_frame.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
 
     # ── Room Frame 回呼 ───────────────────────────────────────────────────
 
@@ -544,6 +699,24 @@ class LauncherApp(ctk.CTk):
         if self.loop and self._client:
             asyncio.run_coroutine_threadsafe(
                 self._client.send_char_select(ct), self.loop)
+
+    def _on_add_ai(self, pid: int):
+        self._ai_players[pid] = {"char_type": 0, "level": 1}
+        if self._room_data:
+            self._update_room_ui(self._room_data)
+
+    def _on_remove_ai(self, pid: int):
+        self._ai_players.pop(pid, None)
+        if self._room_data:
+            self._update_room_ui(self._room_data)
+
+    def _on_room_ai_char(self, pid: int, name: str):
+        ct = CHAR_NAMES.index(name) if name in CHAR_NAMES else 0
+        self._ai_players.setdefault(pid, {"level": 1})["char_type"] = ct
+
+    def _on_room_ai_level(self, pid: int, level_str: str):
+        level = int(level_str.replace("LV", ""))
+        self._ai_players.setdefault(pid, {"char_type": 0})["level"] = level
 
     def _on_room_size_change(self, label: str):
         size_map = {"2人": 2, "3人": 3, "4人": 4}
@@ -566,7 +739,7 @@ class LauncherApp(ctk.CTk):
         self._btn_start.configure(state="disabled")
         if self.loop and self._client:
             asyncio.run_coroutine_threadsafe(
-                self._client.send_start_game(), self.loop)
+                self._client.send_start_game(len(self._ai_players)), self.loop)
 
     def _leave_room(self):
         self._queue_cancelled = True
@@ -781,6 +954,8 @@ class LauncherApp(ctk.CTk):
                             "host_id":     msg.get("host_id", 0),
                             "match_id":    msg.get("match_id", ""),
                             "lobby_url":   LOBBY_HTTP_URL,
+                            "ai_players":  {str(k): v
+                                            for k, v in self._ai_players.items()},
                         }
                         await client.close()
                         self.after(
@@ -840,6 +1015,7 @@ class LauncherApp(ctk.CTk):
         self._room_id = ""
         self._local_ct = 0
         self._room_data = {}
+        self._ai_players = {}
         self._size_frame.grid_remove()
         self._btn_ready.configure(state="normal", text="準備好了")
         self._btn_start.configure(state="disabled", text="開始遊戲")
