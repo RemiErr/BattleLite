@@ -200,9 +200,9 @@ def run_game():
         "num_players": 4,
         "local_port": 5000,
         "ai_players": {
-            "1": {"char_type": 0, "level": 2},
-            "2": {"char_type": 1, "level": 2},
-            "3": {"char_type": 2, "level": 2},
+            "1": {"char_type": 1, "level": 3},
+            "2": {"char_type": 4, "level": 2},
+            "3": {"char_type": 0, "level": 1},
         }
     }
 
@@ -597,7 +597,8 @@ def run_game():
 
         fx_manager.update_and_draw(screen)
         hud.draw(screen, render_list)
-        debug_manager.draw(screen, session, render_list, clock.get_fps())
+        debug_manager.draw(screen, session, render_list,
+                           clock.get_fps(), ai_controllers)
 
         # 同步等待提示
         if not is_offline and not session.is_synchronized():
