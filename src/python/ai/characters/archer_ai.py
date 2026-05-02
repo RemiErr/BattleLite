@@ -9,7 +9,8 @@ from src.python.game_constants import (
     INPUT_JUMP as J, INPUT_ATTACK as ATK, INPUT_SKILL as SKL)
 
 ARCHER_PROFILE = CharAIProfile(
-    preferred_range=160_000, skill_mp_threshold=18_000, aggression=0.6)
+    preferred_range=160_000, skill_mp_threshold=18_000, aggression=0.6,
+    attack_range=100_000)  # 超過此距離才用弓箭；近戰觸發跳躍逃脫
 
 # ── lv2 Pattern 表 ────────────────────────────────────────────────────────────
 ARCHER_PATTERNS = [

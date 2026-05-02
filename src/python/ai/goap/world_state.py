@@ -41,7 +41,7 @@ def _hp_advantage(self_hp: int, opp_hp: int, self_dom: str, opp_dom: str) -> str
 MAX_PLAN_AGE    = 45
 
 
-def build_goap_world_state(ai_p, opp_p) -> dict:
+def build_goap_world_state(ai_p, opp_p, attack_range: int = 80_000) -> dict:
     dx = abs(ai_p.x - opp_p.x)
     dy = abs(ai_p.y - opp_p.y)
     dist = max(dx, dy)
@@ -54,7 +54,7 @@ def build_goap_world_state(ai_p, opp_p) -> dict:
     return {
         # Layer 1：規劃器原始值（絕對值，不做正規化）
         "dist":          dist,
-        "in_range":      dist <= 80_000,     # 對應近戰有效攻擊距離
+        "in_range":      dist <= attack_range,
         "in_danger":     dist <= 180_000,   # 生存目標用，比 in_range 更大的警戒圈
         "self_hp":       ai_p.hp,
         "self_mp":       ai_p.mp,

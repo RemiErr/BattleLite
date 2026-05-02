@@ -8,7 +8,8 @@ from src.python.ai.goap.base_actions import (
 from src.python.game_constants import INPUT_ATTACK as ATK, INPUT_SKILL as SKL
 
 WIZARD_PROFILE = CharAIProfile(
-    preferred_range=90_000, skill_mp_threshold=15_000, aggression=0.6)
+    preferred_range=90_000, skill_mp_threshold=15_000, aggression=0.6,
+    attack_range=90_000)   # AOE 近戰圈 / 投射物射程分界
 
 # ── lv2 Pattern 表 ────────────────────────────────────────────────────────────
 WIZARD_PATTERNS = [

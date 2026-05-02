@@ -8,7 +8,8 @@ from src.python.ai.goap.base_actions import (
 from src.python.game_constants import INPUT_ATTACK as ATK, INPUT_SKILL as SKL
 
 PALADIN_PROFILE = CharAIProfile(
-    preferred_range=80_000, skill_mp_threshold=12_000, aggression=0.5)
+    preferred_range=80_000, skill_mp_threshold=12_000, aggression=0.5,
+    attack_range=75_000)
 
 # ── lv2 Pattern 表 ────────────────────────────────────────────────────────────
 PALADIN_PATTERNS = [

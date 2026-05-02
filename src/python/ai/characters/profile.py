@@ -7,3 +7,4 @@ class CharAIProfile:
     preferred_range:    int    # 偏好戰鬥距離（Rust 單位）
     skill_mp_threshold: int    # 放技能所需 MP
     aggression:         float  # 0.0 保守 ～ 1.0 積極
+    attack_range:       int = 80_000  # in_range 判定閾值：近戰/遠程分界線

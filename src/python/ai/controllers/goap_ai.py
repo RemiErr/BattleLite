@@ -61,10 +61,11 @@ def _resolve_direction(action: GOAPAction, ai_p, opp_p) -> int:
         x = INPUT_LEFT  if opp_p.x > ai_p.x else INPUT_RIGHT
         y = INPUT_UP    if opp_p.y > ai_p.y else INPUT_DOWN
         return x | y
-    # 攻擊 / 技能：強制加入面向對手的 X 方向，防止背對攻擊
+    # 攻擊 / 技能：加入面向對手的 X + Y 方向，防止背對或 Y 軸錯位
     if action.input_mask & (INPUT_ATTACK | INPUT_SKILL):
-        x_face = INPUT_RIGHT if opp_p.x > ai_p.x else INPUT_LEFT
-        return action.input_mask | x_face
+        x_face   = INPUT_RIGHT if opp_p.x > ai_p.x else INPUT_LEFT
+        y_toward = INPUT_DOWN  if opp_p.y > ai_p.y else INPUT_UP
+        return action.input_mask | x_face | y_toward
     return action.input_mask
 
 
@@ -84,7 +85,7 @@ class GOAPAIController(AIController):
         self._replan_count: int = 0   # debug 用
 
     def decide(self, ai_p, opp_p, entities: list) -> int:
-        ws = build_goap_world_state(ai_p, opp_p)
+        ws = build_goap_world_state(ai_p, opp_p, self.profile.attack_range)
 
         needs_replan = (
             not self._plan
@@ -119,5 +120,10 @@ class GOAPAIController(AIController):
             self._plan_step += 1
             if self._plan_step >= len(self._plan):
                 self._plan = []
+            else:
+                # 下一步先決條件未達成（靠近後仍未入射程等）→ 立即重新規劃
+                next_ws = build_goap_world_state(ai_p, opp_p, self.profile.attack_range)
+                if not self._plan[self._plan_step].is_applicable(next_ws):
+                    self._plan = []
 
         return mask

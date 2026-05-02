@@ -9,7 +9,8 @@ from src.python.game_constants import (
     INPUT_JUMP as J, INPUT_ATTACK as ATK, INPUT_SKILL as SKL)
 
 KNIGHT_PROFILE = CharAIProfile(
-    preferred_range=70_000, skill_mp_threshold=15_000, aggression=0.8)
+    preferred_range=70_000, skill_mp_threshold=15_000, aggression=0.8,
+    attack_range=65_000)
 
 # ── lv2 Pattern 表 ────────────────────────────────────────────────────────────
 KNIGHT_PATTERNS = [

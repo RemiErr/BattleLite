@@ -9,7 +9,8 @@ from src.python.game_constants import (
     INPUT_JUMP as J, INPUT_ATTACK as ATK, INPUT_SKILL as SKL)
 
 MAGE_PROFILE = CharAIProfile(
-    preferred_range=200_000, skill_mp_threshold=20_000, aggression=0.4)
+    preferred_range=200_000, skill_mp_threshold=20_000, aggression=0.4,
+    attack_range=120_000)  # 超過此距離才用魔法彈；近戰觸發跳躍逃脫
 
 # ── lv2 Pattern 表 ────────────────────────────────────────────────────────────
 MAGE_PATTERNS = [
