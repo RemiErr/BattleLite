@@ -139,7 +139,9 @@ class LauncherApp(ctk.CTk):
         self._show_main()
         self._poll_online()
         self.bind_all(
-            "<Button-1>", func=lambda event: event.widget.focus_set())
+            "<Button-1>",
+            func=lambda event: event.widget.focus_set()
+            if hasattr(event.widget, "focus_set") else None)
 
     # ── Main Frame ────────────────────────────────────────────────────────
 
@@ -528,40 +530,58 @@ class LauncherApp(ctk.CTk):
             if pid in real_pids:
                 del self._ai_players[pid]
 
-        # 空槽位
+        # 空槽位：手動加入 AI
         for i in range(len(players), target_size):
             row = i + 1
             if self._is_host and not self._is_queue:
-                # 房主可設定機器人角色與難度
                 pid = i
-                if pid not in self._ai_players:
-                    self._ai_players[pid] = {"char_type": 0, "level": 1}
+                if pid in self._ai_players:
+                    # 已加入 AI：顯示設定列
+                    ctk.CTkLabel(self._rows_frame,
+                                 text=f"P{pid} (機器人)",
+                                 width=120, anchor="w").grid(
+                        row=row, column=0, padx=4, pady=4, sticky="w")
 
-                ctk.CTkLabel(self._rows_frame,
-                             text=f"P{pid} (機器人)",
-                             width=120, anchor="w").grid(
-                    row=row, column=0, padx=4, pady=4, sticky="w")
+                    # 角色選單：與正常玩家槽寬度相同，直接 grid 在 col 1
+                    char_seg = ctk.CTkSegmentedButton(
+                        self._rows_frame, values=CHAR_NAMES, width=380)
+                    char_seg.set(CHAR_NAMES[self._ai_players[pid]["char_type"]])
+                    char_seg.configure(
+                        command=lambda v, p=pid: self._on_room_ai_char(p, v))
+                    char_seg.grid(row=row, column=1, padx=4, pady=4)
 
-                ai_inner = ctk.CTkFrame(self._rows_frame, fg_color="transparent")
-                ai_inner.grid(row=row, column=1, padx=4, pady=4)
+                    # 難度 + 移除按鈕：擺在 col 2
+                    ai_ctrl = ctk.CTkFrame(self._rows_frame, fg_color="transparent")
+                    ai_ctrl.grid(row=row, column=2, padx=4, pady=4)
 
-                char_seg = ctk.CTkSegmentedButton(ai_inner, values=CHAR_NAMES, width=240)
-                char_seg.set(CHAR_NAMES[self._ai_players[pid]["char_type"]])
-                char_seg.configure(
-                    command=lambda v, p=pid: self._on_room_ai_char(p, v))
-                char_seg.pack(side="left", padx=(0, 4))
+                    level_seg = ctk.CTkSegmentedButton(
+                        ai_ctrl, values=["1", "2", "3"], width=46)
+                    level_seg.set(str(self._ai_players[pid]["level"]))
+                    level_seg.configure(
+                        command=lambda v, p=pid: self._on_room_ai_level(p, v))
+                    level_seg.pack(side="left", padx=(0, 2))
 
-                level_seg = ctk.CTkSegmentedButton(
-                    ai_inner, values=["LV1", "LV2", "LV3"], width=130)
-                level_seg.set(f"LV{self._ai_players[pid]['level']}")
-                level_seg.configure(
-                    command=lambda v, p=pid: self._on_room_ai_level(p, v))
-                level_seg.pack(side="left")
-
-                ctk.CTkLabel(self._rows_frame, text="機器人",
-                             width=70, anchor="center",
-                             fg_color=("blue3", "blue4"),
-                             corner_radius=6).grid(row=row, column=2, padx=4, pady=4)
+                    ctk.CTkButton(
+                        ai_ctrl, text="✕", width=18, height=28,
+                        fg_color="gray30", hover_color="red4",
+                        command=lambda p=pid: self._on_remove_ai(p)).pack(side="left")
+                else:
+                    # 尚未加入 AI：顯示「加入AI」按鈕
+                    ctk.CTkLabel(self._rows_frame,
+                                 text=f"P{pid} (空)",
+                                 width=120, anchor="w",
+                                 text_color="gray50").grid(
+                        row=row, column=0, padx=4, pady=4, sticky="w")
+                    ctk.CTkButton(
+                        self._rows_frame, text="+ 加入 AI",
+                        width=380, height=28,
+                        fg_color=("gray70", "gray25"), hover_color=("gray60", "gray35"),
+                        command=lambda p=pid: self._on_add_ai(p)).grid(
+                        row=row, column=1, padx=4, pady=4)
+                    ctk.CTkLabel(self._rows_frame, text="---",
+                                 width=70, anchor="center",
+                                 text_color="gray50").grid(
+                        row=row, column=2, padx=4, pady=4)
             else:
                 ctk.CTkLabel(self._rows_frame, text=f"P{i} (空)",
                              width=120, anchor="w",
@@ -581,13 +601,14 @@ class LauncherApp(ctk.CTk):
         else:
             self._size_frame.grid_remove()
 
-        # 開始按鈕（房主且全員準備且人數達標）
-        all_ready = (len(players) >= target_size
+        # 開始按鈕（房主且全員準備且真人+AI人數達標）
+        filled = len(players) + len(self._ai_players)
+        all_ready = (filled >= target_size
                      and all(p.get("ready") for p in players))
         if self._is_host and not self._is_queue:
             self._btn_start.configure(
                 state="normal" if all_ready else "disabled",
-                text=f"開始遊戲 ({len(players)}/{target_size})")
+                text=f"開始遊戲 ({filled}/{target_size})")
         else:
             self._btn_start.configure(
                 state="disabled",
@@ -679,6 +700,16 @@ class LauncherApp(ctk.CTk):
             asyncio.run_coroutine_threadsafe(
                 self._client.send_char_select(ct), self.loop)
 
+    def _on_add_ai(self, pid: int):
+        self._ai_players[pid] = {"char_type": 0, "level": 1}
+        if self._room_data:
+            self._update_room_ui(self._room_data)
+
+    def _on_remove_ai(self, pid: int):
+        self._ai_players.pop(pid, None)
+        if self._room_data:
+            self._update_room_ui(self._room_data)
+
     def _on_room_ai_char(self, pid: int, name: str):
         ct = CHAR_NAMES.index(name) if name in CHAR_NAMES else 0
         self._ai_players.setdefault(pid, {"level": 1})["char_type"] = ct
@@ -708,7 +739,7 @@ class LauncherApp(ctk.CTk):
         self._btn_start.configure(state="disabled")
         if self.loop and self._client:
             asyncio.run_coroutine_threadsafe(
-                self._client.send_start_game(), self.loop)
+                self._client.send_start_game(len(self._ai_players)), self.loop)
 
     def _leave_room(self):
         self._queue_cancelled = True
