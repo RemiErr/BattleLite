@@ -689,20 +689,28 @@ pub struct GGRSSession {
     session:       P2PSession<BattleConfig>,
     current_state: GameState,
     local_player_id: usize,
+    bot_ids:       Vec<usize>,
     char_configs:  Vec<CharConfig>,
 }
 
 #[pymethods]
 impl GGRSSession {
     #[new]
-    fn new(local_player_id: usize, num_players: usize, port: u16, remotes: Vec<(usize, String, u16)>) -> PyResult<Self> {
+    #[pyo3(signature = (local_player_id, num_players, port, remotes, bot_ids=None))]
+    fn new(local_player_id: usize, num_players: usize, port: u16,
+           remotes: Vec<(usize, String, u16)>,
+           bot_ids: Option<Vec<usize>>) -> PyResult<Self> {
+        let bot_ids = bot_ids.unwrap_or_default();
         let socket = UdpNonBlockingSocket::bind_to_port(port)
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         let mut builder = SessionBuilder::<BattleConfig>::new()
             .with_num_players(num_players).with_fps(60).unwrap();
         builder = builder.add_player(PlayerType::Local, local_player_id).unwrap();
+        for &bot_id in &bot_ids {
+            builder = builder.add_player(PlayerType::Local, bot_id).unwrap();
+        }
         for (id, ip, p) in remotes {
-            if id != local_player_id {
+            if id != local_player_id && !bot_ids.contains(&id) {
                 let addr: SocketAddr = format!("{}:{}", ip, p).parse()
                     .map_err(|e: std::net::AddrParseError| PyRuntimeError::new_err(e.to_string()))?;
                 builder = builder.add_player(PlayerType::Remote(addr), id).unwrap();
@@ -721,6 +729,7 @@ impl GGRSSession {
             session,
             current_state: GameState { players, frame: 0, entities: Vec::new() },
             local_player_id,
+            bot_ids,
             char_configs: configs,
         })
     }
@@ -766,10 +775,16 @@ impl GGRSSession {
         );
     }
 
-    fn advance(&mut self, local_input: u8) -> PyResult<()> {
+    #[pyo3(signature = (local_input, bot_inputs=None))]
+    fn advance(&mut self, local_input: u8, bot_inputs: Option<Vec<(usize, u8)>>) -> PyResult<()> {
         self.session.poll_remote_clients();
         if self.session.current_state() == SessionState::Running {
             self.session.add_local_input(self.local_player_id, local_input).ok();
+            if let Some(inputs) = bot_inputs {
+                for (bot_id, bot_input) in inputs {
+                    self.session.add_local_input(bot_id, bot_input).ok();
+                }
+            }
             match self.session.advance_frame() {
                 Ok(requests) => self.handle_requests(requests),
                 _ => {}

@@ -12,25 +12,33 @@ if PROJECT_ROOT not in sys.path:
 
 _FONTS_DIR = os.path.join(PROJECT_ROOT, "src", "assets", "fonts")
 
+_COL_W = 220   # 每個玩家欄位寬度（px）
+_LINE_H = 20    # 每行高度（px），縮小讓更多資訊塞進螢幕
+
+
+def _fmt_fuzzy(d: dict) -> str:
+    """將隸屬度向量壓縮成 'lo:80% md:15% hi:5%' 格式。"""
+    abbr = {"low": "lo", "mid": "md", "high": "hi",
+            "close": "cl", "far": "fr"}
+    return " ".join(
+        f"{abbr.get(k, k[:2])}:{int(v * 100)}%"
+        for k, v in d.items()
+    )
+
 
 class DebugManager:
-    def __init__(self, font_size=16):
+    def __init__(self, font_size=14):
         self.enabled = False
 
-        # 定位字型檔案路徑
         font_path = os.path.join(
             _FONTS_DIR, "NotoSansTC-VariableFont_wght.ttf")
-
         try:
             if os.path.exists(font_path):
-                # 直接載入支援中文的字型檔
                 self.font = pygame.font.Font(font_path, font_size)
             else:
-                # 若找不到則回退系統預設
                 self.font = pygame.font.SysFont(
                     "Microsoft JhengHei, Consolas, monospace", font_size)
         except Exception as e:
-
             print(f"[Debug] Font loading failed: {e}")
             self.font = pygame.font.SysFont("monospace", font_size)
 
@@ -42,64 +50,113 @@ class DebugManager:
         if not self.enabled:
             return
 
-        # players 為 [(original_idx, Player), ...] 依原始 id 排序顯示
         sorted_players = sorted(players, key=lambda t: t[0])
         ai_controllers = ai_controllers or {}
 
-        # 1. 根據玩家人數與 AI 資訊量調整面板寬度與高度
-        panel_width = 220
-        panel_height = 200 + (len(sorted_players) * 80)
-        overlay = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 120))
-        # 擺放位置稍作下移，避免與 HUD 衝突
-        screen.blit(overlay, (5, 65))
+        WHITE = (255, 255, 255)
+        GREEN = (0,   255, 0)
+        YELLOW = (255, 255, 0)
+        CYAN = (0,   255, 255)
+        ORANGE = (255, 180, 0)
+        GRAY = (180, 180, 180)
 
-        # 2. 收集基礎資訊
-        info_lines = [
-            f"------  BattleLite Debug  ------",
-            f"GGRS Frame: {session.current_frame()}",
-            f"Status:     {'SYNCED' if session.is_synchronized() else 'WAITING'}",
-            f"FPS:        {int(fps)}",
-            f"Players:    {len(sorted_players)}",
-            f"--------------------------------------",
+        # ── 1. 標頭（單行橫條）──────────────────────────────────
+        synced = session.is_synchronized()
+        status_color = GREEN if synced else WHITE
+        header: list[tuple[str, tuple]] = [
+            ("BattleLite Debug：", WHITE),
+            (f"Frame:{session.current_frame()}  FPS:{int(fps)}  "
+             f"{'SYNCED' if synced else 'WAITING'}  "
+             f"P:{len(sorted_players)}", status_color),
         ]
 
-        # 每個玩家的狀態（座標、速度、AI 策略）
+        # ── 2. 每個玩家資訊欄（橫向並列）──────────────────────
+        player_cols: list[list[tuple[str, tuple]]] = []
+
         for pid, player in sorted_players:
-            info_lines.append(
-                f"P{pid} Pos: ({player.x//1000}, {player.y//1000}, {player.z//1000})")
+            col: list[tuple[str, tuple]] = []
+
+            def _add(text, color=WHITE, _col=col):
+                _col.append((text, color))
+
+            pos = f"({player.x//1000},{player.y//1000},{player.z//1000})"
+            _add(f"P{pid} {pos}")
 
             if pid in ai_controllers:
                 ai_info = ai_controllers[pid].get_debug_info()
-                level = ai_info.get("level", "Unknown")
-                info_lines.append(f"  AI: {level}")
+                level = ai_info.get("level", "?")
+                _add(f"AI: {level}", YELLOW)
+
                 if level == "lv1-FSM":
-                    info_lines.append(f"  State: {ai_info.get('state')}")
+                    _add(f"State: {ai_info.get('state')}")
+
                 elif level == "lv2-Pattern":
-                    info_lines.append(
-                        f"  Patt: {ai_info.get('pattern')} ({ai_info.get('step')})")
+                    _add(f"Patt: {ai_info.get('pattern')}")
+                    _add(f"Step: {ai_info.get('step')}")
+
                 elif level == "lv3-GOAP":
-                    info_lines.append(f"  Goal: {ai_info.get('goal')}")
-                    # 這裡的 Plan 欄位可能會包含中文字，現在載入 NotoSans 後可正確顯示
-                    info_lines.append(f"  Plan: {ai_info.get('plan')}")
+                    _add(f"Goal: {ai_info.get('goal')}")
+                    _add(f"Mode: {ai_info.get('mode', '-')}")
+                    _add(f"Plan: {ai_info.get('plan')}")
+
+                    hp_str = _fmt_fuzzy(ai_info.get("fuzzy_hp",   {}))
+                    mp_str = _fmt_fuzzy(ai_info.get("fuzzy_mp",   {}))
+                    dist_str = _fmt_fuzzy(ai_info.get("fuzzy_dist", {}))
+                    if hp_str:
+                        _add(f"HP [{hp_str}]", ORANGE)
+                    if mp_str:
+                        _add(f"MP [{mp_str}]", ORANGE)
+                    if dist_str:
+                        _add(f"Dt [{dist_str}]", ORANGE)
+
+                    adv = ai_info.get("hp_adv",    "-")
+                    in_range = "T" if ai_info.get("in_range") else "F"
+                    y_align = "T" if ai_info.get("y_aligned") else "F"
+                    _add(f"Adv: {adv}, Rng: {in_range}, Y: {y_align}", GRAY)
+
             else:
-                info_lines.append(f"  P{pid}: HUMAN")
+                _add("HUMAN", CYAN)
 
-            info_lines.append(
-                f"  Vel: ({player.vx}, {player.vy}, {player.vz})")
+            _add(f"Vel ({player.vx}, {player.vy}, {player.vz})", GRAY)
+            player_cols.append(col)
 
-        # 3. 渲染文字
-        for idx, line in enumerate(info_lines):
-            color = (255, 255, 255)
-            if "SYNCED" in line:
-                color = (0, 255, 0)
-            elif "AI:" in line:
-                color = (255, 255, 0)  # 黃色標註 AI
-            elif "HUMAN" in line:
-                color = (0, 255, 255)  # 青色標註真人
+        # ── 3. 計算面板尺寸並繪製背景 ──────────────────────────
+        n = len(player_cols)
+        PAD = 6
+        x0 = 5 + PAD
+        y0 = 65 + PAD
+        hdr_h = len(header) * _LINE_H + PAD
+        col_h = max((len(c) for c in player_cols), default=0) * _LINE_H
+        panel_w = max(_COL_W, _COL_W * n) + PAD
+        panel_h = hdr_h + col_h + PAD
 
-            text_surf = self.font.render(line, True, color)
-            # 設定文字透明度
-            text_surf.set_alpha(200)
-            # 配合背景座標進行偏移
-            screen.blit(text_surf, (20, 80 + idx * 20))
+        overlay = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 130))
+        screen.blit(overlay, (5, 65))
+
+        # ── 4. 渲染標頭 ──────────────────────────────────────
+        for i, (text, color) in enumerate(header):
+            surf = self.font.render(text, True, color)
+            surf.set_alpha(210)
+            screen.blit(surf, (x0, y0 + i * _LINE_H))
+
+        # 標頭下方橫向分隔線（對齊所有欄位的起始 Y）
+        sep_y = y0 + hdr_h - 2
+        pygame.draw.line(screen, (100, 100, 100),
+                         (5 + PAD, sep_y), (5 + panel_w - PAD, sep_y), 1)
+
+        # ── 5. 各玩家欄位橫向排列 ────────────────────────────
+        y_col = y0 + hdr_h
+        for col_idx, col in enumerate(player_cols):
+            x_base = x0 + col_idx * _COL_W
+
+            # 欄位間縱向分隔線
+            if col_idx > 0:
+                pygame.draw.line(screen, (100, 100, 100),
+                                 (x_base - 4, sep_y),
+                                 (x_base - 4, sep_y + col_h), 1)
+
+            for row_idx, (text, color) in enumerate(col):
+                surf = self.font.render(text, True, color)
+                surf.set_alpha(210)
+                screen.blit(surf, (x_base, y_col + row_idx * _LINE_H))

@@ -739,7 +739,10 @@ class LauncherApp(ctk.CTk):
         self._btn_start.configure(state="disabled")
         if self.loop and self._client:
             asyncio.run_coroutine_threadsafe(
-                self._client.send_start_game(len(self._ai_players)), self.loop)
+                self._client.send_start_game(
+                    len(self._ai_players),
+                    {str(k): v for k, v in self._ai_players.items()}),
+                self.loop)
 
     def _leave_room(self):
         self._queue_cancelled = True
@@ -942,20 +945,22 @@ class LauncherApp(ctk.CTk):
                                              "ip":   p["local_ip"] if same_lan else p["pub_ip"],
                                              "port": p["local_port"] if same_lan else p["pub_port"],
                                              })
+                        # host 的 self._ai_players 為本地權威；非 host 從伺服器廣播取得
+                        local_ai = {str(k): v for k, v in self._ai_players.items()}
+                        ai_players_final = local_ai or msg.get("ai_players", {})
                         session_data = {
                             "nickname":    nickname,
                             "room":        room_id,
                             "is_offline":  False,
                             "local_id":    self._my_id,
                             "local_port":  local_port,
-                            "num_players": len(msg["players"]),
+                            "num_players": len(msg["players"]) + len(ai_players_final),
                             "players":     resolved,
                             "seed":        msg["seed"],
                             "host_id":     msg.get("host_id", 0),
                             "match_id":    msg.get("match_id", ""),
                             "lobby_url":   LOBBY_HTTP_URL,
-                            "ai_players":  {str(k): v
-                                            for k, v in self._ai_players.items()},
+                            "ai_players":  ai_players_final,
                         }
                         await client.close()
                         self.after(
