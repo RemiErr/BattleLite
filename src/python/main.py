@@ -345,7 +345,8 @@ def run_game():
         return None
 
     def _restart_offline():
-        nonlocal match_result, player_elapsed_frames, last_states
+        nonlocal match_result, player_elapsed_frames, last_states, paused
+        paused = False
         for i in range(num_players):
             p = session.get_player(i)
             asset = char_assets.get(p.character_type, char_assets[0])
@@ -361,6 +362,7 @@ def run_game():
         last_states = [STATE_IDLE] * num_players
 
     running = True
+    paused  = False
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -368,6 +370,11 @@ def run_game():
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     running = False
+                    continue
+                if event.key == pygame.K_p and is_offline:
+                    paused = not paused
+                    continue
+                if paused:
                     continue
                 if match_result is not None:
                     if event.key == pygame.K_r and is_offline:
@@ -395,7 +402,7 @@ def run_game():
         # 1. 邏輯推進
         input_mask = get_input_mask(key_map)
 
-        if match_result is None:
+        if match_result is None and not paused:
             prev_z = [session.get_player(i).z for i in range(num_players)]
             prev_entity_count = session.get_entity_count()
 
@@ -697,6 +704,18 @@ def run_game():
             hint = "R: Restart  ESC: Quit" if is_offline else "ESC: Quit"
             sm_surf = result_font_small.render(hint, True, (180, 180, 180))
             screen.blit(sm_surf, sm_surf.get_rect(center=(cx, cy + 50)))
+
+        # 暫停畫面（離線模式）
+        if paused and is_offline:
+            ov = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+            ov.fill((0, 0, 0, 140))
+            screen.blit(ov, (0, 0))
+            cx, cy = SCREEN_W // 2, SCREEN_H // 2
+            pause_surf = result_font_big.render("PAUSED", True, (255, 255, 255))
+            screen.blit(pause_surf, pause_surf.get_rect(center=(cx, cy - 20)))
+            hint_surf = result_font_small.render("P: Resume  ESC: Quit",
+                                                 True, (180, 180, 180))
+            screen.blit(hint_surf, hint_surf.get_rect(center=(cx, cy + 40)))
 
         pygame.display.flip()
         clock.tick(60)
