@@ -255,6 +255,8 @@ def run_game():
     is_offline = config["is_offline"]
     num_players = config["num_players"]
     controlled_idx = config["local_id"]
+    host_id = config.get("host_id", 0)
+    i_am_host = is_offline or (controlled_idx == host_id)
 
     if is_offline:
         print("[Mode] Offline Sandbox (Pure Rust Simulation)")
@@ -265,14 +267,26 @@ def run_game():
         print("[Mode] Online P2P (GGRS Rollback)")
         print(
             f"  local_id={controlled_idx}  local_port={config['local_port']}")
+        ai_player_ids = [int(k) for k in config.get("ai_players", {}).keys()]
         remote_players_list = []
         if "players" in config:
             for p in config["players"]:
                 remote_players_list.append((p["id"], p["ip"], p["port"]))
                 tag = "← me" if p["id"] == controlled_idx else "→ remote"
                 print(f"  player id={p['id']}  {p['ip']}:{p['port']}  {tag}")
+        if not i_am_host and ai_player_ids:
+            # 非 host：AI 輸入由 host 發送，以 host 的地址將 AI 槽位注冊為 Remote
+            host_player = next((p for p in config.get("players", [])
+                                if p["id"] == host_id), None)
+            if host_player:
+                for pid in ai_player_ids:
+                    remote_players_list.append(
+                        (pid, host_player["ip"], host_player["port"]))
+                    print(f"  player id={pid}  (AI @ host)  {host_player['ip']}:{host_player['port']}")
+        bot_ids_for_session = ai_player_ids if i_am_host else []
         session = GGRSSession(controlled_idx, num_players,
-                              config["local_port"], remote_players_list)
+                              config["local_port"], remote_players_list,
+                              bot_ids_for_session)
         for char_type, asset in char_assets.items():
             apply_char_config(session, char_type, asset)
 
@@ -300,7 +314,9 @@ def run_game():
             p.hp = char_assets[ct].physics.max_hp
             p.mp = char_assets[ct].physics.max_mp
             session.set_player(pid, p)
-            ai_controllers[pid] = make_ai(ct, ai_info.get("level", 1), seed)
+            # 線上模式只有 host 負責產生 AI 輸入；非 host 靠 GGRS rollback 接收
+            if is_offline or i_am_host:
+                ai_controllers[pid] = make_ai(ct, ai_info.get("level", 1), seed)
 
     _set_spawn_positions(session, num_players)
 
@@ -386,7 +402,6 @@ def run_game():
                         ai_p = session.get_player(pid)
                         entities = [session.get_entity(i)
                                     for i in range(session.get_entity_count())]
-
                         alive_opponents = [
                             session.get_player(j)
                             for j in range(num_players)
@@ -399,14 +414,31 @@ def run_game():
                                 abs(ai_p.x - q.x), abs(ai_p.y - q.y)),
                             default=session.get_player(controlled_idx),
                         )
-
                         inputs.append(ai_controllers[pid].decide(
                             ai_p, opp_p, entities))
                     else:
                         inputs.append(0)
                 session.advance(inputs)
             else:
-                session.advance(input_mask)
+                bot_inputs = []
+                for pid, controller in ai_controllers.items():
+                    ai_p = session.get_player(pid)
+                    entities = [session.get_entity(i)
+                                for i in range(session.get_entity_count())]
+                    alive_opponents = [
+                        session.get_player(j)
+                        for j in range(num_players)
+                        if j != pid
+                        and session.get_player(j).state != STATE_DEAD
+                    ]
+                    opp_p = min(
+                        alive_opponents,
+                        key=lambda q: max(
+                            abs(ai_p.x - q.x), abs(ai_p.y - q.y)),
+                        default=session.get_player(controlled_idx),
+                    )
+                    bot_inputs.append((pid, controller.decide(ai_p, opp_p, entities)))
+                session.advance(input_mask, bot_inputs if bot_inputs else None)
             _clamp_world_bounds(session, num_players)
 
             # --- SFX 事件偵測 ---
