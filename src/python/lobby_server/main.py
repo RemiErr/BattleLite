@@ -196,6 +196,8 @@ class ResultItem(BaseModel):
 async def submit_result(item: ResultItem):
     if item.result not in ("win", "lose", "draw"):
         raise HTTPException(400, "result must be win / lose / draw")
+    if not _is_queue_room(item.room_code):
+        return {"ok": True, "ranked": False}
     if not _db:
         raise HTTPException(503, "DB not ready")
     await _db.execute(
