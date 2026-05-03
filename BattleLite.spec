@@ -24,6 +24,7 @@ launcher_exe = EXE(
     exclude_binaries=True,
     name='BattleLite',
     console=True,
+    icon='src/assets/img/launcher.ico',
 )
 
 game_exe = EXE(
@@ -33,6 +34,7 @@ game_exe = EXE(
     exclude_binaries=True,
     name='Game',
     console=True,
+    icon='src/assets/img/game.ico',
 )
 
 coll = COLLECT(
