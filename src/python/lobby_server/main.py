@@ -273,6 +273,7 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
             elif t == "start_game":
                 if not is_queue and pid == 0:
                     ai_count = int(data.get("ai_count", 0))
+                    room["ai_players"] = data.get("ai_players", {})
                     ps = room["players"]
                     if (len(ps) + ai_count >= room["target_size"]
                             and all(p["ready"] for p in ps)
@@ -346,11 +347,12 @@ async def _delayed_game_start(
     if room_id not in rooms:
         return
     game_msg = {
-        "type":     "game_start",
-        "seed":     seed,
-        "host_id":  host_id,
-        "players":  players_info,
-        "match_id": match_id,
+        "type":      "game_start",
+        "seed":      seed,
+        "host_id":   host_id,
+        "players":   players_info,
+        "match_id":  match_id,
+        "ai_players": rooms.get(room_id, {}).get("ai_players", {}),
     }
     print(f"🎮 game_start room={room_id} match={match_id}")
     for p in rooms.get(room_id, {}).get("players", []):
