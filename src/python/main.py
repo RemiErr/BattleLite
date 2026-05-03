@@ -224,7 +224,11 @@ def run_game():
     fx_manager = FxManager()
 
     # 從 settings.json 讀音量與按鍵組合
-    _settings_path = os.path.join(PROJECT_ROOT, 'settings.json')
+    if getattr(sys, 'frozen', False):
+        _settings_path = os.path.join(
+            os.path.dirname(sys.executable), 'settings.json')
+    else:
+        _settings_path = os.path.join(PROJECT_ROOT, 'settings.json')
     _vol = 50
     _preset_idx = 0
     if os.path.exists(_settings_path):
@@ -282,7 +286,8 @@ def run_game():
                 for pid in ai_player_ids:
                     remote_players_list.append(
                         (pid, host_player["ip"], host_player["port"]))
-                    print(f"  player id={pid}  (AI @ host)  {host_player['ip']}:{host_player['port']}")
+                    print(
+                        f"  player id={pid}  (AI @ host)  {host_player['ip']}:{host_player['port']}")
         bot_ids_for_session = ai_player_ids if i_am_host else []
         session = GGRSSession(controlled_idx, num_players,
                               config["local_port"], remote_players_list,
@@ -316,7 +321,8 @@ def run_game():
             session.set_player(pid, p)
             # 線上模式只有 host 負責產生 AI 輸入；非 host 靠 GGRS rollback 接收
             if is_offline or i_am_host:
-                ai_controllers[pid] = make_ai(ct, ai_info.get("level", 1), seed)
+                ai_controllers[pid] = make_ai(
+                    ct, ai_info.get("level", 1), seed)
 
     _set_spawn_positions(session, num_players)
 
@@ -437,7 +443,8 @@ def run_game():
                             abs(ai_p.x - q.x), abs(ai_p.y - q.y)),
                         default=session.get_player(controlled_idx),
                     )
-                    bot_inputs.append((pid, controller.decide(ai_p, opp_p, entities)))
+                    bot_inputs.append(
+                        (pid, controller.decide(ai_p, opp_p, entities)))
                 session.advance(input_mask, bot_inputs if bot_inputs else None)
             _clamp_world_bounds(session, num_players)
 
