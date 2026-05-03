@@ -1,5 +1,14 @@
 import json
 import os
+import sys
+
+
+def _default_settings_path() -> str:
+    if getattr(sys, 'frozen', False):
+        return os.path.join(os.path.dirname(sys.executable), 'settings.json')
+    return os.path.abspath(
+        os.path.join(os.path.dirname(__file__), '..', '..', 'settings.json'))
+
 
 class SettingsManager:
     """
@@ -15,8 +24,8 @@ class SettingsManager:
         "key_preset": 0,
     }
 
-    def __init__(self, filepath="settings.json"):
-        self.filepath = filepath
+    def __init__(self, filepath: str | None = None):
+        self.filepath = filepath or _default_settings_path()
         self.settings = self.DEFAULT_SETTINGS.copy()
         self.load()
 

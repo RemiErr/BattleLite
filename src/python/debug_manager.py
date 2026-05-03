@@ -12,7 +12,7 @@ if PROJECT_ROOT not in sys.path:
 
 _FONTS_DIR = os.path.join(PROJECT_ROOT, "src", "assets", "fonts")
 
-_COL_W = 220   # 每個玩家欄位寬度（px）
+_COL_W = 256   # 與 HUD _SLOT_W 對齊（SCREEN_W // 4）
 _LINE_H = 20    # 每行高度（px），縮小讓更多資訊塞進螢幕
 
 
@@ -123,40 +123,39 @@ class DebugManager:
         # ── 3. 計算面板尺寸並繪製背景 ──────────────────────────
         n = len(player_cols)
         PAD = 6
-        x0 = 5 + PAD
         y0 = 65 + PAD
         hdr_h = len(header) * _LINE_H + PAD
         col_h = max((len(c) for c in player_cols), default=0) * _LINE_H
-        panel_w = max(_COL_W, _COL_W * n) + PAD
+        panel_w = _COL_W * max(1, n)
         panel_h = hdr_h + col_h + PAD
 
         overlay = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 130))
-        screen.blit(overlay, (5, 65))
+        screen.blit(overlay, (0, 65))
 
         # ── 4. 渲染標頭 ──────────────────────────────────────
         for i, (text, color) in enumerate(header):
             surf = self.font.render(text, True, color)
             surf.set_alpha(210)
-            screen.blit(surf, (x0, y0 + i * _LINE_H))
+            screen.blit(surf, (PAD, y0 + i * _LINE_H))
 
-        # 標頭下方橫向分隔線（對齊所有欄位的起始 Y）
+        # 標頭下方橫向分隔線
         sep_y = y0 + hdr_h - 2
         pygame.draw.line(screen, (100, 100, 100),
-                         (5 + PAD, sep_y), (5 + panel_w - PAD, sep_y), 1)
+                         (0, sep_y), (panel_w, sep_y), 1)
 
-        # ── 5. 各玩家欄位橫向排列 ────────────────────────────
+        # ── 5. 各玩家欄位橫向排列（欄位左緣對齊 HUD slot 邊界）────
         y_col = y0 + hdr_h
         for col_idx, col in enumerate(player_cols):
-            x_base = x0 + col_idx * _COL_W
+            x_base = col_idx * _COL_W   # 對齊 HUD slot 左緣
 
-            # 欄位間縱向分隔線
+            # 欄位間縱向分隔線（對齊 HUD slot 分隔線）
             if col_idx > 0:
                 pygame.draw.line(screen, (100, 100, 100),
-                                 (x_base - 4, sep_y),
-                                 (x_base - 4, sep_y + col_h), 1)
+                                 (x_base, sep_y),
+                                 (x_base, sep_y + col_h), 1)
 
             for row_idx, (text, color) in enumerate(col):
                 surf = self.font.render(text, True, color)
                 surf.set_alpha(210)
-                screen.blit(surf, (x_base, y_col + row_idx * _LINE_H))
+                screen.blit(surf, (x_base + PAD, y_col + row_idx * _LINE_H))

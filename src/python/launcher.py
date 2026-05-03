@@ -335,6 +335,8 @@ class LauncherApp(ctk.CTk):
                       command=self._show_main).grid(row=0, column=0)
         ctk.CTkLabel(hdr, text="離線模式設定",
                      font=_font(16, "bold")).grid(row=0, column=1, padx=10)
+        ctk.CTkFrame(hdr, fg_color="transparent", width=80,
+                     height=28).grid(row=0, column=2)
 
         size_row = ctk.CTkFrame(f, fg_color="transparent")
         size_row.grid(row=1, column=0, pady=(10, 4))
@@ -730,10 +732,18 @@ class LauncherApp(ctk.CTk):
                 self.loop)
 
     def _on_ready(self):
-        self._btn_ready.configure(state="disabled", text="已準備")
+        self._btn_ready.configure(text="取消準備", command=self._on_cancel_ready)
         if self.loop and self._client:
             asyncio.run_coroutine_threadsafe(
                 self._client.send_ready(), self.loop)
+
+    def _on_cancel_ready(self):
+        if self._is_queue:
+            return
+        self._btn_ready.configure(text="準備好了", command=self._on_ready)
+        if self.loop and self._client:
+            asyncio.run_coroutine_threadsafe(
+                self._client.send_cancel_ready(), self.loop)
 
     def _on_start_game(self):
         self._btn_start.configure(state="disabled")
@@ -1022,7 +1032,8 @@ class LauncherApp(ctk.CTk):
         self._room_data = {}
         self._ai_players = {}
         self._size_frame.grid_remove()
-        self._btn_ready.configure(state="normal", text="準備好了")
+        self._btn_ready.configure(state="normal", text="準備好了",
+                                   command=self._on_ready)
         self._btn_start.configure(state="disabled", text="開始遊戲")
 
     def _set_status_main(self, text: str):

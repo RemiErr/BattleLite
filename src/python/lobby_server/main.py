@@ -196,6 +196,8 @@ class ResultItem(BaseModel):
 async def submit_result(item: ResultItem):
     if item.result not in ("win", "lose", "draw"):
         raise HTTPException(400, "result must be win / lose / draw")
+    if not _is_queue_room(item.room_code):
+        return {"ok": True, "ranked": False}
     if not _db:
         raise HTTPException(503, "DB not ready")
     await _db.execute(
@@ -269,6 +271,11 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
                 await _broadcast_room_update(room_id)
                 if is_queue:
                     await _try_queue_start(room_id)
+
+            elif t == "cancel_ready":
+                if not is_queue and not room.get("started"):
+                    player["ready"] = False
+                    await _broadcast_room_update(room_id)
 
             elif t == "start_game":
                 if not is_queue and pid == 0:
