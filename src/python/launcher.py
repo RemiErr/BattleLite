@@ -335,6 +335,8 @@ class LauncherApp(ctk.CTk):
                       command=self._show_main).grid(row=0, column=0)
         ctk.CTkLabel(hdr, text="離線模式設定",
                      font=_font(16, "bold")).grid(row=0, column=1, padx=10)
+        ctk.CTkFrame(hdr, fg_color="transparent", width=80,
+                     height=28).grid(row=0, column=2)
 
         size_row = ctk.CTkFrame(f, fg_color="transparent")
         size_row.grid(row=1, column=0, pady=(10, 4))
