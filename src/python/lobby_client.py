@@ -29,6 +29,9 @@ class LobbyClient:
     async def send_ready(self):
         await self.send_data({"type": "player_ready"})
 
+    async def send_cancel_ready(self):
+        await self.send_data({"type": "cancel_ready"})
+
     async def send_start_game(self, ai_count: int = 0, ai_players: dict | None = None):
         await self.send_data({"type": "start_game", "ai_count": ai_count,
                               "ai_players": ai_players or {}})

@@ -272,6 +272,11 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
                 if is_queue:
                     await _try_queue_start(room_id)
 
+            elif t == "cancel_ready":
+                if not is_queue and not room.get("started"):
+                    player["ready"] = False
+                    await _broadcast_room_update(room_id)
+
             elif t == "start_game":
                 if not is_queue and pid == 0:
                     ai_count = int(data.get("ai_count", 0))
