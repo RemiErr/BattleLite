@@ -55,9 +55,20 @@ _KNIGHT_CHARGE = GOAPAction(
     cost_fn=lambda ws: MP_VAR.weighted(ws["self_mp"], skill_mp_weights(ws)) * attack_mult(ws),
 )
 
+_KNIGHT_Y_ALIGN = GOAPAction(
+    name="Y軸靠近",
+    preconditions={"y_aligned": False},
+    effects={"y_aligned": True},
+    base_cost=0.5,
+    input_mask=0,
+    direction="toward",
+    duration_frames=20,
+)
+
 KNIGHT_GOAP_ACTIONS = [
     make_approach(KNIGHT_PROFILE),
     make_retreat(KNIGHT_PROFILE),
     make_attack(),
     _KNIGHT_CHARGE,
+    _KNIGHT_Y_ALIGN,
 ]

@@ -4,7 +4,7 @@ from src.python.ai.predicates import can_use_skill, opponent_is_vulnerable
 from src.python.ai.goap.action      import GOAPAction
 from src.python.ai.goap.world_state import MP_VAR
 from src.python.ai.goap.base_actions import (
-    make_approach, make_retreat, make_attack, make_y_align, attack_mult, skill_mp_weights)
+    make_approach, make_retreat, make_attack, attack_mult, skill_mp_weights)
 from src.python.game_constants import INPUT_ATTACK as ATK, INPUT_SKILL as SKL
 
 WIZARD_PROFILE = CharAIProfile(
@@ -37,10 +37,20 @@ WIZARD_PATTERNS = [
 ]
 
 # ── lv3 GOAP Action 表 ────────────────────────────────────────────────────────
+_WIZARD_Y_ALIGN = GOAPAction(
+    name="Y軸靠近",
+    preconditions={"y_aligned": False},
+    effects={"y_aligned": True},
+    base_cost=0.5,
+    input_mask=0,
+    direction="toward",
+    duration_frames=20,
+)
+
 _WIZARD_AOE = GOAPAction(
     name="AOE 爆炸",
     preconditions={"in_range": True, "y_aligned": True, "self_mp": (">=", 15_000)},
-    effects={"opp_hp": ("delta", -12_000), "in_range": False},
+    effects={"opp_hp": ("delta", -12_000)},
     base_cost=0.6,
     input_mask=SKL,
     duration_frames=1,
@@ -59,7 +69,7 @@ _WIZARD_PROJECTILE = GOAPAction(
 WIZARD_GOAP_ACTIONS = [
     make_approach(WIZARD_PROFILE),
     make_retreat(WIZARD_PROFILE),
-    make_y_align(),
+    _WIZARD_Y_ALIGN,
     make_attack(),
     _WIZARD_AOE,
     _WIZARD_PROJECTILE,
