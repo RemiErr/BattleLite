@@ -730,10 +730,18 @@ class LauncherApp(ctk.CTk):
                 self.loop)
 
     def _on_ready(self):
-        self._btn_ready.configure(state="disabled", text="已準備")
+        self._btn_ready.configure(text="取消準備", command=self._on_cancel_ready)
         if self.loop and self._client:
             asyncio.run_coroutine_threadsafe(
                 self._client.send_ready(), self.loop)
+
+    def _on_cancel_ready(self):
+        if self._is_queue:
+            return
+        self._btn_ready.configure(text="準備好了", command=self._on_ready)
+        if self.loop and self._client:
+            asyncio.run_coroutine_threadsafe(
+                self._client.send_cancel_ready(), self.loop)
 
     def _on_start_game(self):
         self._btn_start.configure(state="disabled")
@@ -1022,7 +1030,8 @@ class LauncherApp(ctk.CTk):
         self._room_data = {}
         self._ai_players = {}
         self._size_frame.grid_remove()
-        self._btn_ready.configure(state="normal", text="準備好了")
+        self._btn_ready.configure(state="normal", text="準備好了",
+                                   command=self._on_ready)
         self._btn_start.configure(state="disabled", text="開始遊戲")
 
     def _set_status_main(self, text: str):
