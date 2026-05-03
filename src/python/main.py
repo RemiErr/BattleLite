@@ -546,7 +546,7 @@ def run_game():
                                 (shadow_x, shadow_y, 50, 14))
             screen.blit(sprite, (blit_x, blit_y))
 
-            if is_offline and original_idx == controlled_idx:
+            if is_offline and debug_manager.enabled and original_idx == controlled_idx:
                 pygame.draw.rect(screen, (255, 255, 255),
                                  (blit_x, blit_y, sw, sh), 1)
 
