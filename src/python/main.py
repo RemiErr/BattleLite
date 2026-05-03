@@ -367,7 +367,7 @@ def run_game():
                     if event.key == pygame.K_r and is_offline:
                         _restart_offline()
                     continue
-                if event.key == pygame.K_F1:
+                if event.key == pygame.K_F1 and is_offline:
                     debug_manager.toggle()
                 if event.key == pygame.K_F2 and is_offline:
                     player_names.pop(controlled_idx, None)
