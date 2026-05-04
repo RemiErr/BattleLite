@@ -525,6 +525,32 @@ def run_game():
 
         render_list.sort(key=lambda item: item[1].y)
 
+        # --- [Phase 1] 影子層 (Shadows) ---
+        for original_idx, p in render_list:
+            sx, sy = get_screen_pos(p)
+            sx -= cam_x
+            shadow_x = int(sx - 25)
+            shadow_y = int(sy + p.z / 1000.0)
+            pygame.draw.ellipse(screen, (10, 10, 10), (shadow_x, shadow_y, 50, 14))
+
+        for eid in range(session.get_entity_count()):
+            e = session.get_entity(eid)
+            ex = int(e.x / 1000.0 - cam_x)
+            ey = int((e.y / 1000.0) - (e.z / 1000.0) + HUD_H)
+            owner_asset = char_assets.get(e.character_type, char_assets[0])
+            ab = owner_asset.get_ability(e.ability_state_id)
+            hit_def = ab.hit_box if ab else None
+            if hit_def is not None:
+                shadow_gy = int(ey + hit_def.oy + hit_def.h + e.z / 1000.0)
+            else:
+                shadow_gy = int(e.y / 1000.0 + HUD_H)
+            shadow_w = max(8, int(30 * (ab.proj_fx.scale if ab and ab.proj_fx else 1.0)))
+            pygame.draw.ellipse(screen, (10, 10, 10), (ex - shadow_w // 2, shadow_gy - 4, shadow_w, 8))
+
+        # --- [Phase 2] 特效後層 (Behind-Character FX) ---
+        fx_manager.update_and_draw(screen, layer="behind")
+
+        # --- [Phase 3] 角色與實體層 (Sprites) ---
         for original_idx, p in render_list:
             sx, sy = get_screen_pos(p)
             sx -= cam_x
@@ -540,17 +566,29 @@ def run_game():
             anchor_x_eff = asset.anchor_x if not p.facing_right else -asset.anchor_x
             blit_x = int(sx - sw // 2 - anchor_x_eff)
             blit_y = int(sy - sh // 2 - asset.anchor_y)
-            shadow_x = int(sx - 25)
-            shadow_y = int(sy + p.z / 1000.0)
-            pygame.draw.ellipse(screen, (10, 10, 10),
-                                (shadow_x, shadow_y, 50, 14))
             screen.blit(sprite, (blit_x, blit_y))
+
+            # 角色跑步特效 (Run Particle) - 放在 "behind" 層
+            if p.state == STATE_WALK and p.z == 0 and player_elapsed_frames[original_idx] % 12 == 0:
+                # 泡泡從腳後跟飄出，使用 13 - Copie.png (126x116, 5 frames)
+                # 軌跡：往角色斜後上方飄 (>25度, <45度)
+                # 設定 vy=-0.7, vx=±1.2 (相對於朝向取反) -> angle ≈ 30度 (相對於地面水平線)
+                heel_offset = 20 if p.facing_right else -20
+                fx_path = os.path.join(PROJECT_ROOT, "src/assets/fx/13 - Copie.png")
+                p_vx = -1.2 if p.facing_right else 1.2
+                fx_manager.spawn(
+                    fx_path, 126, 116,
+                    sx - heel_offset, sy,
+                    speed=4, scale=0.3,
+                    vy=-0.7, vx=p_vx,
+                    layer="behind"
+                )
 
             if is_offline and debug_manager.enabled and original_idx == controlled_idx:
                 pygame.draw.rect(screen, (255, 255, 255),
                                  (blit_x, blit_y, sw, sh), 1)
 
-            # 狀態進入時播放非投射物特效
+            # 狀態進入時播放非投射物特效 (預設 front 層)
             if state_changed.get(original_idx):
                 ab = asset.get_ability(p.state)
                 if ab is not None and ab.projectile_vx == 0 and ab.fx is not None:
@@ -590,7 +628,7 @@ def run_game():
                     pygame.draw.rect(screen, (255, 50, 50),
                                      hit_def.to_screen_rect(sx, sy, p.facing_right), 1)
 
-        # 渲染投擲物實體
+        # [Phase 3 續] 渲染投擲物實體
         for eid in range(session.get_entity_count()):
             e = session.get_entity(eid)
             ex = int(e.x / 1000.0 - cam_x)
@@ -606,16 +644,6 @@ def run_game():
                 fx_cx, fx_cy = hit_def.entity_screen_center(ex, ey)
             else:
                 fx_cx, fx_cy = ex, ey
-
-            # 影子錨定 hitbox 底部
-            if hit_def is not None:
-                shadow_gy = int(ey + hit_def.oy + hit_def.h + e.z / 1000.0)
-            else:
-                shadow_gy = int(e.y / 1000.0 + HUD_H)
-            shadow_w = max(
-                8, int(30 * (fxdef.scale if fxdef is not None else 1.0)))
-            pygame.draw.ellipse(screen, (10, 10, 10),
-                                (ex - shadow_w // 2, shadow_gy - 4, shadow_w, 8))
 
             if fxdef is not None:
                 elapsed = max(0, total - e.lifetime)
@@ -641,7 +669,8 @@ def run_game():
                 pygame.draw.rect(screen, (255, 50, 50),
                                  hit_def.to_entity_screen_rect(ex, ey), 1)
 
-        fx_manager.update_and_draw(screen)
+        # --- [Phase 4] 特效前層 (Front-Character FX) ---
+        fx_manager.update_and_draw(screen, layer="front")
         hud.draw(screen, render_list)
         debug_manager.draw(screen, session, render_list,
                            clock.get_fps(), ai_controllers)

@@ -3,18 +3,23 @@ from dataclasses import dataclass
 
 
 class FxEffect:
-    def __init__(self, frames: list[pygame.Surface], x: int, y: int, speed: int = 3,
-                 flip_x: bool = False, scale: float = 1.0):
+    def __init__(self, frames: list[pygame.Surface], x: float, y: float, speed: int = 3,
+                 flip_x: bool = False, scale: float = 1.0,
+                 vx: float = 0.0, vy: float = 0.0):
         self.frames = frames
         self.x = x
         self.y = y
         self.speed = speed
         self.flip_x = flip_x
         self.scale = scale
+        self.vx = vx
+        self.vy = vy
         self.elapsed = 0
         self.done = False
 
     def update(self) -> None:
+        self.x += self.vx
+        self.y += self.vy
         self.elapsed += 1
         if self.elapsed >= len(self.frames) * self.speed:
             self.done = True
@@ -30,8 +35,8 @@ class FxEffect:
             w = max(1, int(frame.get_width()  * self.scale))
             h = max(1, int(frame.get_height() * self.scale))
             frame = pygame.transform.scale(frame, (w, h))
-        blit_x = self.x - frame.get_width() // 2
-        blit_y = self.y - frame.get_height() // 2
+        blit_x = int(self.x) - frame.get_width() // 2
+        blit_y = int(self.y) - frame.get_height() // 2
         screen.blit(frame, (blit_x, blit_y))
 
 
@@ -56,13 +61,15 @@ class FxManager:
 
     兩種特效模式：
       - 一次性（spawn）：播完即結束，用於攻擊命中等瞬間特效。
+        支援分層（layer="front" 或 "behind"），以便在渲染時正確處理遮擋。
       - 玩家附著（attach_player_fx）：跟隨玩家位置持續循環播放，
         當玩家 state 不符時自動停止，適合長 timer 技能的整段視覺回饋。
     """
 
     def __init__(self) -> None:
         self._cache:      dict[str, list[pygame.Surface]] = {}
-        self.effects:     list[FxEffect] = []
+        self.effects_front:  list[FxEffect] = []
+        self.effects_behind: list[FxEffect] = []
         self._player_fx:  dict[int, _PlayerFxState] = {}  # player_id → state
 
     def _load(self, path: str, frame_w: int, frame_h: int) -> list[pygame.Surface]:
@@ -79,11 +86,16 @@ class FxManager:
         return frames
 
     def spawn(self, path: str, frame_w: int, frame_h: int,
-              x: int, y: int, speed: int = 3, flip_x: bool = False,
-              scale: float = 1.0) -> None:
+              x: float, y: float, speed: int = 3, flip_x: bool = False,
+              scale: float = 1.0, vx: float = 0.0, vy: float = 0.0,
+              layer: str = "front") -> None:
         """生成一次性特效（播完自動移除）。"""
         frames = self._load(path, frame_w, frame_h)
-        self.effects.append(FxEffect(frames, x, y, speed, flip_x, scale))
+        fx = FxEffect(frames, x, y, speed, flip_x, scale, vx, vy)
+        if layer == "behind":
+            self.effects_behind.append(fx)
+        else:
+            self.effects_front.append(fx)
 
     def attach_player_fx(
         self, player_id: int, state_id: int,
@@ -144,9 +156,15 @@ class FxManager:
             blit_y = sy + fx.offset_y - frame.get_height() // 2
             screen.blit(frame, (blit_x, blit_y))
 
-    def update_and_draw(self, screen: pygame.Surface) -> None:
-        """更新並繪製所有一次性特效（不含玩家附著 FX）。"""
-        for fx in self.effects:
+    def update_and_draw(self, screen: pygame.Surface, layer: str = "front") -> None:
+        """更新並繪製指定層級的一次性特效（不含玩家附著 FX）。"""
+        target = self.effects_behind if layer == "behind" else self.effects_front
+        for fx in target:
             fx.update()
             fx.draw(screen)
-        self.effects = [fx for fx in self.effects if not fx.done]
+        
+        # 清除已結束的特效
+        if layer == "behind":
+            self.effects_behind = [fx for fx in self.effects_behind if not fx.done]
+        else:
+            self.effects_front = [fx for fx in self.effects_front if not fx.done]
