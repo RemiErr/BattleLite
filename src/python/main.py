@@ -505,11 +505,23 @@ def run_game():
         cam_x = _ctrl_p.x / 1000.0 - SCREEN_W / 2
         cam_x = max(0.0, min(cam_x, float(WORLD_PX_W - SCREEN_W)))
 
-        screen.fill((30, 30, 30))
-        pygame.draw.line(screen, (60, 60, 60), (0, 300 + HUD_H),
-                         (SCREEN_W, 300 + HUD_H), 1)
-        pygame.draw.line(screen, (60, 60, 60), (0, 450 + HUD_H),
-                         (SCREEN_W, 450 + HUD_H), 1)
+        # --- 背景與場景渲染 ---
+        # 牆面與非走位區 (Darker Wall Area)
+        screen.fill((15, 15, 15))
+        
+        # 可移動地板區域 (Walkable Floor)
+        # 根據 WORLD_Y_MIN/MAX (250k / 520k) 繪製
+        floor_y_min = WORLD_Y_MIN // 1000 + HUD_H
+        floor_y_max = WORLD_Y_MAX // 1000 + HUD_H
+        floor_h = floor_y_max - floor_y_min
+        pygame.draw.rect(screen, (30, 30, 30), (0, floor_y_min, SCREEN_W, floor_h))
+
+        # 繪製地板邊界裝飾線
+        pygame.draw.line(screen, (45, 45, 45), (0, floor_y_min), (SCREEN_W, floor_y_min), 1)
+        pygame.draw.line(screen, (45, 45, 45), (0, floor_y_max), (SCREEN_W, floor_y_max), 1)
+        # 原有的參考線（輔助對齊用）
+        pygame.draw.line(screen, (55, 55, 55), (0, 300 + HUD_H), (SCREEN_W, 300 + HUD_H), 1)
+        pygame.draw.line(screen, (55, 55, 55), (0, 450 + HUD_H), (SCREEN_W, 450 + HUD_H), 1)
 
         state_changed: dict[int, bool] = {}
         render_list = []
