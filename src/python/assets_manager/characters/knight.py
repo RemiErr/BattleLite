@@ -6,9 +6,11 @@ from src.python.assets_manager.base_character import (
     SfxDef, CharSfxConfig, INPUT_ATTACK, INPUT_SKILL
 )
 
-_SHEET_PATH = os.path.join(ROOT, "src", "assets", "char", "knight", "sprite-sheet-183-123.png")
-_FACE_PATH  = os.path.join(ROOT, "src", "assets", "char", "knight", "faceset.png")
-_SFX_DIR    = os.path.join(ROOT, "src", "assets", "sound")
+_SHEET_PATH = os.path.join(ROOT, "src", "assets",
+                           "char", "knight", "sprite-sheet-183-123.png")
+_FACE_PATH = os.path.join(ROOT, "src", "assets",
+                          "char", "knight", "faceset.png")
+_SFX_DIR = os.path.join(ROOT, "src", "assets", "sound")
 
 _FRAME_W = 182
 _FRAME_H = 122

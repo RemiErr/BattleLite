@@ -6,13 +6,17 @@ import json
 import threading
 import urllib.request
 
-if getattr(sys, 'frozen', False):
-    PROJECT_ROOT = sys._MEIPASS
-else:
-    PROJECT_ROOT = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), '../..'))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
+# 直接執行時，Python 只會先把 src/python 放進 sys.path
+# 這裡先補上專案根目錄，讓後續 `src.python.*` 匯入可解析。
+if not getattr(sys, 'frozen', False):
+    _PROJECT_ROOT = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), '..', '..'))
+    if _PROJECT_ROOT not in sys.path:
+        sys.path.insert(0, _PROJECT_ROOT)
+
+# 正式的執行期根目錄仍由 app_root 統一決定：
+# 開發模式為專案根目錄，PyInstaller frozen 模式為 sys._MEIPASS。
+from src.python.app_root import PROJECT_ROOT
 
 try:
     import battlelite_core
@@ -217,6 +221,17 @@ def run_game():
             sys.exit(1)
 
     pygame.init()
+
+    # --- 設定遊戲視窗圖標 (Game Window Icon) ---
+    # 使用 .png 格式並在 set_mode 前呼叫，增加跨平台相容性 (特別是 Linux/WSL2)
+    game_icon_path = os.path.join(PROJECT_ROOT, "src/assets/img/game.png")
+    if os.path.exists(game_icon_path):
+        try:
+            icon = pygame.image.load(game_icon_path)
+            pygame.display.set_icon(icon)
+        except Exception as e:
+            print(f"[WARN] Failed to set game window icon: {e}")
+
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
     pygame.display.set_caption(f"BattleLite - {config['nickname']}")
     clock = pygame.time.Clock()
@@ -332,8 +347,20 @@ def run_game():
     switch_player = 0
     match_result: int | None = None  # None=進行中, -2=平手, 0..n=勝者 idx
     _result_submitted = False
-    result_font_big = pygame.font.SysFont("Arial", 56, bold=True)
-    result_font_small = pygame.font.SysFont("Arial", 24)
+
+    # 預先載入字型，確保打包後可用
+    font_path = os.path.join(
+        PROJECT_ROOT, "src/assets/fonts/NotoSansTC-VariableFont_wght.ttf")
+    if os.path.exists(font_path):
+        result_font_big = pygame.font.SysFont("Arial", 56, bold=True)
+        result_font_small = pygame.font.Font(font_path, 24)
+        wait_font = pygame.font.SysFont("Arial", 36, bold=True)
+        info_font = pygame.font.Font(font_path, 16)
+    else:
+        result_font_big = pygame.font.SysFont("Arial", 56, bold=True)
+        result_font_small = pygame.font.SysFont("Arial", 24)
+        wait_font = pygame.font.SysFont("Arial", 36, bold=True)
+        info_font = pygame.font.SysFont("Arial", 16)
 
     def _check_match(n: int) -> int | None:
         alive = [i for i in range(n) if session.get_player(
@@ -362,7 +389,7 @@ def run_game():
         last_states = [STATE_IDLE] * num_players
 
     running = True
-    paused  = False
+    paused = False
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -505,10 +532,27 @@ def run_game():
         cam_x = _ctrl_p.x / 1000.0 - SCREEN_W / 2
         cam_x = max(0.0, min(cam_x, float(WORLD_PX_W - SCREEN_W)))
 
-        screen.fill((30, 30, 30))
-        pygame.draw.line(screen, (60, 60, 60), (0, 300 + HUD_H),
+        # --- 背景與場景渲染 ---
+        # 牆面與非走位區 (Darker Wall Area)
+        screen.fill((15, 15, 15))
+
+        # 可移動地板區域 (Walkable Floor)
+        # 根據 WORLD_Y_MIN/MAX (250k / 520k) 繪製
+        floor_y_min = WORLD_Y_MIN // 1000 + HUD_H
+        floor_y_max = WORLD_Y_MAX // 1000 + HUD_H
+        floor_h = floor_y_max - floor_y_min
+        pygame.draw.rect(screen, (30, 30, 30),
+                         (0, floor_y_min, SCREEN_W, floor_h))
+
+        # 繪製地板邊界裝飾線
+        pygame.draw.line(screen, (45, 45, 45), (0, floor_y_min),
+                         (SCREEN_W, floor_y_min), 1)
+        pygame.draw.line(screen, (45, 45, 45), (0, floor_y_max),
+                         (SCREEN_W, floor_y_max), 1)
+        # 原有的參考線（輔助對齊用）
+        pygame.draw.line(screen, (55, 55, 55), (0, 300 + HUD_H),
                          (SCREEN_W, 300 + HUD_H), 1)
-        pygame.draw.line(screen, (60, 60, 60), (0, 450 + HUD_H),
+        pygame.draw.line(screen, (55, 55, 55), (0, 450 + HUD_H),
                          (SCREEN_W, 450 + HUD_H), 1)
 
         state_changed: dict[int, bool] = {}
@@ -525,6 +569,35 @@ def run_game():
 
         render_list.sort(key=lambda item: item[1].y)
 
+        # --- [Phase 1] 影子層 (Shadows) ---
+        for original_idx, p in render_list:
+            sx, sy = get_screen_pos(p)
+            sx -= cam_x
+            shadow_x = int(sx - 25)
+            shadow_y = int(sy + p.z / 1000.0)
+            pygame.draw.ellipse(screen, (10, 10, 10),
+                                (shadow_x, shadow_y, 50, 14))
+
+        for eid in range(session.get_entity_count()):
+            e = session.get_entity(eid)
+            ex = int(e.x / 1000.0 - cam_x)
+            ey = int((e.y / 1000.0) - (e.z / 1000.0) + HUD_H)
+            owner_asset = char_assets.get(e.character_type, char_assets[0])
+            ab = owner_asset.get_ability(e.ability_state_id)
+            hit_def = ab.hit_box if ab else None
+            if hit_def is not None:
+                shadow_gy = int(ey + hit_def.oy + hit_def.h + e.z / 1000.0)
+            else:
+                shadow_gy = int(e.y / 1000.0 + HUD_H)
+            shadow_w = max(
+                8, int(30 * (ab.proj_fx.scale if ab and ab.proj_fx else 1.0)))
+            pygame.draw.ellipse(
+                screen, (10, 10, 10), (ex - shadow_w // 2, shadow_gy - 4, shadow_w, 8))
+
+        # --- [Phase 2] 特效後層 (Behind-Character FX) ---
+        fx_manager.update_and_draw(screen, layer="behind")
+
+        # --- [Phase 3] 角色與實體層 (Sprites) ---
         for original_idx, p in render_list:
             sx, sy = get_screen_pos(p)
             sx -= cam_x
@@ -540,17 +613,30 @@ def run_game():
             anchor_x_eff = asset.anchor_x if not p.facing_right else -asset.anchor_x
             blit_x = int(sx - sw // 2 - anchor_x_eff)
             blit_y = int(sy - sh // 2 - asset.anchor_y)
-            shadow_x = int(sx - 25)
-            shadow_y = int(sy + p.z / 1000.0)
-            pygame.draw.ellipse(screen, (10, 10, 10),
-                                (shadow_x, shadow_y, 50, 14))
             screen.blit(sprite, (blit_x, blit_y))
+
+            # 角色跑步特效 (Run Particle) - 放在 "behind" 層
+            if p.state == STATE_WALK and p.z == 0 and player_elapsed_frames[original_idx] % 12 == 0:
+                # 泡泡從腳後跟飄出，使用 13 - Copie.png (126x116, 5 frames)
+                # 軌跡：往角色斜後上方飄 (>25度, <45度)
+                # 設定 vy=-0.7, vx=±1.2 (相對於朝向取反) -> angle ≈ 30度 (相對於地面水平線)
+                heel_offset = 20 if p.facing_right else -20
+                fx_path = os.path.join(
+                    PROJECT_ROOT, "src/assets/fx/13 - Copie.png")
+                p_vx = -1.2 if p.facing_right else 1.2
+                fx_manager.spawn(
+                    fx_path, 126, 116,
+                    sx - heel_offset, sy,
+                    speed=4, scale=0.3,
+                    vy=-0.7, vx=p_vx,
+                    layer="behind"
+                )
 
             if is_offline and debug_manager.enabled and original_idx == controlled_idx:
                 pygame.draw.rect(screen, (255, 255, 255),
                                  (blit_x, blit_y, sw, sh), 1)
 
-            # 狀態進入時播放非投射物特效
+            # 狀態進入時播放非投射物特效 (預設 front 層)
             if state_changed.get(original_idx):
                 ab = asset.get_ability(p.state)
                 if ab is not None and ab.projectile_vx == 0 and ab.fx is not None:
@@ -590,7 +676,7 @@ def run_game():
                     pygame.draw.rect(screen, (255, 50, 50),
                                      hit_def.to_screen_rect(sx, sy, p.facing_right), 1)
 
-        # 渲染投擲物實體
+        # [Phase 3 續] 渲染投擲物實體
         for eid in range(session.get_entity_count()):
             e = session.get_entity(eid)
             ex = int(e.x / 1000.0 - cam_x)
@@ -606,16 +692,6 @@ def run_game():
                 fx_cx, fx_cy = hit_def.entity_screen_center(ex, ey)
             else:
                 fx_cx, fx_cy = ex, ey
-
-            # 影子錨定 hitbox 底部
-            if hit_def is not None:
-                shadow_gy = int(ey + hit_def.oy + hit_def.h + e.z / 1000.0)
-            else:
-                shadow_gy = int(e.y / 1000.0 + HUD_H)
-            shadow_w = max(
-                8, int(30 * (fxdef.scale if fxdef is not None else 1.0)))
-            pygame.draw.ellipse(screen, (10, 10, 10),
-                                (ex - shadow_w // 2, shadow_gy - 4, shadow_w, 8))
 
             if fxdef is not None:
                 elapsed = max(0, total - e.lifetime)
@@ -641,7 +717,8 @@ def run_game():
                 pygame.draw.rect(screen, (255, 50, 50),
                                  hit_def.to_entity_screen_rect(ex, ey), 1)
 
-        fx_manager.update_and_draw(screen)
+        # --- [Phase 4] 特效前層 (Front-Character FX) ---
+        fx_manager.update_and_draw(screen, layer="front")
         hud.draw(screen, render_list)
         debug_manager.draw(screen, session, render_list,
                            clock.get_fps(), ai_controllers)
@@ -664,14 +741,13 @@ def run_game():
             overlay.fill((0, 0, 0, 150))
             screen.blit(overlay, (0, 0))
             cx, cy = SCREEN_W // 2, SCREEN_H // 2
-            wait_font = pygame.font.SysFont("Arial", 36, bold=True)
             text_surf = wait_font.render(
                 "WAITING FOR SYNC...", True, (255, 255, 0))
             screen.blit(text_surf, text_surf.get_rect(center=(cx, cy)))
 
-            info_font = pygame.font.SysFont("Arial", 16)
             remotes_str = "  ".join(f"id={p['id']} {p['ip']}:{p['port']}" for p in config.get(
                 "players", []) if p["id"] != controlled_idx)
+
             info1 = info_font.render(
                 f"My id={controlled_idx}  local_port={config['local_port']}", True, (200, 200, 200))
             info2 = info_font.render(
@@ -711,7 +787,8 @@ def run_game():
             ov.fill((0, 0, 0, 140))
             screen.blit(ov, (0, 0))
             cx, cy = SCREEN_W // 2, SCREEN_H // 2
-            pause_surf = result_font_big.render("PAUSED", True, (255, 255, 255))
+            pause_surf = result_font_big.render(
+                "PAUSED", True, (255, 255, 255))
             screen.blit(pause_surf, pause_surf.get_rect(center=(cx, cy - 20)))
             hint_surf = result_font_small.render("P: Resume  ESC: Quit",
                                                  True, (180, 180, 180))

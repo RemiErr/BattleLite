@@ -1,14 +1,7 @@
 import pygame
 import os
-import sys
 
-if getattr(sys, 'frozen', False):
-    PROJECT_ROOT = sys._MEIPASS
-else:
-    PROJECT_ROOT = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), '../..'))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
+from src.python.app_root import PROJECT_ROOT
 
 _FONTS_DIR = os.path.join(PROJECT_ROOT, "src", "assets", "fonts")
 

@@ -2,6 +2,8 @@ import pytest
 from fastapi.testclient import TestClient
 import sys
 import os
+import asyncio
+import aiosqlite
 
 # 確保路徑正確以匯入 lobby_server
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -54,3 +56,72 @@ def test_room_broadcasting():
             assert data["type"] == "room_update"
             assert len(data["players"]) == 2
             assert data["players"][1]["name"] == "PlayerB"
+
+
+def test_leaderboard_counts_ranked_matches_only():
+    """
+    驗證排行榜與段位只統計牌位賽，不會把自訂房間結果算進去。
+    """
+    from src.python.lobby_server import main as lobby
+
+    async def _run():
+        old_db = lobby._db
+        db = await aiosqlite.connect(":memory:")
+        lobby._db = db
+        try:
+            await db.executescript("""
+                CREATE TABLE matches (
+                    match_id   TEXT PRIMARY KEY,
+                    room_code  TEXT NOT NULL
+                );
+
+                CREATE TABLE match_results (
+                    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                    match_id  TEXT NOT NULL,
+                    nickname  TEXT NOT NULL,
+                    char_type INTEGER NOT NULL,
+                    result    TEXT NOT NULL
+                );
+            """)
+            await db.executemany(
+                "INSERT INTO matches (match_id, room_code) VALUES (?, ?)",
+                [
+                    ("ranked-1", "__queue_gold__"),
+                    ("custom-1", "ABC123"),
+                ],
+            )
+            await db.executemany(
+                """INSERT INTO match_results
+                   (match_id, nickname, char_type, result)
+                   VALUES (?, ?, ?, ?)""",
+                [
+                    ("ranked-1", "RankedPlayer", 0, "win"),
+                    ("custom-1", "RankedPlayer", 0, "lose"),
+                    ("custom-1", "CustomOnly", 1, "win"),
+                ],
+            )
+            await db.commit()
+
+            leaderboard = await lobby.get_leaderboard()
+            assert leaderboard["entries"] == [{
+                "nickname": "RankedPlayer",
+                "games": 1,
+                "wins": 1,
+                "losses": 0,
+                "draws": 0,
+                "win_rate": 100.0,
+                "tier": "placement",
+            }]
+
+            ranked_tier = await lobby.get_player_tier("RankedPlayer")
+            assert ranked_tier["games"] == 1
+            assert ranked_tier["win_rate"] == 100.0
+
+            custom_tier = await lobby.get_player_tier("CustomOnly")
+            assert custom_tier["games"] == 0
+            assert custom_tier["win_rate"] == 0.0
+        finally:
+            await db.close()
+            lobby._db = old_db
+
+    asyncio.run(_run())

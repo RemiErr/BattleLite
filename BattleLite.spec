@@ -1,7 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+
+PROJECT_ROOT = os.path.abspath(SPECPATH)
+IMPORT_PATHS = [PROJECT_ROOT]
+
 launcher_analysis = Analysis(
     ['src/python/launcher.py'],
+    pathex=IMPORT_PATHS,
     datas=[('src/assets', 'src/assets')],
     hiddenimports=['battlelite_core'],
     excludes=['lobby_server', 'fastapi', 'uvicorn', 'starlette', 'pytest'],
@@ -9,6 +15,7 @@ launcher_analysis = Analysis(
 
 game_analysis = Analysis(
     ['src/python/main.py'],
+    pathex=IMPORT_PATHS,
     datas=[('src/assets', 'src/assets')],
     hiddenimports=['battlelite_core'],
     excludes=['lobby_server', 'fastapi', 'uvicorn', 'starlette', 'pytest'],
@@ -23,7 +30,7 @@ launcher_exe = EXE(
     [],
     exclude_binaries=True,
     name='BattleLite',
-    console=True,
+    console=False,
     icon='src/assets/img/launcher.ico',
 )
 
@@ -33,7 +40,7 @@ game_exe = EXE(
     [],
     exclude_binaries=True,
     name='Game',
-    console=True,
+    console=False,
     icon='src/assets/img/game.ico',
 )
 
