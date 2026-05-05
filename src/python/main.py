@@ -6,7 +6,17 @@ import json
 import threading
 import urllib.request
 
-from app_root import PROJECT_ROOT
+# 直接執行時，Python 只會先把 src/python 放進 sys.path
+# 這裡先補上專案根目錄，讓後續 `src.python.*` 匯入可解析。
+if not getattr(sys, 'frozen', False):
+    _PROJECT_ROOT = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), '..', '..'))
+    if _PROJECT_ROOT not in sys.path:
+        sys.path.insert(0, _PROJECT_ROOT)
+
+# 正式的執行期根目錄仍由 app_root 統一決定：
+# 開發模式為專案根目錄，PyInstaller frozen 模式為 sys._MEIPASS。
+from src.python.app_root import PROJECT_ROOT
 
 try:
     import battlelite_core
