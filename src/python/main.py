@@ -345,8 +345,19 @@ def run_game():
     switch_player = 0
     match_result: int | None = None  # None=進行中, -2=平手, 0..n=勝者 idx
     _result_submitted = False
-    result_font_big = pygame.font.SysFont("Arial", 56, bold=True)
-    result_font_small = pygame.font.SysFont("Arial", 24)
+    
+    # 預先載入字型，確保打包後可用
+    font_path = os.path.join(PROJECT_ROOT, "src/assets/fonts/NotoSansTC-VariableFont_wght.ttf")
+    if os.path.exists(font_path):
+        result_font_big = pygame.font.Font(font_path, 56)
+        result_font_small = pygame.font.Font(font_path, 24)
+        wait_font = pygame.font.Font(font_path, 36)
+        info_font = pygame.font.Font(font_path, 16)
+    else:
+        result_font_big = pygame.font.SysFont("Arial", 56, bold=True)
+        result_font_small = pygame.font.SysFont("Arial", 24)
+        wait_font = pygame.font.SysFont("Arial", 36, bold=True)
+        info_font = pygame.font.SysFont("Arial", 16)
 
     def _check_match(n: int) -> int | None:
         alive = [i for i in range(n) if session.get_player(
@@ -718,14 +729,13 @@ def run_game():
             overlay.fill((0, 0, 0, 150))
             screen.blit(overlay, (0, 0))
             cx, cy = SCREEN_W // 2, SCREEN_H // 2
-            wait_font = pygame.font.SysFont("Arial", 36, bold=True)
             text_surf = wait_font.render(
                 "WAITING FOR SYNC...", True, (255, 255, 0))
             screen.blit(text_surf, text_surf.get_rect(center=(cx, cy)))
 
-            info_font = pygame.font.SysFont("Arial", 16)
             remotes_str = "  ".join(f"id={p['id']} {p['ip']}:{p['port']}" for p in config.get(
                 "players", []) if p["id"] != controlled_idx)
+
             info1 = info_font.render(
                 f"My id={controlled_idx}  local_port={config['local_port']}", True, (200, 200, 200))
             info2 = info_font.render(
