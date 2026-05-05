@@ -342,9 +342,9 @@ def run_game():
     font_path = os.path.join(
         PROJECT_ROOT, "src/assets/fonts/NotoSansTC-VariableFont_wght.ttf")
     if os.path.exists(font_path):
-        result_font_big = pygame.font.Font(font_path, 56)
+        result_font_big = pygame.font.SysFont("Arial", 56, bold=True)
         result_font_small = pygame.font.Font(font_path, 24)
-        wait_font = pygame.font.Font(font_path, 36)
+        wait_font = pygame.font.SysFont("Arial", 36, bold=True)
         info_font = pygame.font.Font(font_path, 16)
     else:
         result_font_big = pygame.font.SysFont("Arial", 56, bold=True)
