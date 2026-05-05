@@ -58,9 +58,9 @@ class HUD:
                  player_names: dict[int, str] | None = None):
         # 使用專案內的 NotoSansTC 字型，確保打包後跨平台一致性
         font_path = os.path.join(
-            ROOT, "src/assets/fonts/NotoSansTC-VariableFont_wght.ttf")
+            ROOT, "src/assets/fonts/ChakraPetch-Medium.ttf")
         if os.path.exists(font_path):
-            self.font_name = pygame.font.Font(font_path, 16)
+            self.font_name = pygame.font.Font(font_path, 14)
             self.font_val = pygame.font.Font(font_path, 12)
         else:
             # 回退方案
@@ -210,7 +210,7 @@ class HUD:
 
         hp_surf = self.font_val.render(
             str(max(0, p.hp // 1000)), True, _COL_HP_VAL)
-        screen.blit(hp_surf, (bx + _BAR_W + 4, hp_y - 3))
+        screen.blit(hp_surf, (bx + _BAR_W + 4, hp_y - 4))
 
         # ── MP 條 ─────────────────────────────────────────────
         mp_ratio = max(0.0, min(1.0, p.mp / max_mp))
@@ -243,4 +243,4 @@ class HUD:
 
         mp_surf = self.font_val.render(
             str(max(0, p.mp // 1000)), True, _COL_MP_VAL)
-        screen.blit(mp_surf, (bx + _BAR_W + 4, mp_y - 4))
+        screen.blit(mp_surf, (bx + _BAR_W + 4, mp_y - 5))

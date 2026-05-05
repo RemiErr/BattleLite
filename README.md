@@ -611,4 +611,10 @@ pytest tests/test_physics.py -v
   - 來源：<https://fonts.google.com/noto/specimen/Noto+Sans+TC>
   - 授權：SIL Open Font License 1.1（詳見 `src/assets/fonts/OFL.txt`）
   - 版權：Copyright 2014-2021 Adobe
-  - 說明：用於 Launcher 介面的繁體中文字型顯示。
+  - 說明：用於遊戲介面的繁體中文字型顯示。
+
+- Chakra Petch
+  - 來源：<https://fonts.google.com/specimen/Chakra+Petch>
+  - 授權：SIL Open Font License 1.1（詳見 `src/assets/fonts/OFL.txt`）
+  - 版權：Copyright 2014 Cadson Demak
+  - 說明：用於 HUD 的英文字型顯示。
