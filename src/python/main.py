@@ -217,24 +217,22 @@ def run_game():
             sys.exit(1)
 
     pygame.init()
+
+    # --- 設定遊戲視窗圖標 (Game Window Icon) ---
+    # 使用 .png 格式並在 set_mode 前呼叫，增加跨平台相容性 (特別是 Linux/WSL2)
+    game_icon_path = os.path.join(PROJECT_ROOT, "src/assets/img/game.png")
+    if os.path.exists(game_icon_path):
+        try:
+            icon = pygame.image.load(game_icon_path)
+            pygame.display.set_icon(icon)
+        except Exception as e:
+            print(f"[WARN] Failed to set game window icon: {e}")
+    
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
     pygame.display.set_caption(f"BattleLite - {config['nickname']}")
     clock = pygame.time.Clock()
     debug_manager = DebugManager()
     fx_manager = FxManager()
-
-    # --- 設定遊戲視窗圖標 (Game Window Icon) ---
-    game_icon_path = os.path.join(PROJECT_ROOT, "src/assets/img/game.ico")
-    if os.path.exists(game_icon_path):
-        try:
-            icon = pygame.image.load(game_icon_path)
-            pygame.display.set_icon(icon)
-            print("[INFO] Game window icon set successfully.")
-        except pygame.error as e:
-            print(f"[WARN] Failed to set game window icon: {e}")
-    else:
-        print(f"[WARN] Game icon not found at: {game_icon_path}")
-    # --- 設定遊戲視窗圖標結束 ---
 
     # 從 settings.json 讀音量與按鍵組合
     if getattr(sys, 'frozen', False):
