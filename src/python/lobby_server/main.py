@@ -14,6 +14,7 @@ QUEUE_MIN = 2  # TODO: for testing, default is 4
 PUNCH_DURATION = 2.0
 
 TIER_THRESHOLDS = {"games": 5, "silver_min": 40.0, "gold_min": 60.0}
+RANKED_ROOM_PATTERN = r"\_\_queue\_%\_\_"
 
 
 def _is_queue_room(room_id: str) -> bool:
@@ -156,11 +157,13 @@ async def get_leaderboard(limit: int = 30):
                       SUM(CASE WHEN result='lose' THEN 1 ELSE 0 END) AS losses,
                       SUM(CASE WHEN result='draw' THEN 1 ELSE 0 END) AS draws,
                       ROUND(100.0 * SUM(CASE WHEN result='win' THEN 1 ELSE 0 END) / COUNT(*), 1) AS win_rate
-               FROM match_results
+               FROM match_results AS mr
+               JOIN matches AS m ON m.match_id = mr.match_id
+               WHERE m.room_code LIKE ? ESCAPE '\\'
                GROUP BY nickname
                ORDER BY win_rate DESC, wins DESC
            ) LIMIT ?""",
-        (limit,)
+        (RANKED_ROOM_PATTERN, limit)
     ) as cur:
         cols = [d[0] for d in cur.description]
         rows = [dict(zip(cols, r)) for r in await cur.fetchall()]
@@ -175,8 +178,11 @@ async def get_player_tier(nickname: str):
         """SELECT COUNT(*) AS games,
                   ROUND(100.0 * SUM(CASE WHEN result='win' THEN 1 ELSE 0 END)
                         / NULLIF(COUNT(*), 0), 1) AS win_rate
-           FROM match_results WHERE nickname = ?""",
-        (nickname,)
+           FROM match_results AS mr
+           JOIN matches AS m ON m.match_id = mr.match_id
+           WHERE mr.nickname = ?
+             AND m.room_code LIKE ? ESCAPE '\\'""",
+        (nickname, RANKED_ROOM_PATTERN)
     ) as cur:
         row = await cur.fetchone()
     games = row[0] or 0
@@ -210,7 +216,7 @@ async def submit_result(item: ResultItem):
         (item.match_id, item.nickname, item.char_type, item.result),
     )
     await _db.commit()
-    return {"ok": True}
+    return {"ok": True, "ranked": True}
 
 
 # ── WebSocket ─────────────────────────────────────────────────────────────
