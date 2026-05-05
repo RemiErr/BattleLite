@@ -1,5 +1,6 @@
 import pygame
 import os
+from app_root import ROOT
 from src.python.assets_manager.base_character import BaseCharacter
 
 SCREEN_W = 1024
@@ -56,10 +57,11 @@ class HUD:
     def __init__(self, char_assets: dict[int, BaseCharacter],
                  player_names: dict[int, str] | None = None):
         # 使用專案內的 NotoSansTC 字型，確保打包後跨平台一致性
-        font_path = os.path.join(PROJECT_ROOT, "src/assets/fonts/NotoSansTC-VariableFont_wght.ttf")
+        font_path = os.path.join(
+            ROOT, "src/assets/fonts/NotoSansTC-VariableFont_wght.ttf")
         if os.path.exists(font_path):
             self.font_name = pygame.font.Font(font_path, 16)
-            self.font_val  = pygame.font.Font(font_path, 12)
+            self.font_val = pygame.font.Font(font_path, 12)
         else:
             # 回退方案
             self.font_name = (pygame.font.SysFont("Consolas", 12, bold=True)
