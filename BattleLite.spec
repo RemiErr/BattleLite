@@ -23,7 +23,7 @@ launcher_exe = EXE(
     [],
     exclude_binaries=True,
     name='BattleLite',
-    console=True,
+    console=False,
     icon='src/assets/img/launcher.ico',
 )
 
@@ -33,7 +33,7 @@ game_exe = EXE(
     [],
     exclude_binaries=True,
     name='Game',
-    console=True,
+    console=False,
     icon='src/assets/img/game.ico',
 )
 
