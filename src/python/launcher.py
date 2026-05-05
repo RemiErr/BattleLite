@@ -16,7 +16,8 @@ import urllib.parse
 if getattr(sys, 'frozen', False):
     PROJECT_ROOT = sys._MEIPASS
 else:
-    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+    PROJECT_ROOT = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), '../..'))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
@@ -109,6 +110,17 @@ class LauncherApp(ctk.CTk):
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
+        # Launcher icon
+        icon_path = os.path.join(PROJECT_ROOT, "src/assets/img/launcher.ico")
+        if os.path.exists(icon_path):
+            try:
+                self.wm_iconbitmap(icon_path)
+                print("[INFO] Launcher window icon set successfully.")
+            except Exception as e:
+                print(f"[WARN] Failed to set launcher window icon: {e}")
+        else:
+            print(f"[WARN] Launcher icon not found at: {icon_path}")
+
         # 連線狀態
         self.game_process = None
         self.lobby_thread: threading.Thread | None = None
@@ -126,7 +138,8 @@ class LauncherApp(ctk.CTk):
         self._local_ct = 0    # 本玩家選的 char_type
         self._room_data: dict = {}  # 最後一次 room_update 快取，供樂觀更新使用
         self._tier_cache: dict[str, str] = {}  # nickname → tier，由排行榜資料填入
-        self._ai_players: dict[int, dict] = {}  # pid → {"char_type": int, "level": int}
+        # pid → {"char_type": int, "level": int}
+        self._ai_players: dict[int, dict] = {}
 
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
@@ -367,7 +380,8 @@ class LauncherApp(ctk.CTk):
                          width=80, anchor="w",
                          font=_font(12)).grid(row=0, column=0, padx=4)
 
-            char_seg = ctk.CTkSegmentedButton(row_f, values=CHAR_NAMES, width=250)
+            char_seg = ctk.CTkSegmentedButton(
+                row_f, values=CHAR_NAMES, width=250)
             char_seg.set(CHAR_NAMES[defaults["char_type"]])
             char_seg.grid(row=0, column=1, padx=4)
 
@@ -547,13 +561,15 @@ class LauncherApp(ctk.CTk):
                     # 角色選單：與正常玩家槽寬度相同，直接 grid 在 col 1
                     char_seg = ctk.CTkSegmentedButton(
                         self._rows_frame, values=CHAR_NAMES, width=380)
-                    char_seg.set(CHAR_NAMES[self._ai_players[pid]["char_type"]])
+                    char_seg.set(
+                        CHAR_NAMES[self._ai_players[pid]["char_type"]])
                     char_seg.configure(
                         command=lambda v, p=pid: self._on_room_ai_char(p, v))
                     char_seg.grid(row=row, column=1, padx=4, pady=4)
 
                     # 難度 + 移除按鈕：擺在 col 2
-                    ai_ctrl = ctk.CTkFrame(self._rows_frame, fg_color="transparent")
+                    ai_ctrl = ctk.CTkFrame(
+                        self._rows_frame, fg_color="transparent")
                     ai_ctrl.grid(row=row, column=2, padx=4, pady=4)
 
                     level_seg = ctk.CTkSegmentedButton(
@@ -691,7 +707,8 @@ class LauncherApp(ctk.CTk):
 
     def _on_offline(self):
         self._hide_all_frames()
-        self.offline_frame.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
+        self.offline_frame.grid(
+            row=0, column=0, padx=20, pady=20, sticky="nsew")
 
     # ── Room Frame 回呼 ───────────────────────────────────────────────────
 
@@ -956,8 +973,10 @@ class LauncherApp(ctk.CTk):
                                              "port": p["local_port"] if same_lan else p["pub_port"],
                                              })
                         # host 的 self._ai_players 為本地權威；非 host 從伺服器廣播取得
-                        local_ai = {str(k): v for k, v in self._ai_players.items()}
-                        ai_players_final = local_ai or msg.get("ai_players", {})
+                        local_ai = {str(k): v for k,
+                                    v in self._ai_players.items()}
+                        ai_players_final = local_ai or msg.get(
+                            "ai_players", {})
                         session_data = {
                             "nickname":    nickname,
                             "room":        room_id,
@@ -1033,7 +1052,7 @@ class LauncherApp(ctk.CTk):
         self._ai_players = {}
         self._size_frame.grid_remove()
         self._btn_ready.configure(state="normal", text="準備好了",
-                                   command=self._on_ready)
+                                  command=self._on_ready)
         self._btn_start.configure(state="disabled", text="開始遊戲")
 
     def _set_status_main(self, text: str):
@@ -1066,13 +1085,15 @@ class LauncherApp(ctk.CTk):
                                 "game_launch.log")
         try:
             if getattr(sys, 'frozen', False):
-                game_exe = os.path.join(os.path.dirname(sys.executable), "Game")
+                game_exe = os.path.join(
+                    os.path.dirname(sys.executable), "Game")
                 cmd = [game_exe, "--payload", payload]
             else:
                 script = os.path.join(PROJECT_ROOT, "src", "python", "main.py")
                 cmd = [sys.executable, script, "--payload", payload]
             with open(log_path, "w") as _lf:
-                _lf.write(f"cmd: {cmd}\nexe_exists: {os.path.exists(cmd[0])}\n")
+                _lf.write(
+                    f"cmd: {cmd}\nexe_exists: {os.path.exists(cmd[0])}\n")
             self.game_process = subprocess.Popen(
                 cmd, env=os.environ.copy(),
                 stdout=open(log_path, "a"), stderr=subprocess.STDOUT)
