@@ -179,10 +179,10 @@ class LauncherApp(ctk.CTk):
         # 線上按鈕列
         btn_grid = ctk.CTkFrame(f, fg_color="transparent")
         btn_grid.grid(row=3, column=0, pady=4)
-        ctk.CTkButton(btn_grid, text="排隊（天梯）", width=130,
+        ctk.CTkButton(btn_grid, text="牌位賽", width=130,
                       command=self._on_queue).grid(
             row=0, column=0, padx=5, pady=4)
-        ctk.CTkButton(btn_grid, text="開房", width=130,
+        ctk.CTkButton(btn_grid, text="自訂房間", width=130,
                       command=self._on_create).grid(
             row=0, column=1, padx=5, pady=4)
         self._entry_room = ctk.CTkEntry(
@@ -330,11 +330,11 @@ class LauncherApp(ctk.CTk):
     # ── Offline Config Frame ──────────────────────────────────────────────
 
     def _build_offline_frame(self):
-        # 預設 AI 配置（對應 main.py 離線開發預設值）
+        # 預設 AI 配置
         _OFFLINE_DEFAULTS = [
-            {"char_type": 1, "level": 3},  # P1 Mage LV3
-            {"char_type": 4, "level": 2},  # P2 Wizard LV2
-            {"char_type": 0, "level": 1},  # P3 Knight LV1
+            {"char_type": 0, "level": 1},  # P1
+            {"char_type": 0, "level": 1},  # P2
+            {"char_type": 0, "level": 1},  # P3
         ]
 
         f = ctk.CTkFrame(self, corner_radius=10)
@@ -825,7 +825,7 @@ class LauncherApp(ctk.CTk):
         is_queue = (room_id == "__queue__")
         self._queue_cancelled = False
 
-        # 定義配對階段（排隊模式才有擴段）
+        # 定義配對階段（牌位賽模式才有擴段）
         if is_queue:
             self._set_status_main("查詢段位中...")
             tier = await self._fetch_tier_async(nickname)
