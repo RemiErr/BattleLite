@@ -1,6 +1,6 @@
 import pygame
 import os
-from app_root import ROOT
+from src.python.app_root import ROOT
 from src.python.assets_manager.base_character import BaseCharacter
 
 SCREEN_W = 1024

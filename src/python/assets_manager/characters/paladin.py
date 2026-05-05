@@ -1,6 +1,6 @@
 from src.python.game_constants import STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL
 import os
-from app_root import ROOT
+from src.python.app_root import ROOT
 from src.python.assets_manager.base_character import (
     BaseCharacter, HitboxDef, PhysicsStats, AbilityDef,
     SfxDef, CharSfxConfig, INPUT_ATTACK, INPUT_SKILL
