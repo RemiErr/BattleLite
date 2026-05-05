@@ -1,8 +1,8 @@
 # BattleLite — 開發者完整說明手冊
 
-BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透過 P2P 連線對戰，延遲對策採用 GGRS (Rollback Netcode) 回滾機制。
+![BattleLite preview](img/preview.png)
 
-<img width="1024" height="640" alt="image" src="https://github.com/user-attachments/assets/fb78512b-a059-4db5-96d0-e906b2c9958f" />
+BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透過 P2P 連線對戰，延遲對策採用 GGRS (Rollback Netcode) 回滾機制。專案架構採用混合方案，由 Python 負責畫面算繪、資源調度與信令流程，Rust 負責處理戰鬥時的操作運算與 GGRS Session，兩者之間是透過 PyO3 暴露為 `battlelite_core` 模組進行整合。
 
 ---
 
@@ -11,6 +11,9 @@ BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透�
 - [BattleLite — 開發者完整說明手冊](#battlelite--開發者完整說明手冊)
   - [目錄](#目錄)
   - [一、 架構總覽](#一-架構總覽)
+    - [模組分工](#模組分工)
+    - [Tech Stack](#tech-stack)
+    - [遊戲流程](#遊戲流程)
   - [二、 2.5D 物理系統](#二-25d-物理系統)
   - [三、 固定點算術與確定性](#三-固定點算術與確定性)
   - [四、 角色狀態機](#四-角色狀態機)
@@ -26,6 +29,7 @@ BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透�
   - [七、 網路架構](#七-網路架構)
     - [整體連線流程](#整體連線流程)
     - [Lobby Server（Signaling Server）](#lobby-serversignaling-server)
+    - [排行榜與牌位統計](#排行榜與牌位統計)
   - [八、 STUN 探測與 NAT 打洞](#八-stun-探測與-nat-打洞)
     - [為什麼需要 STUN？](#為什麼需要-stun)
     - [STUN 探測實作](#stun-探測實作)
@@ -38,8 +42,14 @@ BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透�
     - [輸入延遲（Input Delay）](#輸入延遲input-delay)
   - [十、 Session 啟動流程](#十-session-啟動流程)
     - [安全的 Session 資料傳遞](#安全的-session-資料傳遞)
-  - [十一、 快速啟動](#十一-快速啟動)
-    - [環境安裝（Ubuntu）](#環境安裝ubuntu)
+  - [十一、 AI 對手系統](#十一-ai-對手系統)
+    - [AI 層級設計](#ai-層級設計)
+    - [AI 在離線與自訂房間的責任](#ai-在離線與自訂房間的責任)
+  - [十二、 打包與資源路徑](#十二-打包與資源路徑)
+    - [PyInstaller 雙執行檔](#pyinstaller-雙執行檔)
+    - [資源根目錄](#資源根目錄)
+  - [十三、 快速啟動](#十三-快速啟動)
+    - [環境安裝](#環境安裝)
     - [常用指令](#常用指令)
     - [遊戲內快捷鍵](#遊戲內快捷鍵)
   - [引用資源](#引用資源)
@@ -58,7 +68,7 @@ BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透�
 │  │  launcher.py          main.py         lobby_server/      │   │
 │  │  ┌──────────┐    ┌─────────────┐  ┌──────────────────┐   │   │
 │  │  │ 配對大廳  │    │  遊戲主循環  │  │ Signaling Server │   │   │
-│  │  │ (Tkinter)│    │  (Pygame)   │  │     (FastAPI)    │   │   │
+│  │  │ (CTk)    │    │  (Pygame)   │  │     (FastAPI)    │   │   │
 │  │  └────┬─────┘    └──────┬──────┘  └──────────────────┘   │   │
 │  │       │ 加密 payload    │ 讀取/渲染狀態                   │   │
 │  └───────┼─────────────────┼────────────────────────────────┘   │
@@ -85,6 +95,109 @@ BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透�
 - **Rust 主運算**：提供影響遊戲結果的邏輯運算（物理、碰撞、傷害），確保效率與穩定性。
 - **Python 主互動**：Pygame 負責讀取 Rust 算好的座標並繪製 Sprite，不直接參與邏輯運算。
 - **PyO3 橋接**：透過 `maturin` 將 Rust 編譯為 Python 擴充模組（`.so`），Python 以 `import battlelite_core` 呼叫。
+
+### 模組分工
+
+```
+BattleLite/
+├── src/python/
+│   ├── launcher.py          # 遊戲啟動器
+│   ├── main.py              # 遊戲客端
+│   ├── app_root.py          # 用於同步資源根目錄
+│   ├── lobby_server/main.py # Signaling Server + 提供排行榜 API
+│   ├── ai/                  # 封裝三種 AI 演算法
+│   ├── assets_manager/      # 定義與管理遊戲資源
+│   └── *_manager.py         # 其它管理器
+├── src/rust_core/
+│   └── src/lib.rs           # PyO3 + GGRS + Game Core
+├── src/assets/              # 存放遊戲素材
+├── tests/
+└── BattleLite.spec
+```
+
+
+**資料流：**
+
+```
+角色定義（Python）
+  └─ PhysicsStats / AbilityDef / HitboxDef
+       │
+       ▼ apply_char_config()
+Rust CharConfig / AbilityConfig
+       │
+       ▼ perform_tick(inputs)
+GameState / Player / Entity
+       │
+       ▼ Python 讀取狀態
+Pygame Renderer / HUD / FX / SFX
+```
+
+### Tech Stack
+
+| 類別         | 技術                       | 用途                                     |
+| ------------ | -------------------------- | ---------------------------------------- |
+| 遊戲畫面     | Pygame                     | 視窗、輸入、Sprite、音效與主循環         |
+| Launcher UI  | CustomTkinter              | 主選單、設定、房間、離線 AI 面板、排行榜 |
+| 戰鬥核心     | Rust + PyO3                | Python 可呼叫的 `battlelite_core` 擴充   |
+| Rollback     | GGRS                       | P2P input synchronization + rollback     |
+| 信令伺服器   | FastAPI + WebSocket        | 房間狀態、端點交換、game_start 廣播      |
+| 排行榜資料庫 | SQLite + aiosqlite         | `matches` / `match_results` 牌位賽統計   |
+| 安全傳遞     | ChaCha20-Poly1305 + Base64 | Launcher → Game 的 session payload 加密  |
+| 網路探測     | STUN + UDP Hole Punching   | NAT 後方玩家建立 P2P UDP 通道            |
+| 設定管理     | JSON + python-dotenv       | `settings.json`、Lobby URL、執行環境切換 |
+| 打包         | PyInstaller                | `BattleLite` + `Game` 雙執行檔           |
+
+
+### 遊戲流程
+
+遊戲內目前有三種建立戰鬥的方式：
+
+```
+離線模式
+  Launcher 離線設定 / 直接 main.py
+      │
+      ▼
+  OfflineSession
+      │
+      ├─ 本地玩家
+      └─ 本地 AI（FSM / Pattern / GOAP）
+
+自訂房間
+  開房 / 加入房碼
+      │
+      ▼
+  Lobby Server 交換端點與選角
+      │
+      ▼
+  GGRSSession P2P
+      │
+      └─ 對戰結果會送到 /submit_result，但 server 回 ranked=false，不列入排行榜
+
+牌位賽（排隊 / 天梯）
+  查詢玩家當前牌位，匹配同牌位對手  (2 min limit)
+      │
+      ▼
+  __queue_{tier}__ → __queue_all__  (1 min limit)
+      │
+      ▼
+  GGRSSession P2P
+      │
+      └─ room_code 符合 __queue_xxx__，結果寫入 leaderboard DB
+```
+
+Launcher 呼叫 Game 流程：
+
+```
+BattleLite Launcher
+  │
+  │ encrypt_payload(session_data)
+  ▼
+Game executable / main.py
+  │
+  │ decrypt_payload()
+  ▼
+OfflineSession 或 GGRSSession
+```
 
 ---
 
@@ -343,10 +456,10 @@ SKILL 動作開始
 
 ### Lobby Server（Signaling Server）
 
-- **技術**：FastAPI + WebSocket
+- **技術**：FastAPI + WebSocket + SQLite (`aiosqlite`)
 - **職責**：收集玩家的公網端點，協調打洞時序，廣播 `game_start`
 - **不傳遞**：遊戲狀態、位置座標
-- **部署**：Docker 容器，URL 由 `.env` 中 `LOBBY_SERVER_URL` 設定
+- **部署**：Docker 容器，URL 由 `.env` 中 `LOBBY_SERVER_URL_LOCAL` / `LOBBY_SERVER_URL_CLOUD` 與 `LOBBY_USE_LOCAL` 切換
 
 ```
 WebSocket 訊息類型:
@@ -355,6 +468,41 @@ WebSocket 訊息類型:
   punch_start     → 觸發打洞，攜帶 seed 和所有玩家端點
   game_start      → 打洞等待後，通知正式開始（2 秒延遲）
 ```
+
+### 排行榜與牌位統計
+
+排行榜只統計「牌位賽」結果。自訂房間與離線模式不影響段位。
+
+```
+房間類型:
+  自訂房間    → ABC123 / 玩家輸入房碼
+  牌位賽房間  → __queue_{tier}__ / __queue_all__
+
+戰果提交:
+  main.py → POST /submit_result
+       │
+       ├─ room_code 不符合 __queue_xxx__ → ranked=false，不寫入 DB
+       └─ room_code 符合 __queue_xxx__   → ranked=true，寫入 DB
+```
+
+Database Schema：
+
+| Table         | Content                                  |
+| ------------- | ---------------------------------------- |
+| matches       | `match_id`、`room_code`、開始時間        |
+| match_results | 玩家暱稱、角色、勝 / 負 / 平手、提交時間 |
+
+> 查詢端也會再次過濾 `matches.room_code`：
+
+```
+/leaderboard
+  → 只統計 room_code LIKE "__queue_%__" 的 match_results
+
+/player_tier/{nickname}
+  → 只用牌位賽結果計算 games / win_rate / tier
+```
+
+> 即使舊資料曾混入自訂房間的戰鬥結果，也不會顯示在排行榜。
 
 ---
 
@@ -475,11 +623,11 @@ GGRSSession::advance() 每幀呼叫流程:
   ├─────────────────────────────────────────────────────┤
   │ SaveGameState { cell, frame }                       │
   │   → cell.save(frame, state.clone())                 │
-  │   → 快照當前狀態（回滾的「存檔點」）                    │
+  │   → 快照當前狀態（回滾的「存檔點」）                     │
   ├─────────────────────────────────────────────────────┤
   │ LoadGameState { cell }                              │
   │   → state = cell.load()                             │
-  │   → 恢復快照（回滾的「讀檔」）                         │
+  │   → 恢復快照（回滾的「讀檔」）                          │
   └─────────────────────────────────────────────────────┘
 ```
 
@@ -544,9 +692,155 @@ GGRS 預設加入 2 幀人工輸入延遲:
 
 ---
 
-## 十一、 快速啟動
+## 十一、 AI 對手系統
 
-### 環境安裝（Ubuntu）
+**BattleLite 的 AI 不直接改寫 Rust state**，而是和人類玩家一樣每幀產生 input bitmask。這讓 AI 可以共用同一套 `perform_tick()`，也讓線上 AI 能透過 GGRS 以「輸入」同步。
+
+```
+AIController.decide(ai_p, opp_p, entities)
+        │
+        ▼
+input mask
+        │
+        ▼
+OfflineSession.advance() / GGRSSession.add_local_input()
+        │
+        ▼
+Rust perform_tick()
+```
+
+### AI 層級設計
+
+| 等級 | 控制器                | 設計重點                                      |
+| ---- | --------------------- | --------------------------------------------- |
+| LV1  | `FSMAIController`     | APPROACH / ATTACK / RETREAT / SKILL / WAIT    |
+| LV2  | `PatternAIController` | 依角色 profile 與 Pattern 表選擇招式序列      |
+| LV3  | `GOAPAIController`    | 以 goal + action planner 做決策，失敗回退 LV2 |
+
+```
+make_ai(char_type, level, seed)
+  │
+  ├─ level=1 → FSM
+  ├─ level=2 → Pattern + fallback FSM
+  └─ level=3 → GOAP + fallback Pattern + fallback FSM
+```
+
+AI 的角色資料在：
+
+```
+src/python/ai/characters/
+├── knight_ai.py
+├── mage_ai.py
+├── archer_ai.py
+├── paladin_ai.py
+└── wizard_ai.py
+```
+
+共用判斷則放在：
+
+```
+ai/world_state.py   → 距離、Y 軸對齊、敵我狀態摘要
+ai/predicates.py    → can_use_skill / self_hp_low / opponent_approaching
+ai/fuzzy/           → LV3 模糊 HP / MP / Dist 隸屬度
+ai/goap/            → GOAP action / planner / world_state
+```
+
+### AI 在離線與自訂房間的責任
+
+```
+離線模式:
+  所有 AI 都在本機 main.py 產生 input
+
+自訂房間:
+  host 負責產生 AI input
+  非 host 把 AI player 視為遠端玩家
+  GGRS 負責同步 host 送出的 AI input
+```
+
+> 這個設計避免「每台機器各自跑 AI」造成決策分歧。AI 的輸入只由 host 產生一次，再交給 GGRS 同步。
+
+---
+
+## 十二、 打包與資源路徑
+
+### PyInstaller 雙執行檔
+
+`BattleLite.spec` 會打包兩個執行檔：
+
+| 執行檔       | 入口                     | 職責                       |
+| ------------ | ------------------------ | -------------------------- |
+| `BattleLite` | `src/python/launcher.py` | 啟動器、房間、設定、排行榜 |
+| `Game`       | `src/python/main.py`     | Pygame 戰鬥畫面            |
+
+```
+pyinstaller BattleLite.spec
+        │
+        ▼
+dist/BattleLite/
+├── BattleLite(.exe)
+├── Game(.exe)
+└── src/assets/...
+```
+
+Launcher 在開發模式下以 Python 腳本啟動 Game：
+
+```
+python src/python/main.py --payload <B64>
+```
+
+在 frozen 模式下則呼叫同目錄的 `Game` 執行檔：
+
+```
+dist/BattleLite/BattleLite.exe
+  └─ launches → dist/BattleLite/Game.exe --payload <B64>
+```
+
+### 資源根目錄
+
+資源路徑由 `src/python/app_root.py` 統一處理：
+
+```
+開發模式:
+  PROJECT_ROOT = BattleLite/
+
+PyInstaller frozen 模式:
+  PROJECT_ROOT = sys._MEIPASS
+```
+
+用途：
+
+```
+os.path.join(PROJECT_ROOT, "src", "assets", ...)
+```
+
+`main.py` 額外有一段啟動 bootstrap：
+
+```
+python src/python/main.py
+  → sys.path 預設只有 src/python
+  → 先補 BattleLite/ 到 sys.path
+  → 才能使用 from src.python... 的 package import
+```
+
+設定檔路徑則與資源不同：
+
+```
+開發模式:
+  BattleLite/settings.json
+
+打包後:
+  執行檔同目錄/settings.json
+```
+
+這讓使用者調整音量、按鍵方案、視窗位置時，不需要修改 PyInstaller bundle 內部資源。
+
+---
+
+## 十三、 快速啟動
+
+### 環境安裝
+
+（範例環境：Ubuntu）
 
 ```bash
 # 1. 系統依賴
@@ -561,9 +855,9 @@ python3 -m venv venv --without-pip
 source venv/bin/activate
 curl https://bootstrap.pypa.io/get-pip.py | python3
 pip install maturin pygame pytest httpx fastapi uvicorn customtkinter \
-            cryptography websockets python-dotenv
+            cryptography websockets python-dotenv aiosqlite pyinstaller
 
-# 4. 若你需要重新編譯 Rust 核心
+# 4. 若你需要重新編譯 Rust 核心用於開發
 cd src/rust_core && maturin develop && cd ../..
 ```
 
@@ -579,6 +873,13 @@ python src/python/launcher.py
 # 啟動 Signaling Server（本機測試用）
 uvicorn src.python.lobby_server.main:app --reload --port 8000
 
+# 編譯 Rust 核心為 Python wheel 並安裝
+cd src/rust_core && maturin build --release && cd ../..
+pip install <PATH/TO/BATTLELITE_CORE.whl> --force-reinstall
+
+# PyInstaller 打包 Launcher + Game
+pyinstaller BattleLite.spec
+
 # 執行所有測試
 pytest tests/
 
@@ -588,15 +889,18 @@ pytest tests/test_physics.py -v
 
 ### 遊戲內快捷鍵
 
-| 按鍵     | 功能                     |
-| -------- | ------------------------ |
-| F1       | 切換 Debug Overlay       |
-| F2       | 切換受控角色（沙盒模式） |
-| F3       | 切換角色職業（沙盒模式） |
-| 上下左右 | 移動                     |
-| Z        | 攻擊                     |
-| X        | 技能                     |
-| Space    | 跳躍                     |
+| 按鍵            | 功能                           |
+| --------------- | ------------------------------ |
+| ESC             | 離開遊戲                       |
+| 上下左右 / WASD | 移動（依設定的按鍵組合）       |
+| Z / J           | 攻擊（依設定的按鍵組合）       |
+| X / K           | 技能（依設定的按鍵組合）       |
+| Space           | 跳躍                           |
+| F1              | 切換 Debug Overlay（離線模式） |
+| F2              | 切換受控角色（離線模式）       |
+| F3              | 切換角色職業（離線模式）       |
+| P               | 暫停 / 繼續（離線模式）        |
+| R               | 重新開始回合（離線模式）       |
 
 ---
 
