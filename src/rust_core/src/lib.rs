@@ -270,6 +270,7 @@ pub struct Player {
     #[pyo3(get, set)] pub mp: i32,
     #[pyo3(get, set)] pub character_type: u8,
     #[pyo3(get, set)] pub hitstop: u32,
+    #[pyo3(get, set)] pub shield_hp: i32,
 }
 
 #[pymethods]
@@ -394,10 +395,12 @@ impl Config for BattleConfig {
 fn apply_hit(
     victim: &mut Player,
     damage: i32, kb_vx: i32, kb_vz: i32, kb_timer: u32,
-    absorb: i32, hitstop: u32,
+    shield: i32, hitstop: u32,
 ) -> bool {
-    if absorb > 0 {
-        victim.hp = (victim.hp - (damage - absorb).max(0)).max(0);
+    if shield > 0 {
+        let shield_taken = damage.min(shield);
+        victim.shield_hp = (victim.shield_hp - shield_taken).max(0);
+        victim.hp = (victim.hp - (damage - shield).max(0)).max(0);
     } else {
         victim.state   = STATE_HURT;
         victim.timer   = kb_timer;
@@ -407,7 +410,7 @@ fn apply_hit(
         victim.hitstop = hitstop;
     }
     if victim.hp == 0 { victim.state = STATE_DEAD; victim.timer = 0; }
-    absorb == 0
+    shield == 0
 }
 
 fn apply_per_tick_buffs(p: &mut Player, phy: &PhysicsConfig, active_ab: Option<&AbilityConfig>) {
@@ -451,6 +454,9 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
                     p.timer = ab.timer;
                     p.mp   -= ab.mp_cost;
                     p.vx    = 0; p.vy = 0;
+                    if ab.damage_absorb > 0 {
+                        p.shield_hp = ab.damage_absorb;
+                    }
                     break;
                 }
             }
@@ -535,10 +541,10 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
             (v.state, v.character_type)
         };
         let vic_cfg = get_cfg(configs, victim_char);
-        let absorb = vic_cfg.abilities.iter()
+        let shield = vic_cfg.abilities.iter()
             .find(|ab| ab.state_id == victim_state && ab.damage_absorb > 0)
             .map(|ab| ab.damage_absorb).unwrap_or(0);
-        let hit_landed = apply_hit(&mut state.players[hit.victim], hit.damage, hit.vx, hit.vz, hit.timer, absorb, vic_cfg.physics.hitstop_frames);
+        let hit_landed = apply_hit(&mut state.players[hit.victim], hit.damage, hit.vx, hit.vz, hit.timer, shield, vic_cfg.physics.hitstop_frames);
         if hit_landed && hit.on_hit_hp_restore > 0 {
             entity_hp_restores.push((hit.owner_id, hit.on_hit_hp_restore));
         }
@@ -572,10 +578,10 @@ fn perform_tick(state: &mut GameState, inputs: &[(u8, InputStatus)], configs: &[
             let vic_cfg = get_cfg(configs, state.players[j].character_type);
             if check_attack_hit_cfg(&atk_info, &state.players[j], ab, &vic_cfg.physics) {
                 let victim_state = state.players[j].state;
-                let absorb = vic_cfg.abilities.iter()
+                let shield = vic_cfg.abilities.iter()
                     .find(|a| a.state_id == victim_state && a.damage_absorb > 0)
                     .map(|a| a.damage_absorb).unwrap_or(0);
-                if apply_hit(&mut state.players[j], ab.dmg, kb_vx, ab.kb_vz, ab.kb_timer, absorb, atk_cfg.physics.hitstop_frames) {
+                if apply_hit(&mut state.players[j], ab.dmg, kb_vx, ab.kb_vz, ab.kb_timer, shield, atk_cfg.physics.hitstop_frames) {
                     hit_landed = true;
                 }
             }
