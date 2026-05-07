@@ -385,6 +385,7 @@ def run_game():
         nonlocal match_result, player_elapsed_frames, last_states, paused, countdown_frames
         paused = False
         countdown_frames = 3 * 60
+        session.clear_entities()
         for i in range(num_players):
             p = session.get_player(i)
             asset = char_assets.get(p.character_type, char_assets[0])
@@ -392,12 +393,22 @@ def run_game():
             p.mp = asset.physics.max_mp
             p.state = STATE_IDLE
             p.timer = 0
+            p.vx = 0
+            p.vy = 0
+            p.vz = 0
             p.z = 0
+            p.hitstop = 0
+            p.shield_hp = 0
             session.set_player(i, p)
         _set_spawn_positions(session, num_players)
         match_result = None
         player_elapsed_frames = [0] * num_players
         last_states = [STATE_IDLE] * num_players
+        fx_manager.effects_front.clear()
+        fx_manager.effects_behind.clear()
+        fx_manager._player_fx.clear()
+        hud._hp_drain.clear()
+        hud._mp_drain.clear()
 
     running = True
     paused = False
