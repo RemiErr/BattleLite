@@ -38,6 +38,8 @@ try:
         STATE_IDLE, STATE_WALK, STATE_ATTACK, STATE_HURT, STATE_SKILL, STATE_DEAD)
     from src.python.ai.controllers.base import AIController
     from src.python.ai.factory import make_ai
+    from src.python.session.char_config import apply_char_config
+    from src.python.session.adapter import OfflineAdapter, GGRSAdapter
 except ImportError as e:
     print(f"[ERR] 匯入失敗: {e}")
     sys.exit(1)
@@ -57,58 +59,6 @@ _SPAWN_X = [1_336_000, 1_736_000, 1_136_000, 1_936_000]
 _SPAWN_Y = [385_000,   385_000,   370_000,   400_000]
 # 箭頭距影子的像素高度（可調整）
 _ARROW_ABOVE_SHADOW = 120
-
-
-def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
-    """PhysicsStats + AbilityDef → Rust PhysicsConfig + AbilityConfig。"""
-    p = asset.physics
-
-    # Hurt box 從 STATE_IDLE 推導（所有狀態共用同一 Rust hurt box）
-    hurt_hb = asset.hurt_boxes.get(STATE_IDLE) or next(
-        iter(asset.hurt_boxes.values()), None)
-    if hurt_hb is not None:
-        hurt_f, hurt_hw, hurt_hh, hurt_zo = hurt_hb.to_rust_params()
-    else:
-        hurt_f, hurt_hw, hurt_hh, hurt_zo = 0, 15_000, 50_000, 0
-
-    session.set_physics_config(
-        char_type,
-        p.gravity, p.jump_impulse, p.walk_speed_x, p.walk_speed_y, p.hitstop_frames,
-        p.max_hp, p.max_mp,
-        hurt_f, hurt_hw, hurt_hh, hurt_zo,
-    )
-
-    for slot_idx, ab in enumerate(asset.abilities):
-        spd = asset.speed_map.get(ab.state_id, 4)
-        hit_start = ab.hit_frame_start * spd
-        hit_end = ab.hit_frame_end * spd
-        dash_tick = ab.dash_frame * spd
-        # spawn_timer：幀索引優先於舊版 timer 倒數值
-        spawn_timer = (ab.timer - ab.spawn_frame * spd
-                       if ab.spawn_frame >= 0 else ab.spawn_timer_raw)
-
-        if ab.hit_box is not None:
-            ab_f, ab_hw, ab_hh, ab_zo = ab.hit_box.to_rust_params()
-        else:
-            ab_f, ab_hw, ab_hh, ab_zo = 0, 0, 0, 0
-
-        entity_offset = (ab.proj_fx.offset_x * 1000) if ab.proj_fx else 0
-        entity_z_offset = (ab.proj_fx.offset_y * 1000) if ab.proj_fx else 0
-
-        session.set_ability(
-            char_type, slot_idx,
-            ab.trigger_button, ab.trigger_context, ab.state_id,
-            ab.mp_cost, ab.timer,
-            ab.dmg, ab_f, ab_hw, ab.depth, ab_hh, ab_zo,
-            ab.kb_vx, ab.kb_vz, ab.kb_timer,
-            ab.melee_enabled, hit_start, hit_end,
-            ab.damage_absorb, ab.hp_regen, ab.on_hit_restore,
-            ab.projectile_vx, ab.projectile_lifetime, spawn_timer,
-            entity_offset, entity_z_offset,
-            ab.spawn_entity,
-            ab.dash_vx, dash_tick,
-            ab.is_skill,
-        )
 
 
 def parse_args():
@@ -289,7 +239,8 @@ def run_game():
 
     if is_offline:
         print("[Mode] Offline Sandbox (Pure Rust Simulation)")
-        session = OfflineSession(num_players)
+        _raw = OfflineSession(num_players)
+        session = OfflineAdapter(_raw)
         for char_type, asset in char_assets.items():
             apply_char_config(session, char_type, asset)
     else:
@@ -314,9 +265,10 @@ def run_game():
                     print(
                         f"  player id={pid}  (AI @ host)  {host_player['ip']}:{host_player['port']}")
         bot_ids_for_session = ai_player_ids if i_am_host else []
-        session = GGRSSession(controlled_idx, num_players,
-                              config["local_port"], remote_players_list,
-                              bot_ids_for_session)
+        _raw = GGRSSession(controlled_idx, num_players,
+                           config["local_port"], remote_players_list,
+                           bot_ids_for_session)
+        session = GGRSAdapter(_raw, controlled_idx, bot_ids_for_session)
         for char_type, asset in char_assets.items():
             apply_char_config(session, char_type, asset)
 
@@ -486,7 +438,8 @@ def run_game():
                         inputs.append(0)
                 session.advance(inputs)
             else:
-                bot_inputs = []
+                inputs = [0] * num_players
+                inputs[controlled_idx] = input_mask
                 for pid, controller in ai_controllers.items():
                     ai_p = session.get_player(pid)
                     entities = [session.get_entity(i)
@@ -503,9 +456,8 @@ def run_game():
                             abs(ai_p.x - q.x), abs(ai_p.y - q.y)),
                         default=session.get_player(controlled_idx),
                     )
-                    bot_inputs.append(
-                        (pid, controller.decide(ai_p, opp_p, entities)))
-                session.advance(input_mask, bot_inputs if bot_inputs else None)
+                    inputs[pid] = controller.decide(ai_p, opp_p, entities)
+                session.advance(inputs)
             _clamp_world_bounds(session, num_players)
 
             # --- SFX 事件偵測 ---
