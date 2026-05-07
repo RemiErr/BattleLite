@@ -59,7 +59,7 @@ class Knight(BaseCharacter):
                 timer=24,
                 dmg=10_000,
                 depth=40_000,
-                on_hit_restore=5_000,
+                on_hit_hp_restore=5_000,
                 kb_vx=5_000, kb_vz=6_000, kb_timer=30,
                 dash_vx=10_000, dash_frame=2,
                 melee_enabled=True,

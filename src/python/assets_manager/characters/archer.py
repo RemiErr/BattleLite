@@ -60,7 +60,7 @@ class Archer(BaseCharacter):
                 timer=44,
                 dmg=15_000,
                 depth=25_000,
-                on_hit_restore=10_000,
+                on_hit_hp_restore=10_000,
                 kb_vx=6_000, kb_vz=4_000, kb_timer=25,
                 melee_enabled=False,
                 projectile_vx=25_000,

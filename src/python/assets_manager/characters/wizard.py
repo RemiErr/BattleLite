@@ -86,7 +86,7 @@ class Wizard(BaseCharacter):
                 state_id=STATE_SKILL,
                 mp_cost=30_000,
                 timer=72,
-                hp_regen=140,  # 回血量 = hp_regen * timer
+                hp_regen_per_tick=140,  # 回血量 = hp_regen_per_tick * timer
                 dmg=25_000,
                 depth=60_000,
                 kb_vx=3_000, kb_vz=16_000, kb_timer=35,
