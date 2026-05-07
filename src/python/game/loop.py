@@ -248,7 +248,7 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             mm.countdown_frames -= 1
             input_mask = 0
 
-        if mm.match_result is None and not mm.paused and not (is_offline and mm.countdown_frames > 0):
+        if mm.match_result is None and not mm.paused and mm.countdown_frames == 0:
             prev_z            = [session.get_player(i).z for i in range(num_players)]
             prev_entity_count = session.get_entity_count()
 
