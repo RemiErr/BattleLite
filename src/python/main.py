@@ -1,6 +1,7 @@
 import pygame
 import sys
 import os
+import math
 import argparse
 import json
 import threading
@@ -54,6 +55,8 @@ WORLD_Y_MAX = 520_000
 # 最多 4 人的初始出生位置（世界中央左右各散開）
 _SPAWN_X = [1_336_000, 1_736_000, 1_136_000, 1_936_000]
 _SPAWN_Y = [385_000,   385_000,   370_000,   400_000]
+# 箭頭距影子的像素高度（可調整）
+_ARROW_ABOVE_SHADOW = 120
 
 
 def apply_char_config(session, char_type: int, asset: BaseCharacter) -> None:
@@ -269,6 +272,13 @@ def run_game():
     hud = HUD(char_assets, player_names=player_names)
     for ct, asset in char_assets.items():
         sfx_manager.register(ct, asset.sfx)
+
+    _arrow_path = os.path.join(
+        PROJECT_ROOT, "src", "assets", "HUD", "arrow-down.png")
+    try:
+        _arrow_img = pygame.image.load(_arrow_path).convert_alpha()
+    except Exception:
+        _arrow_img = None
 
     # --- Session 工廠 ---
     is_offline = config["is_offline"]
@@ -602,6 +612,20 @@ def run_game():
         # --- [Phase 2] 特效後層 (Behind-Character FX) ---
         fx_manager.update_and_draw(screen, layer="behind")
 
+        # --- [Phase 2.5] 位置指示器（角色之前畫，角色會蓋住它）---
+        if _arrow_img:
+            bob = int(4 * math.sin(pygame.time.get_ticks() * 0.004))
+            aw, ah = _arrow_img.get_size()
+            for original_idx, p in render_list:
+                if original_idx != controlled_idx or p.state == STATE_DEAD:
+                    continue
+                sx, sy = get_screen_pos(p)
+                sx -= cam_x
+                shadow_ground_y = int(sy + p.z / 1000.0)
+                screen.blit(_arrow_img,
+                            (int(sx) - aw // 2,
+                             shadow_ground_y - _ARROW_ABOVE_SHADOW - ah + bob))
+
         # --- [Phase 3] 角色與實體層 (Sprites) ---
         for original_idx, p in render_list:
             sx, sy = get_screen_pos(p)
@@ -724,6 +748,7 @@ def run_game():
 
         # --- [Phase 4] 特效前層 (Front-Character FX) ---
         fx_manager.update_and_draw(screen, layer="front")
+
         hud.draw(screen, render_list)
         debug_manager.draw(screen, session, render_list,
                            clock.get_fps(), ai_controllers)
