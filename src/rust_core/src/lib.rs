@@ -674,6 +674,8 @@ impl OfflineSession {
             .ok_or_else(|| PyIndexError::new_err("OOR"))
     }
 
+    fn clear_entities(&mut self) { self.state.entities.clear(); }
+
     fn get_entity_count(&self) -> usize { self.state.entities.len() }
 
     fn get_entity(&self, id: usize) -> PyResult<EntityView> {
