@@ -372,8 +372,9 @@ def run_game():
         return None
 
     def _restart_offline():
-        nonlocal match_result, player_elapsed_frames, last_states, paused
+        nonlocal match_result, player_elapsed_frames, last_states, paused, countdown_frames
         paused = False
+        countdown_frames = 3 * 60
         for i in range(num_players):
             p = session.get_player(i)
             asset = char_assets.get(p.character_type, char_assets[0])
@@ -390,6 +391,7 @@ def run_game():
 
     running = True
     paused = False
+    countdown_frames = 3 * 60
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -428,8 +430,11 @@ def run_game():
 
         # 1. 邏輯推進
         input_mask = get_input_mask(key_map)
+        if countdown_frames > 0 and (is_offline or session.is_synchronized()):
+            countdown_frames -= 1
+            input_mask = 0
 
-        if match_result is None and not paused:
+        if match_result is None and not paused and not (is_offline and countdown_frames > 0):
             prev_z = [session.get_player(i).z for i in range(num_players)]
             prev_entity_count = session.get_entity_count()
 
@@ -757,6 +762,19 @@ def run_game():
             screen.blit(info1, info1.get_rect(center=(cx, cy + 50)))
             screen.blit(info2, info2.get_rect(center=(cx, cy + 75)))
             screen.blit(info3, info3.get_rect(center=(cx, cy + 100)))
+
+        # 開場倒數
+        if countdown_frames > 0 and match_result is None and (is_offline or session.is_synchronized()):
+            ov = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+            ov.fill((0, 0, 0, 120))
+            screen.blit(ov, (0, 0))
+            cx, cy = SCREEN_W // 2, SCREEN_H // 2
+            num = (countdown_frames + 59) // 60
+            cd_surf = result_font_big.render(str(num), True, (255, 220, 60))
+            screen.blit(cd_surf, cd_surf.get_rect(center=(cx, cy)))
+            sub = "準備！" if num == 1 else "GET READY"
+            sub_surf = result_font_small.render(sub, True, (200, 200, 200))
+            screen.blit(sub_surf, sub_surf.get_rect(center=(cx, cy + 60)))
 
         # 結算畫面
         if match_result is not None:
