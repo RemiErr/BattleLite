@@ -70,7 +70,7 @@ class Paladin(BaseCharacter):
                 melee_enabled=True,
                 hit_frame_start=4, hit_frame_end=7,
                 dash_vx=80_000, dash_frame=4,
-                on_hit_restore=15_000,
+                on_hit_hp_restore=15_000,
                 hit_box=_HIT_ATTACK,
                 is_skill=False,
             ),

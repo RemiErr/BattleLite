@@ -44,7 +44,13 @@ BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透�
     - [安全的 Session 資料傳遞](#安全的-session-資料傳遞)
   - [十一、 AI 對手系統](#十一-ai-對手系統)
     - [AI 層級設計](#ai-層級設計)
-    - [AI 在離線與自訂房間的責任](#ai-在離線與自訂房間的責任)
+    - [LV1：FSM（有限狀態機）](#lv1fsm有限狀態機)
+    - [LV2：Pattern AI（招式腳本）](#lv2pattern-ai招式腳本)
+    - [LV3：GOAP + Fuzzy Logic](#lv3goap--fuzzy-logic)
+    - [AI 穩定性優化](#ai-穩定性優化)
+    - [Debug Overlay（F4）](#debug-overlayf4)
+    - [模組結構](#模組結構)
+    - [AI 在離線與連線模式的責任](#ai-在離線與連線模式的責任)
   - [十二、 打包與資源路徑](#十二-打包與資源路徑)
     - [PyInstaller 雙執行檔](#pyinstaller-雙執行檔)
     - [資源根目錄](#資源根目錄)
@@ -101,16 +107,30 @@ BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透�
 ```
 BattleLite/
 ├── src/python/
-│   ├── launcher.py          # 遊戲啟動器
-│   ├── main.py              # 遊戲客端
-│   ├── app_root.py          # 用於同步資源根目錄
-│   ├── lobby_server/main.py # Signaling Server + 提供排行榜 API
-│   ├── ai/                  # 封裝三種 AI 演算法
-│   ├── assets_manager/      # 定義與管理遊戲資源
-│   └── *_manager.py         # 其它管理器
-├── src/rust_core/
-│   └── src/lib.rs           # PyO3 + GGRS + Game Core
-├── src/assets/              # 存放遊戲素材
+│   ├── launcher.py              # 遊戲啟動器 (CustomTkinter)
+│   ├── main.py                  # 遊戲入口：解析 payload、建立 session
+│   ├── app_root.py              # 定義資源根目錄
+│   ├── session/
+│   │   ├── adapter.py           # OfflineAdapter / GGRSAdapter
+│   │   └── char_config.py       # 調度角色參數
+│   ├── game/
+│   │   ├── input_manager.py     # 按鍵常數、按鍵映射等
+│   │   ├── match_manager.py     # 勝負判定、開場倒數等
+│   │   └── loop.py              # 遊戲主迴圈、GUI 算繪
+│   ├── lobby_server/main.py     # Signaling Server + 排行榜 API
+│   ├── ai/                      # 三種 AI 演算法
+│   ├── assets_manager/          # 角色 Sprite / PhysicsStats / AbilityDef
+│   └── *_manager.py             # 算繪、特效、音效、Debug 管理器
+├── src/rust_core/src/
+│   ├── lib.rs                   # PyO3 模組入口、封包解密
+│   ├── config.rs                # 綁定各種 Config
+│   ├── player.rs                # 綁定遊戲角色參數
+│   ├── entity.rs                # 綁定投射物
+│   ├── physics.rs               # 負責物理 / 生命狀態相關運算
+│   ├── game_state.rs            # 遊戲狀態、運算週期
+│   ├── offline_session.rs       # OfflineSession
+│   └── ggrs_session.rs          # GGRSSession
+├── src/assets/                  # 遊戲素材
 ├── tests/
 └── BattleLite.spec
 ```
@@ -562,7 +582,7 @@ public_ip, public_port = parse_response(data)
           │  P2P 通道建立！                   │
 
 ```
-> 問題： 時序敏感，兩端必須「幾乎同時」發送  
+> 問題： 時序敏感，兩端必須「幾乎同時」發送
 > 解法： Lobby 的 `punch_start` 訊息作為同步信號，固定等待 2 秒後才發 `game_start`
 
 ### 端點選擇策略
@@ -688,19 +708,19 @@ GGRS 預設加入 2 幀人工輸入延遲:
     │                → 建立 GGRSSession  │
 ```
 
-> **格式：** `Base64(Nonce[12 bytes] + Ciphertext)`  
+> **格式：** `Base64(Nonce[12 bytes] + Ciphertext)`
 
 ---
 
 ## 十一、 AI 對手系統
 
-**BattleLite 的 AI 不直接改寫 Rust state**，而是和人類玩家一樣每幀產生 input bitmask。這讓 AI 可以共用同一套 `perform_tick()`，也讓線上 AI 能透過 GGRS 以「輸入」同步。
+**BattleLite 的 AI 不直接改寫 Rust state**，而是和人類玩家一樣每幀產生 1-byte input bitmask。這讓 AI 可以共用同一套 `perform_tick()`，也讓線上 AI 能透過 GGRS 以「輸入」同步。
 
 ```
 AIController.decide(ai_p, opp_p, entities)
         │
         ▼
-input mask
+input mask (1 byte)
         │
         ▼
 OfflineSession.advance() / GGRSSession.add_local_input()
@@ -711,53 +731,219 @@ Rust perform_tick()
 
 ### AI 層級設計
 
-| 等級 | 控制器                | 設計重點                                      |
-| ---- | --------------------- | --------------------------------------------- |
-| LV1  | `FSMAIController`     | APPROACH / ATTACK / RETREAT / SKILL / WAIT    |
-| LV2  | `PatternAIController` | 依角色 profile 與 Pattern 表選擇招式序列      |
-| LV3  | `GOAPAIController`    | 以 goal + action planner 做決策，失敗回退 LV2 |
+AI 採用層級化架構，三個等級分別為：
+
+| 等級 | 控制器                | 技術核心                                |
+| ---- | --------------------- | --------------------------------------- |
+| LV1  | `FSMAIController`     | 有限狀態機 + 反應延遲（reaction_delay） |
+| LV2  | `PatternAIController` | 謂詞觸發的招式腳本序列                  |
+| LV3  | `GOAPAIController`    | A* 行動規劃 + 模糊邏輯動態成本          |
+
+> **謂詞（Predicate）：**  
+> 在 Pattern AI 中表示一個條件判斷函數，輸入當前遊戲狀態，回傳 True 或 False。  
+> Aka => 用函數將邏輯判斷打包成具有語意的人話。
+
+範例：
+```python
+# ai/predicates.py 裡的謂詞長這樣：
+def dist_close(ws):     return ws.dist_x < 120_000
+def y_aligned(ws):      return ws.dist_y < 20_000
+def can_use_skill(ws):  return ws.self_mp >= ws.skill_cost
+def self_hp_low(ws):    return ws.self_hp < ws.max_hp * 0.3
+
+# 一張 Mage 的 Pattern 卡可能長這樣：
+Pattern(
+    name="close_skill",
+    predicates=[dist_close, y_aligned, can_use_skill],  # ← 三個謂詞
+    action_sequence=[SKILL, TOWARD, TOWARD, ...]
+)
+
+# 只有在「距離近 且 Y 軸對齊 且 MP 足夠」成立，
+# Mage AI 才會鎖定這張卡並開始播放技能序列。
+```
+
+
+**Fallback 鏈（確保任何情況下都有輸出）：**
 
 ```
 make_ai(char_type, level, seed)
   │
   ├─ level=1 → FSM
-  ├─ level=2 → Pattern + fallback FSM
-  └─ level=3 → GOAP + fallback Pattern + fallback FSM
+  ├─ level=2 → Pattern ──fallback──▶ FSM
+  └─ level=3 → GOAP ──fallback──▶ Pattern ──fallback──▶ FSM
 ```
 
-AI 的角色資料在：
+---
+
+### LV1：FSM（有限狀態機）
+
+5 個離散狀態，每幀根據環境數值決定轉移：
 
 ```
-src/python/ai/characters/
-├── knight_ai.py
-├── mage_ai.py
-├── archer_ai.py
-├── paladin_ai.py
-└── wizard_ai.py
+APPROACH ──(在攻擊範圍內)──▶ ATTACK
+ATTACK   ──(攻擊完成)──────▶ RETREAT
+RETREAT  ──(安全距離)──────▶ APPROACH
+APPROACH ──(MP 足夠)───────▶ SKILL
+任意狀態  ──(隨機)──────────▶ WAIT
 ```
 
-共用判斷則放在：
+- **`reaction_delay`**：AI 不會立即反應，環境改變後須等待數幀才切換狀態，**模擬人類反應時間**。
+- **`FSMDifficultyParams`**：難度參數控制反應延遲長短與攻擊頻率。
+
+---
+
+### LV2：Pattern AI（招式腳本）
+
+基於「謂詞（Predicate）+ 行動序列（action_sequence）」驅動：
+
+1. 每幀評估所有 Pattern 的觸發謂詞（如 `dist_close AND y_aligned AND can_use_skill`）
+2. 謂詞滿足 → 鎖定對應 Pattern，逐幀播放預設按鍵序列
+3. 序列執行完畢或謂詞不再成立 → 解鎖，重新選擇
+
+**符號化方向解析**：Pattern 支援 `TOWARD`（朝向對手）與 `AWAY`（遠離對手）符號，執行時動態轉換為實際左右鍵，避免 AI 站在不同側時方向指令出錯。
+
+每個角色有獨立的 Pattern 表（`ai/characters/`），反映各角色的技能特性。
+
+---
+
+### LV3：GOAP + Fuzzy Logic
+（目標導向行動規劃 + 模糊邏輯）
+
+由兩層組成：
+
+**感官層（Fuzzy Logic）**
+
+將精確數值轉換為模糊集合隸屬度，賦予 AI「程度感」：
 
 ```
-ai/world_state.py   → 距離、Y 軸對齊、敵我狀態摘要
-ai/predicates.py    → can_use_skill / self_hp_low / opponent_approaching
-ai/fuzzy/           → LV3 模糊 HP / MP / Dist 隸屬度
-ai/goap/            → GOAP action / planner / world_state
+HP: 40%  →  { lo: 0.2, md: 0.7, hi: 0.1 }
+MP: 80%  →  { lo: 0.0, md: 0.3, hi: 0.7 }
+Dist: 遠  →  { close: 0.1, mid: 0.4, far: 0.5 }
 ```
 
-### AI 在離線與自訂房間的責任
+> tip:  
+> 這邊模糊化是透過 `evaluate()` 進行向量正規化，最終會取出一組總和為 1 的浮點數結果。 
+>  
+> ㄜ... 用人話說就是：  
+> 「當前血量狀態為 _____ 狀態」，將 100% 可能性分成：
+> - 20% 可能為低
+> - 70% 可能為中
+> - 10% 可能為高
+>
+> 血量只會有**一種狀態**，只是它同時符合不同「可能性」的結果，因此總和必須為 1。
+
+模糊向量決定目標選擇（7 個分支），依優先級高至低排序：
+
+| 優先級 | 模式           | 觸發條件                         | 目標    | 行為語意     |
+| ------ | -------------- | -------------------------------- | ------- | ------------ |
+| 最高   | `gamble`       | 自身 HP 低 且 對手 HP 亦低       | WIN     | 孤注一擲     |
+| 次高   | `conservative` | 自身 HP 低（對手不論）           | SURVIVE | 逃跑保命     |
+| 中 ①   | `aggressive`   | 自身 HP 中段 且 對手血量少於自身 | WIN     | 把握機會進攻 |
+| 中 ②   | `conservative` | 自身 HP 中段 且 平手或劣勢       | SURVIVE | 撤退迂迴     |
+| 低 ①   | `aggressive`   | 自身 HP 充足 且 對手血量少於自身 | WIN     | 激進追殺     |
+| 低 ②   | `balanced`     | 自身 HP 充足 且 雙方血量相近     | WIN     | 攻防平衡     |
+| 低 ③   | `conservative` | 自身 HP 充足 但 對手血量多於自身 | WIN     | 偏保守攻擊   |
+
+
+> tip:  
+> 實際上這邊的模糊邏輯只做到一半，因為決策目標的狀態是離散的（參考行為語意）與需要即時計算等原因的考量，因此採用最大隸屬度法（`dominant()`）直接跳過解模糊化用暴力取出最大值。標準做法可以再進一步做解模糊化（重心法 etc.），輸出一個連續變化的純量。
+
+
+**規劃層（GOAP）**
+
+1. 根據模糊目標建立 World State 目標
+2. A\* 搜尋所有可用 Action，找出總 Cost 最低的行動序列
+3. **動態成本**：Action 的 Cost 受 Fuzzy 影響——危險時「靠近」成本上升，「防禦」成本下降
+4. A\* 找不到合法計畫 → fallback 至 Pattern AI
+
+每個角色有獨立的 GOAP Action 表（`ai/characters/`），含各自的 `attack_range` 設定。
+
+---
+
+### AI 穩定性優化
+
+實際測試中發現三類行為異常並已修復：
+
+**1. 決策抖動（遲滯補償，Hysteresis）**
+
+問題：AI 在攻擊範圍邊緣因位置微小跳動導致 `in_range` 每幀切換，引發無窮重新規劃，視覺上呈現左右擺動。
+
+修復（`ai/goap/world_state.py`）：
+```
+進入 in_range：目標進入 90% 攻擊範圍才成立
+離開 in_range：目標離開 110% 攻擊範圍才失效
+```
+
+**2. Y 軸揮空（對齊閾值強制化）**
+
+問題：AI 的 `y_aligned` 判斷閾值（舊值 80,000）遠大於 Rust 碰撞深度（25,000），導致 AI「以為」打得到但物理未碰撞。
+
+修復：
+- `Y_ALIGN_THRESHOLD` 下調至 **20,000**（嚴於 Rust 核心的 25,000）
+- FSM / Pattern / GOAP 三層攻擊動作均加入 `y_aligned` 先決條件
+- 新增 `make_y_align()` 動作，供 GOAP 在攻擊前主動補正 Y 軸偏差
+
+**3. 視覺震盪（Y 軸死區）**
+
+問題：AI 橫移時因 `dy != 0` 即輸出上下鍵，在對齊目標線附近來回過衝，視覺上呈現抖動。
+
+修復：三層 AI 均引入 **5,000 單位** Y 軸死區——只有 `dy > 5,000` 才輸出上下鍵。
+
+---
+
+### Debug Overlay（F4）
+
+離線模式下按 F4 可切換 AI 資訊面板，各等級顯示不同資訊：
+
+| 等級 | 顯示內容                                                    |
+| ---- | ----------------------------------------------------------- |
+| LV1  | FSM 當前狀態                                                |
+| LV2  | 當前 Pattern 名稱 + 序列進度                                |
+| LV3  | 目標（Goal）、當前規劃動作、模糊隸屬度（HP/MP/Dist 各集合） |
+
+---
+
+### 模組結構
+
+```
+src/python/ai/
+├── factory.py            # make_ai(char_type, level, seed)
+├── world_state.py        # build_fsm/pattern/goap_world_state；含遲滯補償
+├── predicates.py         # can_use_skill / self_hp_low / opponent_approaching
+├── controllers/
+│   ├── base.py           # AIController ABC（含 get_debug_info 抽象方法）
+│   ├── fsm_ai.py         # FSMAIController + FSMDifficultyParams
+│   ├── pattern_ai.py     # PatternAIController + Pattern dataclass
+│   └── goap_ai.py        # GOAPAIController
+├── fuzzy/
+│   ├── membership.py     # 隸屬度函數（trapezoid / triangle）
+│   └── variable.py       # FuzzyVariable
+├── goap/
+│   ├── action.py         # GoapAction dataclass
+│   ├── planner.py        # A* 規劃器
+│   ├── world_state.py    # GoapWorldState
+│   └── base_actions.py   # 共用動作（approach / attack / y_align / defend…）
+└── characters/
+    ├── profile.py        # CharAIProfile（attack_range 等角色專屬參數）
+    ├── knight_ai.py
+    ├── mage_ai.py
+    ├── archer_ai.py
+    ├── paladin_ai.py
+    └── wizard_ai.py
+```
+
+### AI 在離線與連線模式的責任
 
 ```
 離線模式:
-  所有 AI 都在本機 main.py 產生 input
+  所有 AI 都在本機 game/loop.py 產生 input
 
-自訂房間:
-  host 負責產生 AI input
-  非 host 把 AI player 視為遠端玩家
-  GGRS 負責同步 host 送出的 AI input
+自訂房間 / 牌位賽（線上）:
+  host 負責產生所有 AI input → 透過 GGRS 同步給其他玩家
+  非 host 把 AI player slot 視為遠端玩家，接收 host 送來的 input
 ```
 
-> 這個設計避免「每台機器各自跑 AI」造成決策分歧。AI 的輸入只由 host 產生一次，再交給 GGRS 同步。
+> 這個設計避免「每台機器各自跑 AI」造成決策分歧。AI 輸入只由 host 產生一次，其他玩家透過 GGRS 同步接收，和真人輸入的同步路徑完全相同。
 
 ---
 

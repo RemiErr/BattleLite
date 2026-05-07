@@ -29,7 +29,7 @@ _COL_SEP = (70,  70,  70)
 _COL_NAME = (255, 240, 180)
 _COL_HP_VAL = (101, 206,  69)
 _COL_MP_VAL = (255, 228,  71)
-_COL_SHIELD = (255, 215,   0)
+_COL_SHIELD = (255, 255, 255)
 # 圖片載入失敗時的顏色備援
 _COL_HP_BG = (70,   0,   0)
 _COL_MP_BG = (0,    0,  70)
@@ -74,7 +74,9 @@ class HUD:
         self.max_hp:        dict[int, int] = {}
         self.max_mp:        dict[int, int] = {}
         self.char_names:    dict[int, str] = {}
-        self.shield_states: dict[int, set[int]] = {}
+        self.shield_states:    dict[int, set[int]] = {}
+        self.shield_absorb:    dict[int, int] = {}
+        self.shield_duration:  dict[int, int] = {}
 
         for char_type, asset in char_assets.items():
             self.max_hp[char_type] = asset.physics.max_hp
@@ -82,6 +84,10 @@ class HUD:
             self.char_names[char_type] = asset.name
             self.shield_states[char_type] = {
                 ab.state_id for ab in asset.abilities if ab.damage_absorb > 0}
+            absorb_vals = [ab.damage_absorb for ab in asset.abilities if ab.damage_absorb > 0]
+            self.shield_absorb[char_type] = max(absorb_vals) if absorb_vals else 1
+            timer_vals = [ab.timer for ab in asset.abilities if ab.damage_absorb > 0]
+            self.shield_duration[char_type] = max(timer_vals) if timer_vals else 1
             if asset.faceset_path:
                 try:
                     img = pygame.image.load(asset.faceset_path).convert_alpha()
@@ -106,8 +112,8 @@ class HUD:
             bar_dir, 'purple.png', _BAR_INNER_W, _MP_H)
 
         # 緩降特效狀態（keyed by pid，float 保持亞像素精度）
-        self._hp_drain: dict[int, float] = {}
-        self._mp_drain: dict[int, float] = {}
+        self._hp_drain:        dict[int, float] = {}
+        self._mp_drain:        dict[int, float] = {}
 
     def draw(self, screen: pygame.Surface, players: list[tuple[int, object]]) -> None:
         bg = pygame.Surface((SCREEN_W, HUD_H), pygame.SRCALPHA)
@@ -154,13 +160,30 @@ class HUD:
         # ── 頭像 ──────────────────────────────────────────────
         is_shielding = getattr(
             p, "state", -1) in self.shield_states.get(char_type, set())
+
         face = self.faces.get(char_type)
         if face:
             screen.blit(face, (sx + _PAD_L, _PAD_V))
+
         if is_shielding:
-            pygame.draw.rect(screen, _COL_SHIELD,
-                             (sx + _PAD_L - 2, _PAD_V - 2,
-                              _FACE_SZ + 4, _FACE_SZ + 4), 2)
+            max_absorb   = max(1, self.shield_absorb.get(char_type, 1))
+            shield_ratio = max(0.0, min(1.0, p.shield_hp / max_absorb))
+
+            bx0 = sx + _PAD_L - 2
+            by0 = _PAD_V - 2
+            bw  = _FACE_SZ + 4
+            bh  = _FACE_SZ + 4
+            shield_h = max(2, int(bh * shield_ratio))
+            clip_y   = by0 + bh - shield_h
+
+            # 左側、右側（從 clip_y 往下）
+            pygame.draw.line(screen, _COL_SHIELD, (bx0,      clip_y), (bx0,      by0 + bh), 2)
+            pygame.draw.line(screen, _COL_SHIELD, (bx0 + bw, clip_y), (bx0 + bw, by0 + bh), 2)
+            # 底線
+            pygame.draw.line(screen, _COL_SHIELD, (bx0, by0 + bh), (bx0 + bw, by0 + bh), 2)
+            # 頂線僅在護盾幾乎滿時顯示
+            if shield_ratio > 0.95:
+                pygame.draw.line(screen, _COL_SHIELD, (bx0, by0), (bx0 + bw, by0), 2)
 
         bx = sx + _PAD_L + _FACE_SZ + _PAD_L
 

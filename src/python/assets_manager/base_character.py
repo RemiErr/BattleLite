@@ -162,8 +162,8 @@ class AbilityDef:
     hit_frame_start:  int  = 0
     hit_frame_end:    int  = 999
     damage_absorb:    int  = 0
-    hp_regen:         int  = 0
-    on_hit_restore:   int  = 0
+    hp_regen_per_tick:  int  = 0
+    on_hit_hp_restore:  int  = 0
     projectile_vx:    int  = 0
     projectile_lifetime: int = 30
     spawn_frame:      int  = -1
