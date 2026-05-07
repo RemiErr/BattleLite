@@ -88,7 +88,15 @@ def _submit_result(config: dict, controlled_idx: int, char_type: int, match_resu
         print(f"[WARN] Failed to submit result: {e}")
 
 
-def run_loop(config: dict, session, char_assets: dict) -> None:
+def run_loop(config: dict, build_char_assets, build_session) -> None:
+    """遊戲主迴圈。
+
+    build_char_assets() → dict[int, BaseCharacter]
+    build_session(char_assets) → SessionAdapter
+
+    兩個 factory 在 pygame.display.set_mode() 之後才呼叫，以確保
+    pygame.image.convert_alpha() 可正常執行。
+    """
     # --- pygame 初始化 ---
     pygame.init()
 
@@ -104,6 +112,10 @@ def run_loop(config: dict, session, char_assets: dict) -> None:
     clock = pygame.time.Clock()
     debug_manager = DebugManager()
     fx_manager    = FxManager()
+
+    # --- 角色資源與 Session（需在 display 初始化後建立）---
+    char_assets = build_char_assets()
+    session     = build_session(char_assets)
 
     # --- 載入設定（音量 + 按鍵組合）---
     if getattr(sys, 'frozen', False):

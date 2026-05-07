@@ -104,10 +104,8 @@ def run_game():
     parser.add_argument("--payload", help="Encrypted session data from Launcher")
     args = parser.parse_args()
 
-    config      = _parse_config(args.payload)
-    char_assets = _build_char_assets()
-    session     = _build_session(config, char_assets)
-    run_loop(config, session, char_assets)
+    config = _parse_config(args.payload)
+    run_loop(config, _build_char_assets, lambda ca: _build_session(config, ca))
 
 
 if __name__ == "__main__":
