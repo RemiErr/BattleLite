@@ -149,6 +149,7 @@ class LauncherApp(ctk.CTk):
         self._build_settings_frame()
         self._build_leaderboard_frame()
         self._build_offline_frame()
+        self._build_replay_frame()
         self._show_main()
         self._poll_online()
         self.bind_all(
@@ -201,6 +202,8 @@ class LauncherApp(ctk.CTk):
                       command=self._show_settings).grid(row=0, column=0, padx=4)
         ctk.CTkButton(bot_row, text="排行榜", width=80, fg_color="gray30",
                       command=self._show_leaderboard).grid(row=0, column=1, padx=4)
+        ctk.CTkButton(bot_row, text="對戰紀錄", width=80, fg_color="gray30",
+                      command=self._show_replay).grid(row=0, column=2, padx=4)
 
         self._lbl_status_main = ctk.CTkLabel(
             f, text="Ready.", font=_font(12))
@@ -428,6 +431,151 @@ class LauncherApp(ctk.CTk):
             "ai_players": ai_players,
         })
 
+    # ── Replay Frame ──────────────────────────────────────────────────────
+
+    def _build_replay_frame(self):
+        f = ctk.CTkFrame(self, corner_radius=10)
+        f.grid_columnconfigure(0, weight=1)
+        f.grid_rowconfigure(1, weight=1)
+        self.replay_frame = f
+
+        hdr = ctk.CTkFrame(f, fg_color="transparent")
+        hdr.grid(row=0, column=0, padx=15, pady=(15, 5), sticky="ew")
+        hdr.grid_columnconfigure(1, weight=1)
+        ctk.CTkButton(hdr, text="← 返回", width=80, fg_color="gray30",
+                      command=self._show_main).grid(row=0, column=0)
+        ctk.CTkLabel(hdr, text="對戰紀錄",
+                     font=_font(16, "bold")).grid(row=0, column=1, padx=10)
+        ctk.CTkButton(hdr, text="↻ 重新整理", width=90, fg_color="gray30",
+                      height=28, command=self._refresh_replay_list).grid(
+            row=0, column=2)
+
+        self._replay_tabs = ctk.CTkTabview(f)
+        self._replay_tabs.grid(row=1, column=0, padx=15, pady=(0, 15), sticky="nsew")
+        self._replay_tabs.add("牌位賽")
+        self._replay_tabs.add("自訂房間")
+
+        for tab_name in ("牌位賽", "自訂房間"):
+            tab = self._replay_tabs.tab(tab_name)
+            tab.grid_columnconfigure(0, weight=1)
+            tab.grid_rowconfigure(0, weight=1)
+            scroll = ctk.CTkScrollableFrame(tab, fg_color="transparent")
+            scroll.grid(row=0, column=0, sticky="nsew")
+            if tab_name == "牌位賽":
+                self._replay_scroll_ranked = scroll
+            else:
+                self._replay_scroll_custom = scroll
+
+    def _show_replay(self):
+        self._refresh_replay_list()
+        self._hide_all_frames()
+        self.replay_frame.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
+
+    def _refresh_replay_list(self):
+        try:
+            from src.python.replay import get_replay_dir
+        except Exception:
+            return
+        replay_dir = get_replay_dir()
+        entries: list[dict] = []
+        if os.path.isdir(replay_dir):
+            for fname in os.listdir(replay_dir):
+                if not fname.endswith(".json"):
+                    continue
+                path = os.path.join(replay_dir, fname)
+                try:
+                    with open(path, encoding="utf-8") as fh:
+                        data = json.load(fh)
+                    data["_path"] = path
+                    entries.append(data)
+                except Exception:
+                    pass
+        entries.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+
+        for scroll in (self._replay_scroll_ranked, self._replay_scroll_custom):
+            for w in scroll.winfo_children():
+                w.destroy()
+
+        for entry in entries:
+            rt = entry.get("room_type", "custom")
+            scroll = self._replay_scroll_ranked if rt == "ranked" else self._replay_scroll_custom
+            self._add_replay_row(scroll, entry)
+
+        for scroll, label in [
+                (self._replay_scroll_ranked, "牌位賽"),
+                (self._replay_scroll_custom, "自訂房間")]:
+            if not scroll.winfo_children():
+                ctk.CTkLabel(scroll, text=f"目前無{label}紀錄",
+                             font=_font(12), text_color="gray60").pack(pady=20)
+
+    def _add_replay_row(self, parent, entry: dict):
+        players = entry.get("players", [])
+        winner  = entry.get("winner")
+        total_f = entry.get("total_frames", 0)
+        secs    = total_f // 60
+        dur_str = f"{secs // 60}分{secs % 60:02d}秒"
+
+        if winner is None or winner == -2:
+            winner_str = "平局"
+        else:
+            wp = next((p for p in players if p["id"] == winner), None)
+            if wp:
+                cn = CHAR_NAMES[wp.get("char_type", 0)] if wp.get("char_type", 0) < len(CHAR_NAMES) else "?"
+                winner_str = f"{wp.get('nickname', '?')} ({cn})"
+            else:
+                winner_str = f"P{winner}"
+
+        ts_raw  = entry.get("timestamp", "")
+        ts_disp = ts_raw.replace("T", " ")[:16]
+        players_str = "  v  ".join(
+            f"{p.get('nickname','?')}({CHAR_NAMES[p.get('char_type',0)] if p.get('char_type',0) < len(CHAR_NAMES) else '?'})"
+            for p in players
+        )
+
+        row_f = ctk.CTkFrame(parent, fg_color="gray20", corner_radius=4)
+        row_f.pack(fill="x", pady=2, padx=2)
+        row_f.grid_columnconfigure(0, weight=1)
+
+        info_f = ctk.CTkFrame(row_f, fg_color="transparent")
+        info_f.grid(row=0, column=0, padx=8, pady=4, sticky="ew")
+
+        ctk.CTkLabel(info_f, text=ts_disp, font=_font(11),
+                     text_color="gray70", width=120, anchor="w").pack(side="left", padx=2)
+        ctk.CTkLabel(info_f, text=players_str, font=_font(11),
+                     width=200, anchor="w").pack(side="left", padx=6)
+        ctk.CTkLabel(info_f, text=f"勝者: {winner_str}", font=_font(11),
+                     width=130, anchor="w").pack(side="left", padx=4)
+        ctk.CTkLabel(info_f, text=dur_str, font=_font(11),
+                     text_color="gray60", width=60, anchor="w").pack(side="left", padx=2)
+
+        path = entry.get("_path", "")
+        ctk.CTkButton(row_f, text="播放", width=60, height=26,
+                      command=lambda p=path: self._do_launch_replay(p)).grid(
+            row=0, column=1, padx=8, pady=4)
+
+    def _do_launch_replay(self, path: str):
+        if self.game_process:
+            return
+        log_path = os.path.join(os.path.dirname(sys.executable)
+                                if getattr(sys, 'frozen', False) else PROJECT_ROOT,
+                                "game_launch.log")
+        try:
+            if getattr(sys, 'frozen', False):
+                game_exe = os.path.join(os.path.dirname(sys.executable), "Game")
+                cmd = [game_exe, "--replay", path]
+            else:
+                script = os.path.join(PROJECT_ROOT, "src", "python", "main.py")
+                cmd = [sys.executable, script, "--replay", path]
+            self.game_process = subprocess.Popen(
+                cmd, env=os.environ.copy(),
+                stdout=open(log_path, "a"), stderr=subprocess.STDOUT)
+            self._show_main()
+            self._set_status_main("重播播放中...")
+            self.iconify()
+            self._monitor_game()
+        except Exception as e:
+            self._set_status_main(f"Replay Launch Error: {e}")
+
     # ── Room Frame ────────────────────────────────────────────────────────
 
     def _build_room_frame(self):
@@ -637,7 +785,7 @@ class LauncherApp(ctk.CTk):
     def _hide_all_frames(self):
         for frame in (self.main_frame, self.room_frame,
                       self.settings_frame, self.leaderboard_frame,
-                      self.offline_frame):
+                      self.offline_frame, self.replay_frame):
             frame.grid_remove()
 
     def _show_main(self):
