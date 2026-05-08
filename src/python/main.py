@@ -99,12 +99,36 @@ def _build_session(config: dict, char_assets: dict):
     return session
 
 
+def _build_replay_config(replay_path: str) -> dict:
+    import json as _json
+    with open(replay_path, encoding="utf-8") as f:
+        header = _json.load(f)
+    num_players = header.get("num_players", 2)
+    players     = header.get("players", [])
+    config = {
+        "nickname":    "REPLAY",
+        "is_offline":  True,
+        "local_id":    0,
+        "num_players": num_players,
+        "local_port":  5000,
+        "seed":        header.get("seed", 0),
+        "replay_path": replay_path,
+        "ai_players":  {},
+        "players":     players,
+    }
+    return config
+
+
 def run_game():
     parser = argparse.ArgumentParser()
     parser.add_argument("--payload", help="Encrypted session data from Launcher")
+    parser.add_argument("--replay",  help="Path to replay file", default=None)
     args = parser.parse_args()
 
-    config = _parse_config(args.payload)
+    if args.replay:
+        config = _build_replay_config(args.replay)
+    else:
+        config = _parse_config(args.payload)
     run_loop(config, _build_char_assets, lambda ca: _build_session(config, ca))
 
 

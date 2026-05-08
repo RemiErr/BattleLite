@@ -3,6 +3,8 @@ import sys
 import math
 import json
 import threading
+import time
+import datetime
 
 import pygame
 
@@ -18,6 +20,8 @@ from src.python.ai.controllers.base import AIController
 from src.python.ai.factory import make_ai
 from src.python.game.input_manager import get_input_mask, load_key_map
 from src.python.game.match_manager import MatchManager
+from src.python.replay.writer import ReplayWriter
+from src.python.replay.reader import ReplayReader
 
 # --- 世界邊界與出生點 ---
 WORLD_PX_W  = SCREEN_W * 3
@@ -123,17 +127,33 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
     else:
         _settings_path = os.path.join(PROJECT_ROOT, 'settings.json')
     _vol, _preset_idx = 50, 0
+    _bg_enabled, _bg_id = True, 1
     if os.path.exists(_settings_path):
         try:
             with open(_settings_path) as f:
                 s = json.load(f)
-                _vol       = s.get("volume", 50)
+                _vol        = s.get("volume", 50)
                 _preset_idx = int(s.get("key_preset", 0))
+                _bg_enabled = s.get("background_enabled", True)
+                _bg_id      = int(s.get("background_id", 1))
         except Exception:
             pass
 
     sfx_manager = SfxManager(volume=_vol / 100.0)
     key_map     = load_key_map(_preset_idx)
+
+    _BG_PARALLAX = 0.3
+    _BG_W        = SCREEN_W + int((WORLD_PX_W - SCREEN_W) * _BG_PARALLAX) + 1
+    _bg_surface  = None
+    if _bg_enabled:
+        _bg_path = os.path.join(PROJECT_ROOT, "src", "assets", "background", f"{_bg_id}.png")
+        if os.path.exists(_bg_path):
+            try:
+                _raw = pygame.image.load(_bg_path).convert()
+                _bg_surface = pygame.transform.scale(
+                    _raw, (_BG_W, _raw.get_height()))
+            except Exception as e:
+                print(f"[WARN] 背景圖載入失敗: {e}")
 
     # --- HUD、SFX 初始化 ---
     player_names: dict[int, str] = {config["local_id"]: config.get("nickname", "Player")}
@@ -169,9 +189,10 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
     controlled_idx = config["local_id"]
     host_id        = config.get("host_id", 0)
     i_am_host      = is_offline or (controlled_idx == host_id)
+    is_replay      = bool(config.get("replay_path"))
 
-    # 線上模式：依 payload 初始化各玩家角色
-    if not is_offline:
+    # 線上模式或重播：依 payload / replay header 初始化各玩家角色
+    if not is_offline or is_replay:
         for p_info in config.get("players", []):
             pid = p_info.get("id", 0)
             ct  = p_info.get("char_type", 0)
@@ -203,11 +224,40 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
     switch_player    = 0
     sync_wait_frames = 0
 
+    # --- 重播系統 ---
+    _replay_writer: ReplayWriter | None = None
+    if not is_offline and not is_replay:
+        _rp_players = [{"id": p["id"], "nickname": p.get("nickname", ""),
+                        "char_type": p.get("char_type", 0)}
+                       for p in config.get("players", [])]
+        for _pid_str, _ai in config.get("ai_players", {}).items():
+            _rp_players.append({"id": int(_pid_str), "nickname": "CPU",
+                                 "char_type": _ai.get("char_type", 0)})
+        _rp_players.sort(key=lambda x: x["id"])
+        _replay_writer = ReplayWriter({
+            "version":     1,
+            "timestamp":   datetime.datetime.now().isoformat(timespec="seconds"),
+            "match_id":    config.get("match_id", ""),
+            "room_code":   config.get("room", ""),
+            "room_type":   "ranked" if config.get("room", "").startswith("__queue_") else "custom",
+            "num_players": num_players,
+            "seed":        config.get("seed", 0),
+            "players":     _rp_players,
+        })
+    _reader: ReplayReader | None = ReplayReader(config["replay_path"]) if is_replay else None
+    _replay_paused  = False
+    _replay_speed   = 1.0
+    _advance_budget = 0.0
+
+    _perf_enabled = os.environ.get("DEBUG_PERF") == "1"
+    _frame_times: list[float] = []
+
     # ================================================================
     # 主迴圈
     # ================================================================
     running = True
     while running:
+        _t0 = time.perf_counter() if _perf_enabled else 0.0
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -215,6 +265,20 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                 if event.key == pygame.K_ESCAPE:
                     running = False
                     continue
+                # 重播控制鍵
+                if is_replay:
+                    if event.key == pygame.K_p:
+                        _replay_paused = not _replay_paused
+                        continue
+                    if event.key == pygame.K_1:
+                        _replay_speed = 0.5
+                        continue
+                    if event.key == pygame.K_2:
+                        _replay_speed = 1.0
+                        continue
+                    if event.key == pygame.K_3:
+                        _replay_speed = 2.0
+                        continue
                 if event.key == pygame.K_p and is_offline:
                     mm.paused = not mm.paused
                     continue
@@ -222,6 +286,10 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                     continue
                 if mm.match_result is not None:
                     if event.key == pygame.K_r and is_offline:
+                        if is_replay:
+                            _reader = ReplayReader(config["replay_path"])
+                            _advance_budget = 0.0
+                            _replay_paused  = False
                         mm.restart(_set_spawn_positions)
                     continue
                 if event.key == pygame.K_F1 and is_offline:
@@ -252,15 +320,29 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             prev_z            = [session.get_player(i).z for i in range(num_players)]
             prev_entity_count = session.get_entity_count()
 
-            if is_offline:
+            if is_replay:
+                assert _reader is not None
+                if not _replay_paused:
+                    _advance_budget += _replay_speed
+                    while _advance_budget >= 1.0:
+                        inp = _reader.next_inputs()
+                        if inp is None:
+                            mm.match_result = -2
+                            break
+                        session.advance(inp)
+                        _clamp_world_bounds(session, num_players)
+                        _advance_budget -= 1.0
+
+            elif is_offline:
+                entities_snapshot = [session.get_entity(i)
+                                     for i in range(session.get_entity_count())]
+                goap_replan_budget = 1
                 inputs = []
                 for pid in range(num_players):
                     if pid == controlled_idx:
                         inputs.append(input_mask)
                     elif pid in ai_controllers:
-                        ai_p     = session.get_player(pid)
-                        entities = [session.get_entity(i)
-                                    for i in range(session.get_entity_count())]
+                        ai_p = session.get_player(pid)
                         alive_opponents = [
                             session.get_player(j)
                             for j in range(num_players)
@@ -271,17 +353,26 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                             key=lambda q: max(abs(ai_p.x - q.x), abs(ai_p.y - q.y)),
                             default=session.get_player(controlled_idx),
                         )
-                        inputs.append(ai_controllers[pid].decide(ai_p, opp_p, entities))
+                        ctrl = ai_controllers[pid]
+                        if hasattr(ctrl, 'set_replan_budget'):
+                            ctrl.set_replan_budget(goap_replan_budget > 0)
+                        mask = ctrl.decide(ai_p, opp_p, entities_snapshot)
+                        if getattr(ctrl, 'did_replan', False):
+                            goap_replan_budget -= 1
+                        inputs.append(mask)
                     else:
                         inputs.append(0)
                 session.advance(inputs)
+                _clamp_world_bounds(session, num_players)
+
             else:
                 inputs = [0] * num_players
                 inputs[controlled_idx] = input_mask
+                entities_snapshot = [session.get_entity(i)
+                                     for i in range(session.get_entity_count())]
+                goap_replan_budget = 1
                 for pid, controller in ai_controllers.items():
-                    ai_p     = session.get_player(pid)
-                    entities = [session.get_entity(i)
-                                for i in range(session.get_entity_count())]
+                    ai_p = session.get_player(pid)
                     alive_opponents = [
                         session.get_player(j)
                         for j in range(num_players)
@@ -292,9 +383,16 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                         key=lambda q: max(abs(ai_p.x - q.x), abs(ai_p.y - q.y)),
                         default=session.get_player(controlled_idx),
                     )
-                    inputs[pid] = controller.decide(ai_p, opp_p, entities)
+                    if hasattr(controller, 'set_replan_budget'):
+                        controller.set_replan_budget(goap_replan_budget > 0)
+                    mask = controller.decide(ai_p, opp_p, entities_snapshot)
+                    if getattr(controller, 'did_replan', False):
+                        goap_replan_budget -= 1
+                    inputs[pid] = mask
                 session.advance(inputs)
-            _clamp_world_bounds(session, num_players)
+                if _replay_writer:
+                    _replay_writer.append_frame(session.get_last_inputs())
+                _clamp_world_bounds(session, num_players)
 
             # --- SFX 事件偵測 ---
             for i in range(num_players):
@@ -327,10 +425,13 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                 sfx_manager.on_proj(e.character_type, e.ability_state_id)
             # --- SFX 事件偵測結束 ---
 
-            if num_players > 1:
+            if num_players > 1 and mm.match_result is None:
                 r = mm.check_match()
                 if r is not None:
                     mm.match_result = r
+                    if _replay_writer:
+                        _replay_writer.finalize(mm.match_result)
+                        _replay_writer = None
                     if not mm._result_submitted and not is_offline:
                         mm._result_submitted = True
                         ct = session.get_player(controlled_idx).character_type
@@ -346,15 +447,19 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
         cam_x   = max(0.0, min(cam_x, float(WORLD_PX_W - SCREEN_W)))
 
         # --- 背景與場景 ---
-        screen.fill((15, 15, 15))
         floor_y_min = WORLD_Y_MIN // 1000 + HUD_H
         floor_y_max = WORLD_Y_MAX // 1000 + HUD_H
+        screen.fill((15, 15, 15))
+        if _bg_surface is not None:
+            screen.blit(_bg_surface, (int(-cam_x * _BG_PARALLAX), HUD_H))
         pygame.draw.rect(screen, (30, 30, 30),
                          (0, floor_y_min, SCREEN_W, floor_y_max - floor_y_min))
-        pygame.draw.line(screen, (45, 45, 45), (0, floor_y_min), (SCREEN_W, floor_y_min), 1)
-        pygame.draw.line(screen, (45, 45, 45), (0, floor_y_max), (SCREEN_W, floor_y_max), 1)
-        pygame.draw.line(screen, (55, 55, 55), (0, 300 + HUD_H), (SCREEN_W, 300 + HUD_H), 1)
-        pygame.draw.line(screen, (55, 55, 55), (0, 450 + HUD_H), (SCREEN_W, 450 + HUD_H), 1)
+        line_col  = (80, 80, 80) if _bg_surface else (45, 45, 45)
+        line_col2 = (95, 95, 95) if _bg_surface else (55, 55, 55)
+        pygame.draw.line(screen, line_col,  (0, floor_y_min), (SCREEN_W, floor_y_min), 1)
+        pygame.draw.line(screen, line_col,  (0, floor_y_max), (SCREEN_W, floor_y_max), 1)
+        pygame.draw.line(screen, line_col2, (0, 300 + HUD_H),  (SCREEN_W, 300 + HUD_H),  1)
+        pygame.draw.line(screen, line_col2, (0, 450 + HUD_H),  (SCREEN_W, 450 + HUD_H),  1)
 
         state_changed: dict[int, bool] = {}
         render_list = []
@@ -565,7 +670,7 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                 msg, color = f"{name}  ({char_name})  WINS!", (255, 220, 60)
             big_surf = result_font_big.render(msg, True, color)
             screen.blit(big_surf, big_surf.get_rect(center=(cx, cy - 20)))
-            hint    = "R: Restart  ESC: Quit" if is_offline else "ESC: Quit"
+            hint    = "R: 重播  ESC: Quit" if is_replay else ("R: Restart  ESC: Quit" if is_offline else "ESC: Quit")
             sm_surf = result_font_small.render(hint, True, (180, 180, 180))
             screen.blit(sm_surf, sm_surf.get_rect(center=(cx, cy + 50)))
 
@@ -580,7 +685,23 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             hint_surf  = result_font_small.render("P: Resume  ESC: Quit", True, (180, 180, 180))
             screen.blit(hint_surf, hint_surf.get_rect(center=(cx, cy + 40)))
 
+        # 重播覆蓋提示
+        if is_replay:
+            speed_str  = f"{_replay_speed:.1f}x"
+            pause_str  = "  [PAUSED]" if _replay_paused else ""
+            replay_txt = f"REPLAY  {speed_str}{pause_str}  |  P: 暫停  1: 0.5x  2: 1x  3: 2x"
+            rt_surf    = info_font.render(replay_txt, True, (220, 220, 60))
+            screen.blit(rt_surf, (SCREEN_W - rt_surf.get_width() - 10,
+                                  SCREEN_H - rt_surf.get_height() - 10))
+
         pygame.display.flip()
+        if _perf_enabled:
+            _frame_times.append(time.perf_counter() - _t0)
+            if len(_frame_times) >= 300:
+                p99 = sorted(_frame_times)[-3]
+                avg = sum(_frame_times) / len(_frame_times)
+                print(f"[perf] p99={p99*1000:.1f}ms  avg={avg*1000:.1f}ms")
+                _frame_times.clear()
         clock.tick(60)
 
     del session  # 確保 GGRS UDP socket 在 pygame.quit() 前釋放

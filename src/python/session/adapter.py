@@ -12,9 +12,14 @@ Adapter 將兩者統一為 advance(inputs: list[int])，讓呼叫端不需要 if
 class OfflineAdapter:
     def __init__(self, session):
         self._s = session
+        self._last_inputs: list = []
 
     def advance(self, inputs: list) -> None:
+        self._last_inputs = list(inputs)
         self._s.advance(inputs)
+
+    def get_last_inputs(self) -> list:
+        return list(self._last_inputs)
 
     def get_player(self, pid: int):
         return self._s.get_player(pid)
@@ -54,6 +59,9 @@ class GGRSAdapter:
         local_input = inputs[self._local_id] if self._local_id < len(inputs) else 0
         bot_inputs = [(pid, inputs[pid]) for pid in self._bot_ids if pid < len(inputs)]
         self._s.advance(local_input, bot_inputs if bot_inputs else None)
+
+    def get_last_inputs(self) -> list:
+        return list(self._s.get_last_inputs())
 
     def clear_entities(self) -> None:
         pass  # GGRSSession 透過 rollback 管理狀態，無需手動清除

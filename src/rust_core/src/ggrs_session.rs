@@ -19,6 +19,7 @@ pub struct GGRSSession {
     #[allow(dead_code)]
     bot_ids:         Vec<usize>,
     char_configs:    Vec<CharConfig>,
+    last_inputs:     Vec<u8>,
 }
 
 #[pymethods]
@@ -64,6 +65,7 @@ impl GGRSSession {
             local_player_id,
             bot_ids,
             char_configs: configs,
+            last_inputs: Vec::new(),
         })
     }
 
@@ -150,6 +152,10 @@ impl GGRSSession {
 
     fn is_synchronized(&self) -> bool { self.session.current_state() == SessionState::Running }
     fn current_frame(&self) -> i32 { self.session.current_frame() }
+
+    fn get_last_inputs(&self) -> Vec<u8> {
+        self.last_inputs.clone()
+    }
 }
 
 impl GGRSSession {
@@ -158,6 +164,7 @@ impl GGRSSession {
         for req in requests {
             match req {
                 GgrsRequest::AdvanceFrame { inputs } => {
+                    self.last_inputs = inputs.iter().map(|(inp, _)| *inp).collect();
                     perform_tick(&mut self.current_state, &inputs, &configs);
                 }
                 GgrsRequest::SaveGameState { cell, frame } => {

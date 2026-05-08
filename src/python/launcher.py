@@ -2,6 +2,15 @@ from dotenv import load_dotenv
 import customtkinter as ctk
 import os
 import sys
+
+try:
+    # 確保 PIL PNG/JPEG decoder 在 PyInstaller 冷凍環境中被打包進來
+    import PIL.Image
+    import PIL.PngImagePlugin
+    import PIL.JpegImagePlugin
+    import PIL.ImageTk
+except ImportError:
+    pass
 import json
 import subprocess
 import threading
@@ -41,7 +50,8 @@ LOBBY_HTTP_URL = LOBBY_WS_URL.replace(
     "ws://", "http://").replace("wss://", "https://")
 
 CHAR_NAMES = ["Knight", "Mage", "Archer", "Paladin", "Wizard"]
-_WIN_W, _WIN_H = 600, 400
+_WIN_W, _WIN_H   = 600, 400
+_BG_PREV_W, _BG_PREV_H = 220, 165  # 4:3 preview dimensions
 _TIER_LABELS = {
     "placement": "定位賽",
     "bronze":    "銅牌",
@@ -149,6 +159,7 @@ class LauncherApp(ctk.CTk):
         self._build_settings_frame()
         self._build_leaderboard_frame()
         self._build_offline_frame()
+        self._build_replay_frame()
         self._show_main()
         self._poll_online()
         self.bind_all(
@@ -201,6 +212,8 @@ class LauncherApp(ctk.CTk):
                       command=self._show_settings).grid(row=0, column=0, padx=4)
         ctk.CTkButton(bot_row, text="排行榜", width=80, fg_color="gray30",
                       command=self._show_leaderboard).grid(row=0, column=1, padx=4)
+        ctk.CTkButton(bot_row, text="對戰紀錄", width=80, fg_color="gray30",
+                      command=self._show_replay).grid(row=0, column=2, padx=4)
 
         self._lbl_status_main = ctk.CTkLabel(
             f, text="Ready.", font=_font(12))
@@ -211,10 +224,12 @@ class LauncherApp(ctk.CTk):
     def _build_settings_frame(self):
         f = ctk.CTkFrame(self, corner_radius=10)
         f.grid_columnconfigure(0, weight=1)
+        f.grid_columnconfigure(1, minsize=_BG_PREV_W + 32)
         self.settings_frame = f
 
+        # Header (spans both columns)
         hdr = ctk.CTkFrame(f, fg_color="transparent")
-        hdr.grid(row=0, column=0, padx=15, pady=(15, 5), sticky="ew")
+        hdr.grid(row=0, column=0, columnspan=2, padx=15, pady=(15, 5), sticky="ew")
         hdr.grid_columnconfigure(1, weight=1)
         ctk.CTkButton(hdr, text="← 返回", width=80, fg_color="gray30",
                       command=self._show_main).grid(row=0, column=0)
@@ -223,8 +238,9 @@ class LauncherApp(ctk.CTk):
         ctk.CTkFrame(hdr, fg_color="transparent", width=80,
                      height=28).grid(row=0, column=2)
 
+        # ── 左欄：控制項 ──────────────────────────────────────────────────
         ctk.CTkLabel(f, text="音量", font=_font(14)).grid(
-            row=1, column=0, pady=(24, 4))
+            row=1, column=0, pady=(16, 4))
         self._settings_vol = ctk.IntVar(value=self.settings_mgr.get("volume"))
         slider = ctk.CTkSlider(f, from_=0, to=100,
                                variable=self._settings_vol, width=260)
@@ -237,15 +253,43 @@ class LauncherApp(ctk.CTk):
                 text=f"{int(v)}%"))
 
         ctk.CTkLabel(f, text="按鍵組合", font=_font(14)).grid(
-            row=4, column=0, pady=(20, 4))
+            row=4, column=0, pady=(12, 4))
         self._settings_preset_seg = ctk.CTkSegmentedButton(
             f, values=_PRESET_LABELS, width=260)
         self._settings_preset_seg.set(
             _PRESET_LABELS[self.settings_mgr.get("key_preset")])
         self._settings_preset_seg.grid(row=5, column=0, pady=4)
 
+        bg_ctrl = ctk.CTkFrame(f, fg_color="transparent")
+        bg_ctrl.grid(row=6, column=0, pady=(12, 4))
+        ctk.CTkLabel(bg_ctrl, text="背景圖", font=_font(14)).pack(side="left", padx=(0, 8))
+        self._settings_bg_switch = ctk.CTkSwitch(
+            bg_ctrl, text="", command=self._update_bg_preview)
+        self._settings_bg_switch.pack(side="left")
+        if self.settings_mgr.get("background_enabled"):
+            self._settings_bg_switch.select()
+        else:
+            self._settings_bg_switch.deselect()
+
+        # ── 右欄：背景預覽 + 選號列 ──────────────────────────────────────
+        preview_frame = ctk.CTkFrame(f, fg_color="gray17", corner_radius=8)
+        preview_frame.grid(row=1, column=1, rowspan=6,
+                           padx=(8, 15), pady=(8, 4), sticky="n")
+        ctk.CTkLabel(preview_frame, text="預覽", font=_font(12),
+                     text_color="gray60").pack(pady=(8, 4))
+        self._bg_preview_label = ctk.CTkLabel(
+            preview_frame, text="", width=_BG_PREV_W, height=_BG_PREV_H,
+            fg_color="gray25", corner_radius=4)
+        self._bg_preview_label.pack(padx=8, pady=(0, 6))
+        self._settings_bg_seg = ctk.CTkSegmentedButton(
+            preview_frame, values=[str(i) for i in range(1, 10)],
+            width=_BG_PREV_W, command=lambda _: self._update_bg_preview())
+        self._settings_bg_seg.set(str(self.settings_mgr.get("background_id")))
+        self._settings_bg_seg.pack(padx=8, pady=(0, 10))
+
+        # 儲存（橫跨兩欄）
         ctk.CTkButton(f, text="儲存", command=self._save_settings).grid(
-            row=6, column=0, pady=28)
+            row=7, column=0, columnspan=2, pady=(12, 16))
 
     # ── Leaderboard Frame ─────────────────────────────────────────────────
 
@@ -427,6 +471,155 @@ class LauncherApp(ctk.CTk):
             "num_players": num_players,
             "ai_players": ai_players,
         })
+
+    # ── Replay Frame ──────────────────────────────────────────────────────
+
+    def _build_replay_frame(self):
+        f = ctk.CTkFrame(self, corner_radius=10)
+        f.grid_columnconfigure(0, weight=1)
+        f.grid_rowconfigure(1, weight=1)
+        self.replay_frame = f
+
+        hdr = ctk.CTkFrame(f, fg_color="transparent")
+        hdr.grid(row=0, column=0, padx=15, pady=(15, 5), sticky="ew")
+        hdr.grid_columnconfigure(1, weight=1)
+        ctk.CTkButton(hdr, text="← 返回", width=80, fg_color="gray30",
+                      command=self._show_main).grid(row=0, column=0)
+        ctk.CTkLabel(hdr, text="對戰紀錄",
+                     font=_font(16, "bold")).grid(row=0, column=1, padx=10)
+        ctk.CTkButton(hdr, text="↻ 重新整理", width=90, fg_color="gray30",
+                      height=28, command=self._refresh_replay_list).grid(
+            row=0, column=2)
+
+        self._replay_tabs = ctk.CTkTabview(f)
+        self._replay_tabs.grid(row=1, column=0, padx=15,
+                               pady=(0, 15), sticky="nsew")
+        self._replay_tabs.add("牌位賽")
+        self._replay_tabs.add("自訂房間")
+
+        for tab_name in ("牌位賽", "自訂房間"):
+            tab = self._replay_tabs.tab(tab_name)
+            tab.grid_columnconfigure(0, weight=1)
+            tab.grid_rowconfigure(0, weight=1)
+            scroll = ctk.CTkScrollableFrame(tab, fg_color="transparent")
+            scroll.grid(row=0, column=0, sticky="nsew")
+            if tab_name == "牌位賽":
+                self._replay_scroll_ranked = scroll
+            else:
+                self._replay_scroll_custom = scroll
+
+    def _show_replay(self):
+        self._refresh_replay_list()
+        self._hide_all_frames()
+        self.replay_frame.grid(row=0, column=0, padx=20,
+                               pady=20, sticky="nsew")
+
+    def _refresh_replay_list(self):
+        try:
+            from src.python.replay import get_replay_dir
+        except Exception:
+            return
+        replay_dir = get_replay_dir()
+        entries: list[dict] = []
+        if os.path.isdir(replay_dir):
+            for fname in os.listdir(replay_dir):
+                if not fname.endswith(".json"):
+                    continue
+                path = os.path.join(replay_dir, fname)
+                try:
+                    with open(path, encoding="utf-8") as fh:
+                        data = json.load(fh)
+                    data["_path"] = path
+                    entries.append(data)
+                except Exception:
+                    pass
+        entries.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+
+        for scroll in (self._replay_scroll_ranked, self._replay_scroll_custom):
+            for w in scroll.winfo_children():
+                w.destroy()
+
+        for entry in entries:
+            rt = entry.get("room_type", "custom")
+            scroll = self._replay_scroll_ranked if rt == "ranked" else self._replay_scroll_custom
+            self._add_replay_row(scroll, entry)
+
+        for scroll, label in [
+                (self._replay_scroll_ranked, "牌位賽"),
+                (self._replay_scroll_custom, "自訂房間")]:
+            if not scroll.winfo_children():
+                ctk.CTkLabel(scroll, text=f"目前無{label}紀錄",
+                             font=_font(12), text_color="gray60").pack(pady=20)
+
+    def _add_replay_row(self, parent, entry: dict):
+        players = entry.get("players", [])
+        winner = entry.get("winner")
+        total_f = entry.get("total_frames", 0)
+        secs = total_f // 60
+        dur_str = f"{secs // 60}分{secs % 60:02d}秒"
+
+        if winner is None or winner == -2:
+            winner_str = "平局"
+        else:
+            wp = next((p for p in players if p["id"] == winner), None)
+            if wp:
+                cn = CHAR_NAMES[wp.get("char_type", 0)] if wp.get(
+                    "char_type", 0) < len(CHAR_NAMES) else "?"
+                winner_str = f"{wp.get('nickname', '?')} ({cn})"
+            else:
+                winner_str = f"P{winner}"
+
+        ts_raw = entry.get("timestamp", "")
+        ts_disp = ts_raw.replace("T", " ")[:16]
+        players_str = "  v  ".join(
+            f"{p.get('nickname', '?')}({CHAR_NAMES[p.get('char_type', 0)] if p.get('char_type', 0) < len(CHAR_NAMES) else '?'})"
+            for p in players
+        )
+
+        row_f = ctk.CTkFrame(parent, fg_color="gray20", corner_radius=4)
+        row_f.pack(fill="x", pady=2, padx=2)
+        row_f.grid_columnconfigure(0, weight=1)
+
+        info_f = ctk.CTkFrame(row_f, fg_color="transparent")
+        info_f.grid(row=0, column=0, padx=8, pady=4, sticky="ew")
+
+        ctk.CTkLabel(info_f, text=ts_disp, font=_font(11),
+                     text_color="gray70", width=110, anchor="w").pack(side="left", padx=2)
+        ctk.CTkLabel(info_f, text=players_str, font=_font(11),
+                     width=130, anchor="w").pack(side="left", padx=4)
+        ctk.CTkLabel(info_f, text=dur_str, font=_font(11),
+                     text_color="gray60", width=55, anchor="w").pack(side="right", padx=4)
+        ctk.CTkLabel(info_f, text=f"勝者: {winner_str}", font=_font(11),
+                     anchor="w").pack(side="left", padx=4, fill="x", expand=True)
+
+        path = entry.get("_path", "")
+        ctk.CTkButton(row_f, text="播放", width=60, height=26,
+                      command=lambda p=path: self._do_launch_replay(p)).grid(
+            row=0, column=1, padx=8, pady=4)
+
+    def _do_launch_replay(self, path: str):
+        if self.game_process:
+            return
+        log_path = os.path.join(os.path.dirname(sys.executable)
+                                if getattr(sys, 'frozen', False) else PROJECT_ROOT,
+                                "game_launch.log")
+        try:
+            if getattr(sys, 'frozen', False):
+                game_exe = os.path.join(
+                    os.path.dirname(sys.executable), "Game")
+                cmd = [game_exe, "--replay", path]
+            else:
+                script = os.path.join(PROJECT_ROOT, "src", "python", "main.py")
+                cmd = [sys.executable, script, "--replay", path]
+            self.game_process = subprocess.Popen(
+                cmd, env=os.environ.copy(),
+                stdout=open(log_path, "a"), stderr=subprocess.STDOUT)
+            self._show_main()
+            self._set_status_main("重播播放中...")
+            self.iconify()
+            self._monitor_game()
+        except Exception as e:
+            self._set_status_main(f"Replay Launch Error: {e}")
 
     # ── Room Frame ────────────────────────────────────────────────────────
 
@@ -637,7 +830,7 @@ class LauncherApp(ctk.CTk):
     def _hide_all_frames(self):
         for frame in (self.main_frame, self.room_frame,
                       self.settings_frame, self.leaderboard_frame,
-                      self.offline_frame):
+                      self.offline_frame, self.replay_frame):
             frame.grid_remove()
 
     def _show_main(self):
@@ -650,9 +843,54 @@ class LauncherApp(ctk.CTk):
             text=f"{self.settings_mgr.get('volume')}%")
         self._settings_preset_seg.set(
             _PRESET_LABELS[self.settings_mgr.get("key_preset")])
+        if self.settings_mgr.get("background_enabled"):
+            self._settings_bg_switch.select()
+        else:
+            self._settings_bg_switch.deselect()
+        self._settings_bg_seg.set(str(self.settings_mgr.get("background_id")))
         self._hide_all_frames()
         self.settings_frame.grid(
             row=0, column=0, padx=20, pady=20, sticky="nsew")
+        self._update_bg_preview()
+
+    def _update_bg_preview(self, *_):
+        from PIL import Image as PILImage
+        bg_id   = int(self._settings_bg_seg.get())
+        enabled = bool(self._settings_bg_switch.get())
+
+        resample = getattr(
+            getattr(PILImage, "Resampling", None), "LANCZOS", None
+        ) or PILImage.LANCZOS  # type: ignore[attr-defined]
+
+        if not enabled:
+            placeholder = PILImage.new("RGB", (_BG_PREV_W, _BG_PREV_H), (37, 37, 37))
+            self._bg_preview_ctk_img = ctk.CTkImage(
+                light_image=placeholder, dark_image=placeholder,
+                size=(_BG_PREV_W, _BG_PREV_H))
+            self._bg_preview_label.configure(
+                image=self._bg_preview_ctk_img,
+                text="已關閉", compound="center")
+            return
+
+        bg_path = os.path.join(
+            PROJECT_ROOT, "src", "assets", "background", f"{bg_id}.png")
+        try:
+            pil_img = PILImage.open(bg_path).resize(
+                (_BG_PREV_W, _BG_PREV_H), resample)
+            self._bg_preview_ctk_img = ctk.CTkImage(
+                light_image=pil_img, dark_image=pil_img,
+                size=(_BG_PREV_W, _BG_PREV_H))
+            self._bg_preview_label.configure(
+                image=self._bg_preview_ctk_img,
+                text="", compound="center")
+        except Exception:
+            placeholder = PILImage.new("RGB", (_BG_PREV_W, _BG_PREV_H), (37, 37, 37))
+            self._bg_preview_ctk_img = ctk.CTkImage(
+                light_image=placeholder, dark_image=placeholder,
+                size=(_BG_PREV_W, _BG_PREV_H))
+            self._bg_preview_label.configure(
+                image=self._bg_preview_ctk_img,
+                text="無法載入", compound="center")
 
     def _show_leaderboard(self):
         self._hide_all_frames()
@@ -665,6 +903,8 @@ class LauncherApp(ctk.CTk):
         self.settings_mgr.set(
             "key_preset",
             _PRESET_LABELS.index(self._settings_preset_seg.get()))
+        self.settings_mgr.set("background_enabled", bool(self._settings_bg_switch.get()))
+        self.settings_mgr.set("background_id",      int(self._settings_bg_seg.get()))
         self.settings_mgr.save()
         self._show_main()
 
@@ -749,14 +989,15 @@ class LauncherApp(ctk.CTk):
                 self.loop)
 
     def _on_ready(self):
-        self._btn_ready.configure(text="取消準備", command=self._on_cancel_ready)
+        if self._is_queue:
+            self._btn_ready.configure(text="排隊中…", state="disabled")
+        else:
+            self._btn_ready.configure(text="取消準備", command=self._on_cancel_ready)
         if self.loop and self._client:
             asyncio.run_coroutine_threadsafe(
                 self._client.send_ready(), self.loop)
 
     def _on_cancel_ready(self):
-        if self._is_queue:
-            return
         self._btn_ready.configure(text="準備好了", command=self._on_ready)
         if self.loop and self._client:
             asyncio.run_coroutine_threadsafe(

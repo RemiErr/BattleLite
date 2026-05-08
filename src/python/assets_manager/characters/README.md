@@ -11,12 +11,20 @@
 assets_manager/
 ├── base_character.py        # BaseCharacter、HitboxDef、CharStats、FxDef 定義
 └── characters/
-    ├── README.md            # 本文件
+    ├── README.md            # 本文件（角色資源 + AI 設定說明）
     ├── knight.py            # 騎士（近戰＋格擋護盾）
     ├── mage.py              # 法師（技能投射物）
     ├── archer.py            # 弓箭手（攻擊＋技能均為投射物）
     ├── paladin.py           # 聖騎士（近戰衝刺）
     └── wizard.py            # 巫師（攻擊附加投射物＋ Entity 指定幀數生成）
+
+ai/characters/
+├── profile.py               # CharAIProfile dataclass
+├── knight_ai.py
+├── mage_ai.py
+├── archer_ai.py
+├── paladin_ai.py
+└── wizard_ai.py
 ```
 
 ---
@@ -361,7 +369,7 @@ self.skl_proj_fx = FxDef(path=..., frame_w=124, frame_h=124, scale=0.8, speed=4)
 
 ## VII. Debug 模式
 
-遊戲中按 **F1** 切換 Debug Overlay：
+遊戲中按 **F1** 切換 Debug Overlay（含 AI 資訊面板）：
 
 | 顯示元素     | 顏色 | 說明                                                    |
 | ------------ | ---- | ------------------------------------------------------- |
@@ -372,3 +380,199 @@ self.skl_proj_fx = FxDef(path=..., frame_w=124, frame_h=124, scale=0.8, speed=4)
 
 判定框僅為視覺參考，實際碰撞由 Rust 核心的固定點座標計算負責，
 Python 端的 `HitboxDef` 數值須與 `CharConfig` 中對應的 `half_w/h/depth` 保持一致。
+
+---
+
+## VIII. AI 對手設定
+
+AI 控制器以 **1-byte input bitmask** 的形式輸出，與真人玩家走完全相同的路徑進入 `perform_tick()`。每個角色只需提供「戰鬥知識」（Profile + Pattern 表 + GOAP 表），控制器負責所有決策邏輯。
+
+```
+make_ai(char_type, level, seed)
+  ├─ level=1 → FSMAIController
+  ├─ level=2 → PatternAIController ──fallback──▶ FSM
+  └─ level=3 → GOAPAIController ──fallback──▶ Pattern ──fallback──▶ FSM
+```
+
+每個角色在 `ai/characters/<name>_ai.py` 定義三份資料，並在 `ai/factory.py` 的 `_CHAR_DATA` 以 `char_type` index 登錄：
+
+```python
+_CHAR_DATA = {
+    0: (KNIGHT_PROFILE,  KNIGHT_PATTERNS,  KNIGHT_GOAP_ACTIONS),
+    1: (MAGE_PROFILE,    MAGE_PATTERNS,    MAGE_GOAP_ACTIONS),
+    ...
+}
+```
+
+---
+
+### CharAIProfile — 角色 AI 知識
+
+```python
+@dataclass
+class CharAIProfile:
+    preferred_range:    int    # 偏好的最佳戰鬥距離（Rust 單位，×1000）
+    skill_mp_threshold: int    # 放技能所需 MP（Rust 單位，×1000）
+    aggression:         float  # 0.0 保守 ～ 1.0 積極，影響 GOAP 靠近 cost
+    attack_range:       int    # in_range 判定閾值（必須小於 Rust atk_depth）
+```
+
+`attack_range` 是最重要的欄位，**必須小於角色真實的碰撞深度**（`atk_depth` / `skl_depth`）。設定過大會讓 AI 自認在範圍內卻打不到；設定過小則降低攻擊頻率。
+
+| 角色    | `attack_range` | 說明                    |
+| ------- | -------------- | ----------------------- |
+| Knight  | 65,000         | 近戰，短兵相接          |
+| Mage    | 65,000         | 近戰兼投射物，中近距離  |
+| Archer  | 220,000        | 純投射物，保持遠距離    |
+| Paladin | 70,000         | 近戰衝刺，略大於 Knight |
+| Wizard  | 80,000         | 近遠混合                |
+
+---
+
+### LV1：FSM（有限狀態機）
+
+**無需角色專屬設定。** `FSMAIController` 使用統一的 `FSM_PARAMS_LV1` 難度參數，所有角色相同。
+
+5 個離散狀態轉移邏輯：
+
+```
+APPROACH ──(dist ≤ attack_range)───▶ ATTACK
+ATTACK   ──(動作完成)──────────────▶ RETREAT
+RETREAT  ──(dist > safe_distance)──▶ APPROACH
+APPROACH ──(MP ≥ threshold)────────▶ SKILL
+任意狀態  ──(機率觸發)──────────────▶ WAIT
+```
+
+`reaction_delay`：環境改變後需等待數幀才切換狀態，模擬人類反應時間。難度越高延遲越短。
+
+---
+
+### LV2：Pattern AI（招式腳本）
+
+Pattern 表定義角色的「肌肉記憶」：滿足條件時鎖定並播放一段按鍵序列。
+
+```python
+Pattern(
+    name="技能名稱（debug 用）",
+    condition=lambda ws: <謂詞>,          # 觸發條件，回傳 True/False
+    action_sequence=[INPUT_A, INPUT_B],   # 按鍵序列
+    step_duration=[6, 6],                 # 每步持續 tick 數（與序列等長）
+    priority=8,                           # 多個同時觸發時選最高優先
+    cooldown_frames=30,                   # 上次執行後的冷卻 tick 數
+)
+```
+
+**方向符號**：`TOWARD`（朝向對手）與 `AWAY`（遠離對手）在執行時動態轉為實際左右鍵，不需根據站位調整：
+
+```python
+from src.python.ai.controllers.pattern_ai import Pattern, TOWARD, AWAY
+action_sequence=[TOWARD, TOWARD | INPUT_ATTACK]  # 衝向對手同時普攻
+```
+
+**常用謂詞**（`ai/predicates.py`）：
+
+| 謂詞函數                             | 說明                                |
+| ------------------------------------ | ----------------------------------- |
+| `can_use_skill(ws, profile)`         | MP ≥ `profile.skill_mp_threshold`   |
+| `opponent_is_vulnerable(ws)`         | 對手正處於 HURT 狀態                |
+| `self_hp_low(ws, threshold)`         | 自身 HP 低於 threshold（Rust 單位） |
+| `opponent_approaching(ws)`           | 對手正在靠近                        |
+| `is_in_preferred_range(ws, profile)` | 距離在偏好戰鬥範圍內                |
+
+`ws` 為當幀的 world state dict，包含 `dist`、`self_hp`、`opp_hp`、`self_mp`、`opp_state`、`opp_vx_toward` 等欄位。
+
+---
+
+### LV3：GOAP（目標導向行動規劃）
+
+GOAP 表定義所有可用的「行動選項」，由 A* 規劃器根據目標自動組合出最低成本序列。
+
+```python
+GOAPAction(
+    name="動作名稱",
+    preconditions={"in_range": True, "y_aligned": True},   # 執行前的世界狀態要求
+    effects={"opp_hp": ("delta", -10_000)},                # 執行後的預期效果
+    base_cost=1.0,                                          # 靜態基礎成本
+    input_mask=INPUT_ATTACK,                                # 輸出的按鍵 bitmask
+    direction="toward",                                     # 移動方向（可選）
+    duration_frames=6,                                      # 動作持續幀數
+    cost_fn=lambda ws: attack_mult(ws),                    # 動態成本函數
+)
+```
+
+**通用行動工廠**（`ai/goap/base_actions.py`）：大多數角色可直接使用：
+
+| 工廠函數                            | 效果                                |
+| ----------------------------------- | ----------------------------------- |
+| `make_approach(profile)`            | 靠近對手，成本受 `aggression` 影響  |
+| `make_retreat(profile)`             | 後退，成本受 HP fuzzy 與 mode 影響  |
+| `make_attack()`                     | 普攻，前提 `in_range + y_aligned`   |
+| `make_y_align(base_cost, duration)` | 遠程角色 Y 軸對位（X 遠離、Y 靠近） |
+
+**`preconditions` 常用 key**：
+
+| key         | 型別  | 說明                        |
+| ----------- | ----- | --------------------------- |
+| `in_range`  | bool  | 是否在 `attack_range` 以內  |
+| `y_aligned` | bool  | Y 軸深度差 ≤ 20,000 單位    |
+| `in_danger` | bool  | HP 低或對手近距攻擊         |
+| `self_mp`   | tuple | 比較式，如 `(">=", 15_000)` |
+| `opp_hp`    | tuple | 比較式，如 `("<", 30_000)`  |
+
+**`effects` 常用 key**：
+
+| key         | 型別        | 說明                            |
+| ----------- | ----------- | ------------------------------- |
+| `in_range`  | bool        | 設定 in_range 狀態              |
+| `y_aligned` | bool        | 設定 y_aligned 狀態             |
+| `in_danger` | bool        | 設定 in_danger 狀態             |
+| `opp_hp`    | delta tuple | `("delta", -N)` 預期減少對手 HP |
+
+**`direction` 可選值**：
+
+| 值                  | 行為                                 |
+| ------------------- | ------------------------------------ |
+| `"toward"`          | 朝對手移動                           |
+| `"away"`            | 遠離對手                             |
+| `"away_x_toward_y"` | X 軸遠離、Y 軸靠近（遠程角色對位用） |
+| `None`（省略）      | 無移動（技能原地釋放）               |
+
+> **重要**：技能 Action 的 `preconditions` **必須包含 `y_aligned: True`**，否則 AI 會在斜角位置釋放技能，因 Rust 碰撞深度（25,000）小於觸發閾值導致揮空。
+
+---
+
+## IX. 新增角色的 AI 設定步驟
+
+1. **建立 `ai/characters/<name>_ai.py`**
+
+2. **定義 `CharAIProfile`**：
+   ```python
+   <NAME>_PROFILE = CharAIProfile(
+       preferred_range=...,      # 偏好的交戰距離
+       skill_mp_threshold=...,   # 使用技能的 MP 門檻（與 CharStats.skill_cost 對齊）
+       aggression=0.7,           # 侵略性
+       attack_range=...,         # 近戰 ≈ 65,000；遠程依投射物有效射程設定
+   )
+   ```
+
+3. **撰寫 LV2 Pattern 表**（`<NAME>_PATTERNS`）：
+   - 通常 3–5 個 Pattern 覆蓋主要戰術
+   - 各 Pattern 的觸發條件不應完全重疊，避免優先級競爭
+   - 使用 `TOWARD`/`AWAY` 符號，不要硬編碼方向鍵
+
+4. **撰寫 LV3 GOAP Action 表**（`<NAME>_GOAP_ACTIONS`）：
+   - 必須包含 `make_approach(profile)` 和 `make_attack()`
+   - 角色技能需個別定義 `GOAPAction`，`preconditions` 必須含 `y_aligned: True`
+   - 遠程角色改用 `make_y_align()` 替代 `make_retreat()`
+
+5. **在 `ai/factory.py` 的 `_CHAR_DATA` 登錄**：
+   ```python
+   from src.python.ai.characters.<name>_ai import (
+       <NAME>_PROFILE, <NAME>_PATTERNS, <NAME>_GOAP_ACTIONS)
+
+   _CHAR_DATA = {
+       ...,
+       N: (<NAME>_PROFILE, <NAME>_PATTERNS, <NAME>_GOAP_ACTIONS),
+   }
+   ```
+   `N` 必須與 `assets_manager/characters/` 及 `game/loop.py` 的角色 index 一致。
