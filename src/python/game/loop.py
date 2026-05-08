@@ -4,6 +4,7 @@ import math
 import json
 import threading
 import time
+import datetime
 
 import pygame
 
@@ -19,6 +20,8 @@ from src.python.ai.controllers.base import AIController
 from src.python.ai.factory import make_ai
 from src.python.game.input_manager import get_input_mask, load_key_map
 from src.python.game.match_manager import MatchManager
+from src.python.replay.writer import ReplayWriter
+from src.python.replay.reader import ReplayReader
 
 # --- 世界邊界與出生點 ---
 WORLD_PX_W  = SCREEN_W * 3
@@ -170,9 +173,10 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
     controlled_idx = config["local_id"]
     host_id        = config.get("host_id", 0)
     i_am_host      = is_offline or (controlled_idx == host_id)
+    is_replay      = bool(config.get("replay_path"))
 
-    # 線上模式：依 payload 初始化各玩家角色
-    if not is_offline:
+    # 線上模式或重播：依 payload / replay header 初始化各玩家角色
+    if not is_offline or is_replay:
         for p_info in config.get("players", []):
             pid = p_info.get("id", 0)
             ct  = p_info.get("char_type", 0)
@@ -204,6 +208,26 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
     switch_player    = 0
     sync_wait_frames = 0
 
+    # --- 重播系統 ---
+    _replay_writer: ReplayWriter | None = None
+    if not is_offline and not is_replay:
+        _replay_writer = ReplayWriter({
+            "version":     1,
+            "timestamp":   datetime.datetime.now().isoformat(timespec="seconds"),
+            "match_id":    config.get("match_id", ""),
+            "room_code":   config.get("room", ""),
+            "room_type":   "ranked" if config.get("room", "").startswith("__queue_") else "custom",
+            "num_players": num_players,
+            "seed":        config.get("seed", 0),
+            "players":     [{"id": p["id"], "nickname": p.get("nickname", ""),
+                             "char_type": p.get("char_type", 0)}
+                            for p in config.get("players", [])],
+        })
+    _reader: ReplayReader | None = ReplayReader(config["replay_path"]) if is_replay else None
+    _replay_paused  = False
+    _replay_speed   = 1.0
+    _advance_budget = 0.0
+
     _perf_enabled = os.environ.get("DEBUG_PERF") == "1"
     _frame_times: list[float] = []
 
@@ -220,6 +244,20 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                 if event.key == pygame.K_ESCAPE:
                     running = False
                     continue
+                # 重播控制鍵
+                if is_replay:
+                    if event.key == pygame.K_p:
+                        _replay_paused = not _replay_paused
+                        continue
+                    if event.key == pygame.K_1:
+                        _replay_speed = 0.5
+                        continue
+                    if event.key == pygame.K_2:
+                        _replay_speed = 1.0
+                        continue
+                    if event.key == pygame.K_3:
+                        _replay_speed = 2.0
+                        continue
                 if event.key == pygame.K_p and is_offline:
                     mm.paused = not mm.paused
                     continue
@@ -257,7 +295,20 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             prev_z            = [session.get_player(i).z for i in range(num_players)]
             prev_entity_count = session.get_entity_count()
 
-            if is_offline:
+            if is_replay:
+                assert _reader is not None
+                if not _replay_paused:
+                    _advance_budget += _replay_speed
+                    while _advance_budget >= 1.0:
+                        inp = _reader.next_inputs()
+                        if inp is None:
+                            mm.match_result = -2
+                            break
+                        session.advance(inp)
+                        _clamp_world_bounds(session, num_players)
+                        _advance_budget -= 1.0
+
+            elif is_offline:
                 entities_snapshot = [session.get_entity(i)
                                      for i in range(session.get_entity_count())]
                 goap_replan_budget = 1
@@ -287,6 +338,8 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                     else:
                         inputs.append(0)
                 session.advance(inputs)
+                _clamp_world_bounds(session, num_players)
+
             else:
                 inputs = [0] * num_players
                 inputs[controlled_idx] = input_mask
@@ -312,43 +365,49 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                         goap_replan_budget -= 1
                     inputs[pid] = mask
                 session.advance(inputs)
-            _clamp_world_bounds(session, num_players)
+                if _replay_writer:
+                    _replay_writer.append_frame(session.get_last_inputs())
+                _clamp_world_bounds(session, num_players)
 
-            # --- SFX 事件偵測 ---
-            for i in range(num_players):
-                p      = session.get_player(i)
-                ct     = p.character_type
-                old_st = mm.last_states[i]
-                if p.state != old_st:
-                    if p.state == STATE_HURT:
-                        sfx_manager.on_hurt(ct)
-                        for j in range(num_players):
-                            if j == i:
-                                continue
-                            atk = session.get_player(j)
-                            ab  = char_assets.get(
-                                atk.character_type, char_assets[0]).get_ability(mm.last_states[j])
-                            if ab and ab.melee_enabled:
-                                sfx_manager.on_hit(atk.character_type, mm.last_states[j])
-                                break
-                    elif p.state == STATE_DEAD:
-                        sfx_manager.on_dead(ct)
-                    elif p.state not in (STATE_IDLE, STATE_WALK):
-                        sfx_manager.on_ability(ct, p.state)
-                if prev_z[i] == 0 and p.z > 0 and p.state not in (STATE_HURT, STATE_DEAD):
-                    sfx_manager.on_jump(ct)
-                if prev_z[i] > 0 and p.z == 0:
-                    sfx_manager.on_land(ct)
+            # --- SFX 事件偵測（重播模式略過）---
+            if not is_replay:
+                for i in range(num_players):
+                    p      = session.get_player(i)
+                    ct     = p.character_type
+                    old_st = mm.last_states[i]
+                    if p.state != old_st:
+                        if p.state == STATE_HURT:
+                            sfx_manager.on_hurt(ct)
+                            for j in range(num_players):
+                                if j == i:
+                                    continue
+                                atk = session.get_player(j)
+                                ab  = char_assets.get(
+                                    atk.character_type, char_assets[0]).get_ability(mm.last_states[j])
+                                if ab and ab.melee_enabled:
+                                    sfx_manager.on_hit(atk.character_type, mm.last_states[j])
+                                    break
+                        elif p.state == STATE_DEAD:
+                            sfx_manager.on_dead(ct)
+                        elif p.state not in (STATE_IDLE, STATE_WALK):
+                            sfx_manager.on_ability(ct, p.state)
+                    if prev_z[i] == 0 and p.z > 0 and p.state not in (STATE_HURT, STATE_DEAD):
+                        sfx_manager.on_jump(ct)
+                    if prev_z[i] > 0 and p.z == 0:
+                        sfx_manager.on_land(ct)
 
-            for eid in range(prev_entity_count, session.get_entity_count()):
-                e = session.get_entity(eid)
-                sfx_manager.on_proj(e.character_type, e.ability_state_id)
+                for eid in range(prev_entity_count, session.get_entity_count()):
+                    e = session.get_entity(eid)
+                    sfx_manager.on_proj(e.character_type, e.ability_state_id)
             # --- SFX 事件偵測結束 ---
 
-            if num_players > 1:
+            if num_players > 1 and mm.match_result is None:
                 r = mm.check_match()
                 if r is not None:
                     mm.match_result = r
+                    if _replay_writer:
+                        _replay_writer.finalize(mm.match_result)
+                        _replay_writer = None
                     if not mm._result_submitted and not is_offline:
                         mm._result_submitted = True
                         ct = session.get_player(controlled_idx).character_type
@@ -597,6 +656,15 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             screen.blit(pause_surf, pause_surf.get_rect(center=(cx, cy - 20)))
             hint_surf  = result_font_small.render("P: Resume  ESC: Quit", True, (180, 180, 180))
             screen.blit(hint_surf, hint_surf.get_rect(center=(cx, cy + 40)))
+
+        # 重播覆蓋提示
+        if is_replay:
+            speed_str  = f"{_replay_speed:.1f}x"
+            pause_str  = "  [PAUSED]" if _replay_paused else ""
+            replay_txt = f"REPLAY  {speed_str}{pause_str}  |  P: 暫停  1: 0.5x  2: 1x  3: 2x"
+            rt_surf    = info_font.render(replay_txt, True, (220, 220, 60))
+            screen.blit(rt_surf, (SCREEN_W - rt_surf.get_width() - 10,
+                                  SCREEN_H - rt_surf.get_height() - 10))
 
         pygame.display.flip()
         if _perf_enabled:
