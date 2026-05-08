@@ -2,6 +2,15 @@ from dotenv import load_dotenv
 import customtkinter as ctk
 import os
 import sys
+
+try:
+    # 確保 PIL PNG/JPEG decoder 在 PyInstaller 冷凍環境中被打包進來
+    import PIL.Image
+    import PIL.PngImagePlugin
+    import PIL.JpegImagePlugin
+    import PIL.ImageTk
+except ImportError:
+    pass
 import json
 import subprocess
 import threading
