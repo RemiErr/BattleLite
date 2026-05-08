@@ -265,6 +265,10 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                     continue
                 if mm.match_result is not None:
                     if event.key == pygame.K_r and is_offline:
+                        if is_replay:
+                            _reader = ReplayReader(config["replay_path"])
+                            _advance_budget = 0.0
+                            _replay_paused  = False
                         mm.restart(_set_spawn_positions)
                     continue
                 if event.key == pygame.K_F1 and is_offline:
@@ -642,7 +646,7 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                 msg, color = f"{name}  ({char_name})  WINS!", (255, 220, 60)
             big_surf = result_font_big.render(msg, True, color)
             screen.blit(big_surf, big_surf.get_rect(center=(cx, cy - 20)))
-            hint    = "R: Restart  ESC: Quit" if is_offline else "ESC: Quit"
+            hint    = "R: 重播  ESC: Quit" if is_replay else ("R: Restart  ESC: Quit" if is_offline else "ESC: Quit")
             sm_surf = result_font_small.render(hint, True, (180, 180, 180))
             screen.blit(sm_surf, sm_surf.get_rect(center=(cx, cy + 50)))
 
