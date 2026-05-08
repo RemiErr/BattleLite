@@ -48,7 +48,7 @@ BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透�
     - [LV2：Pattern AI（招式腳本）](#lv2pattern-ai招式腳本)
     - [LV3：GOAP + Fuzzy Logic](#lv3goap--fuzzy-logic)
     - [AI 穩定性優化](#ai-穩定性優化)
-    - [Debug Overlay（F4）](#debug-overlayf4)
+    - [Debug Overlay](#debug-overlay)
     - [模組結構](#模組結構)
     - [AI 在離線與連線模式的責任](#ai-在離線與連線模式的責任)
   - [十二、 打包與資源路徑](#十二-打包與資源路徑)
@@ -283,7 +283,7 @@ P2P 回滾的核心要求：**兩台機器跑同樣 inputs，必須得到完全�
 ```
 
 **規則（不可違反）：**
-- Rust 核心 `lib.rs` 內嚴禁 `f32`/`f64`。
+- Rust 核心（所有模組）內嚴禁 `f32`/`f64`。
 - Python 只在渲染時做 `/ 1000` 轉換，不回寫 Rust。
 - 隨機數只能用 session 初始化時提供的 seed，不能用 `std::rand`。
 
@@ -383,11 +383,13 @@ timer 值:  atk_timer → ... → 15 → 14 → ... → 5 → 4 → ... → 0
 
 ```
 Entity {
-  owner_id  : usize   // 發射者 player index
-  x, y, z   : i32     // 當前位置
-  vx, vy    : i32     // 速度（每幀位移）
-  lifetime  : u32     // 剩餘存活幀數（降到 0 自動消失）
-  is_skill  : bool    // true=SKILL投射物, false=ATTACK投射物
+  owner_id        : usize  // 發射者 player index
+  character_type  : usize  // 發射者角色類型（查詢 AbilityConfig 碰撞尺寸用）
+  ability_state_id: u32    // 對應哪個 ability（決定 hitbox 尺寸與傷害來源）
+  x, y, z         : i32    // 當前位置
+  vx, vy          : i32    // 速度（每幀位移）
+  lifetime        : u32    // 剩餘存活幀數（降到 0 自動消失）
+  is_skill        : bool   // true=SKILL投射物, false=ATTACK投射物（視覺用）
 }
 ```
 
@@ -891,15 +893,17 @@ Dist: 遠  →  { close: 0.1, mid: 0.4, far: 0.5 }
 
 ---
 
-### Debug Overlay（F4）
+### Debug Overlay
 
-離線模式下按 F4 可切換 AI 資訊面板，各等級顯示不同資訊：
+離線模式下按 F1 切換 Debug Overlay 顯示，各等級顯示不同資訊：
 
 | 等級 | 顯示內容                                                    |
 | ---- | ----------------------------------------------------------- |
 | LV1  | FSM 當前狀態                                                |
 | LV2  | 當前 Pattern 名稱 + 序列進度                                |
 | LV3  | 目標（Goal）、當前規劃動作、模糊隸屬度（HP/MP/Dist 各集合） |
+
+> 已整合 AI 資訊面板，若有 AI 對手，該面板會改成顯示 AI 的決策參數與資訊。
 
 ---
 
@@ -1075,18 +1079,18 @@ pytest tests/test_physics.py -v
 
 ### 遊戲內快捷鍵
 
-| 按鍵            | 功能                           |
-| --------------- | ------------------------------ |
-| ESC             | 離開遊戲                       |
-| 上下左右 / WASD | 移動（依設定的按鍵組合）       |
-| Z / J           | 攻擊（依設定的按鍵組合）       |
-| X / K           | 技能（依設定的按鍵組合）       |
-| Space           | 跳躍                           |
-| F1              | 切換 Debug Overlay（離線模式） |
-| F2              | 切換受控角色（離線模式）       |
-| F3              | 切換角色職業（離線模式）       |
-| P               | 暫停 / 繼續（離線模式）        |
-| R               | 重新開始回合（離線模式）       |
+| 按鍵            | 功能                                |
+| --------------- | ----------------------------------- |
+| ESC             | 離開遊戲                            |
+| 上下左右 / WASD | 移動（依設定的按鍵組合）            |
+| Z / J           | 攻擊（依設定的按鍵組合）            |
+| X / K           | 技能（依設定的按鍵組合）            |
+| Space           | 跳躍                                |
+| F1              | 切換 Debug、AI 資訊面板（離線模式） |
+| F2              | 切換受控角色（離線模式）            |
+| F3              | 切換角色職業（離線模式）            |
+| P               | 暫停 / 繼續（離線模式）             |
+| R               | 重新開始回合（離線模式）            |
 
 ---
 
