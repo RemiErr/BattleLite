@@ -25,7 +25,11 @@ launcher_analysis = Analysis(
     ['src/python/launcher.py'],
     pathex=IMPORT_PATHS,
     datas=[('src/assets', 'src/assets')],
-    hiddenimports=['battlelite_core', 'src.python.replay', 'src.python.replay.writer', 'src.python.replay.reader'],
+    hiddenimports=[
+        'battlelite_core',
+        'src.python.replay', 'src.python.replay.writer', 'src.python.replay.reader',
+        'PIL', 'PIL.Image', 'PIL.ImageTk', 'PIL.PngImagePlugin', 'PIL.JpegImagePlugin',
+    ],
     excludes=['lobby_server', 'fastapi', 'uvicorn', 'starlette', 'pytest'],
 )
 
