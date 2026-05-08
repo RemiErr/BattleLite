@@ -211,6 +211,13 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
     # --- 重播系統 ---
     _replay_writer: ReplayWriter | None = None
     if not is_offline and not is_replay:
+        _rp_players = [{"id": p["id"], "nickname": p.get("nickname", ""),
+                        "char_type": p.get("char_type", 0)}
+                       for p in config.get("players", [])]
+        for _pid_str, _ai in config.get("ai_players", {}).items():
+            _rp_players.append({"id": int(_pid_str), "nickname": "CPU",
+                                 "char_type": _ai.get("char_type", 0)})
+        _rp_players.sort(key=lambda x: x["id"])
         _replay_writer = ReplayWriter({
             "version":     1,
             "timestamp":   datetime.datetime.now().isoformat(timespec="seconds"),
@@ -219,9 +226,7 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             "room_type":   "ranked" if config.get("room", "").startswith("__queue_") else "custom",
             "num_players": num_players,
             "seed":        config.get("seed", 0),
-            "players":     [{"id": p["id"], "nickname": p.get("nickname", ""),
-                             "char_type": p.get("char_type", 0)}
-                            for p in config.get("players", [])],
+            "players":     _rp_players,
         })
     _reader: ReplayReader | None = ReplayReader(config["replay_path"]) if is_replay else None
     _replay_paused  = False
