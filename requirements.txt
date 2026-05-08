@@ -1,23 +1,27 @@
 # --- 遊戲引擎與渲染 ---
-pygame
+pygame==2.6.1
 
 # --- Rust 橋接與建置 ---
-maturin
+maturin==1.12.6
 
 # --- 測試與自動化 ---
-pytest
-httpx
+pytest==9.0.2
+httpx==0.28.1
 
 # --- 信令大廳伺服器 ---
-fastapi
-uvicorn[standard]
+fastapi==0.135.3
+uvicorn[standard]==0.44.0
 
 # --- 安全與加密 ---
-cryptography
+cryptography==46.0.6
 
 # --- Launcher UI ---
-customtkinter
+customtkinter==5.2.2
+pillow==12.2.0
 
 # --- 連線與客戶端 ---
-websockets
-python-dotenv
+websockets==16.0
+python-dotenv==1.2.2
+
+# --- 打包 ---
+pyinstaller==6.20.0
