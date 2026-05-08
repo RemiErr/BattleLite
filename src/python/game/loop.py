@@ -127,17 +127,33 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
     else:
         _settings_path = os.path.join(PROJECT_ROOT, 'settings.json')
     _vol, _preset_idx = 50, 0
+    _bg_enabled, _bg_id = True, 1
     if os.path.exists(_settings_path):
         try:
             with open(_settings_path) as f:
                 s = json.load(f)
-                _vol       = s.get("volume", 50)
+                _vol        = s.get("volume", 50)
                 _preset_idx = int(s.get("key_preset", 0))
+                _bg_enabled = s.get("background_enabled", True)
+                _bg_id      = int(s.get("background_id", 1))
         except Exception:
             pass
 
     sfx_manager = SfxManager(volume=_vol / 100.0)
     key_map     = load_key_map(_preset_idx)
+
+    _BG_PARALLAX = 0.3
+    _BG_W        = SCREEN_W + int((WORLD_PX_W - SCREEN_W) * _BG_PARALLAX) + 1
+    _bg_surface  = None
+    if _bg_enabled:
+        _bg_path = os.path.join(PROJECT_ROOT, "src", "assets", "background", f"{_bg_id}.png")
+        if os.path.exists(_bg_path):
+            try:
+                _raw = pygame.image.load(_bg_path).convert()
+                _bg_surface = pygame.transform.scale(
+                    _raw, (_BG_W, _raw.get_height()))
+            except Exception as e:
+                print(f"[WARN] 背景圖載入失敗: {e}")
 
     # --- HUD、SFX 初始化 ---
     player_names: dict[int, str] = {config["local_id"]: config.get("nickname", "Player")}
@@ -431,15 +447,19 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
         cam_x   = max(0.0, min(cam_x, float(WORLD_PX_W - SCREEN_W)))
 
         # --- 背景與場景 ---
-        screen.fill((15, 15, 15))
         floor_y_min = WORLD_Y_MIN // 1000 + HUD_H
         floor_y_max = WORLD_Y_MAX // 1000 + HUD_H
+        screen.fill((15, 15, 15))
+        if _bg_surface is not None:
+            screen.blit(_bg_surface, (int(-cam_x * _BG_PARALLAX), HUD_H))
         pygame.draw.rect(screen, (30, 30, 30),
                          (0, floor_y_min, SCREEN_W, floor_y_max - floor_y_min))
-        pygame.draw.line(screen, (45, 45, 45), (0, floor_y_min), (SCREEN_W, floor_y_min), 1)
-        pygame.draw.line(screen, (45, 45, 45), (0, floor_y_max), (SCREEN_W, floor_y_max), 1)
-        pygame.draw.line(screen, (55, 55, 55), (0, 300 + HUD_H), (SCREEN_W, 300 + HUD_H), 1)
-        pygame.draw.line(screen, (55, 55, 55), (0, 450 + HUD_H), (SCREEN_W, 450 + HUD_H), 1)
+        line_col  = (80, 80, 80) if _bg_surface else (45, 45, 45)
+        line_col2 = (95, 95, 95) if _bg_surface else (55, 55, 55)
+        pygame.draw.line(screen, line_col,  (0, floor_y_min), (SCREEN_W, floor_y_min), 1)
+        pygame.draw.line(screen, line_col,  (0, floor_y_max), (SCREEN_W, floor_y_max), 1)
+        pygame.draw.line(screen, line_col2, (0, 300 + HUD_H),  (SCREEN_W, 300 + HUD_H),  1)
+        pygame.draw.line(screen, line_col2, (0, 450 + HUD_H),  (SCREEN_W, 450 + HUD_H),  1)
 
         state_changed: dict[int, bool] = {}
         render_list = []
