@@ -989,14 +989,15 @@ class LauncherApp(ctk.CTk):
                 self.loop)
 
     def _on_ready(self):
-        self._btn_ready.configure(text="取消準備", command=self._on_cancel_ready)
+        if self._is_queue:
+            self._btn_ready.configure(text="排隊中…", state="disabled")
+        else:
+            self._btn_ready.configure(text="取消準備", command=self._on_cancel_ready)
         if self.loop and self._client:
             asyncio.run_coroutine_threadsafe(
                 self._client.send_ready(), self.loop)
 
     def _on_cancel_ready(self):
-        if self._is_queue:
-            return
         self._btn_ready.configure(text="準備好了", command=self._on_ready)
         if self.loop and self._client:
             asyncio.run_coroutine_threadsafe(
