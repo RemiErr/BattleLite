@@ -247,8 +247,23 @@ class LauncherApp(ctk.CTk):
             _PRESET_LABELS[self.settings_mgr.get("key_preset")])
         self._settings_preset_seg.grid(row=5, column=0, pady=4)
 
+        bg_row = ctk.CTkFrame(f, fg_color="transparent")
+        bg_row.grid(row=6, column=0, pady=(20, 4))
+        ctk.CTkLabel(bg_row, text="背景圖", font=_font(14)).pack(side="left", padx=(0, 8))
+        self._settings_bg_switch = ctk.CTkSwitch(bg_row, text="")
+        self._settings_bg_switch.pack(side="left")
+        if self.settings_mgr.get("background_enabled"):
+            self._settings_bg_switch.select()
+        else:
+            self._settings_bg_switch.deselect()
+
+        self._settings_bg_seg = ctk.CTkSegmentedButton(
+            f, values=[str(i) for i in range(1, 10)], width=260)
+        self._settings_bg_seg.set(str(self.settings_mgr.get("background_id")))
+        self._settings_bg_seg.grid(row=7, column=0, pady=4)
+
         ctk.CTkButton(f, text="儲存", command=self._save_settings).grid(
-            row=6, column=0, pady=28)
+            row=8, column=0, pady=20)
 
     # ── Leaderboard Frame ─────────────────────────────────────────────────
 
@@ -817,6 +832,8 @@ class LauncherApp(ctk.CTk):
         self.settings_mgr.set(
             "key_preset",
             _PRESET_LABELS.index(self._settings_preset_seg.get()))
+        self.settings_mgr.set("background_enabled", bool(self._settings_bg_switch.get()))
+        self.settings_mgr.set("background_id",      int(self._settings_bg_seg.get()))
         self.settings_mgr.save()
         self._show_main()
 

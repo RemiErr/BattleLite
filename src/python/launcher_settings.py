@@ -16,12 +16,14 @@ class SettingsManager:
     支援儲存視窗位置、大小、音量與玩家暱稱。
     """
     DEFAULT_SETTINGS = {
-        "nickname": "Player",
-        "volume": 50,
-        "window_pos": [100, 100],
-        "fullscreen": False,
-        "last_room": "",
-        "key_preset": 0,
+        "nickname":           "Player",
+        "volume":             50,
+        "window_pos":         [100, 100],
+        "fullscreen":         False,
+        "last_room":          "",
+        "key_preset":         0,
+        "background_enabled": True,
+        "background_id":      1,
     }
 
     def __init__(self, filepath: str | None = None):
