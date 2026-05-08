@@ -451,7 +451,8 @@ class LauncherApp(ctk.CTk):
             row=0, column=2)
 
         self._replay_tabs = ctk.CTkTabview(f)
-        self._replay_tabs.grid(row=1, column=0, padx=15, pady=(0, 15), sticky="nsew")
+        self._replay_tabs.grid(row=1, column=0, padx=15,
+                               pady=(0, 15), sticky="nsew")
         self._replay_tabs.add("牌位賽")
         self._replay_tabs.add("自訂房間")
 
@@ -469,7 +470,8 @@ class LauncherApp(ctk.CTk):
     def _show_replay(self):
         self._refresh_replay_list()
         self._hide_all_frames()
-        self.replay_frame.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
+        self.replay_frame.grid(row=0, column=0, padx=20,
+                               pady=20, sticky="nsew")
 
     def _refresh_replay_list(self):
         try:
@@ -510,9 +512,9 @@ class LauncherApp(ctk.CTk):
 
     def _add_replay_row(self, parent, entry: dict):
         players = entry.get("players", [])
-        winner  = entry.get("winner")
+        winner = entry.get("winner")
         total_f = entry.get("total_frames", 0)
-        secs    = total_f // 60
+        secs = total_f // 60
         dur_str = f"{secs // 60}分{secs % 60:02d}秒"
 
         if winner is None or winner == -2:
@@ -520,15 +522,16 @@ class LauncherApp(ctk.CTk):
         else:
             wp = next((p for p in players if p["id"] == winner), None)
             if wp:
-                cn = CHAR_NAMES[wp.get("char_type", 0)] if wp.get("char_type", 0) < len(CHAR_NAMES) else "?"
+                cn = CHAR_NAMES[wp.get("char_type", 0)] if wp.get(
+                    "char_type", 0) < len(CHAR_NAMES) else "?"
                 winner_str = f"{wp.get('nickname', '?')} ({cn})"
             else:
                 winner_str = f"P{winner}"
 
-        ts_raw  = entry.get("timestamp", "")
+        ts_raw = entry.get("timestamp", "")
         ts_disp = ts_raw.replace("T", " ")[:16]
         players_str = "  v  ".join(
-            f"{p.get('nickname','?')}({CHAR_NAMES[p.get('char_type',0)] if p.get('char_type',0) < len(CHAR_NAMES) else '?'})"
+            f"{p.get('nickname', '?')}({CHAR_NAMES[p.get('char_type', 0)] if p.get('char_type', 0) < len(CHAR_NAMES) else '?'})"
             for p in players
         )
 
@@ -542,7 +545,7 @@ class LauncherApp(ctk.CTk):
         ctk.CTkLabel(info_f, text=ts_disp, font=_font(11),
                      text_color="gray70", width=110, anchor="w").pack(side="left", padx=2)
         ctk.CTkLabel(info_f, text=players_str, font=_font(11),
-                     width=170, anchor="w").pack(side="left", padx=4)
+                     width=130, anchor="w").pack(side="left", padx=4)
         ctk.CTkLabel(info_f, text=dur_str, font=_font(11),
                      text_color="gray60", width=55, anchor="w").pack(side="right", padx=4)
         ctk.CTkLabel(info_f, text=f"勝者: {winner_str}", font=_font(11),
@@ -561,7 +564,8 @@ class LauncherApp(ctk.CTk):
                                 "game_launch.log")
         try:
             if getattr(sys, 'frozen', False):
-                game_exe = os.path.join(os.path.dirname(sys.executable), "Game")
+                game_exe = os.path.join(
+                    os.path.dirname(sys.executable), "Game")
                 cmd = [game_exe, "--replay", path]
             else:
                 script = os.path.join(PROJECT_ROOT, "src", "python", "main.py")
