@@ -3,6 +3,7 @@ import sys
 import math
 import json
 import threading
+import time
 
 import pygame
 
@@ -203,11 +204,15 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
     switch_player    = 0
     sync_wait_frames = 0
 
+    _perf_enabled = os.environ.get("DEBUG_PERF") == "1"
+    _frame_times: list[float] = []
+
     # ================================================================
     # 主迴圈
     # ================================================================
     running = True
     while running:
+        _t0 = time.perf_counter() if _perf_enabled else 0.0
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -253,14 +258,15 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             prev_entity_count = session.get_entity_count()
 
             if is_offline:
+                entities_snapshot = [session.get_entity(i)
+                                     for i in range(session.get_entity_count())]
+                goap_replan_budget = 1
                 inputs = []
                 for pid in range(num_players):
                     if pid == controlled_idx:
                         inputs.append(input_mask)
                     elif pid in ai_controllers:
-                        ai_p     = session.get_player(pid)
-                        entities = [session.get_entity(i)
-                                    for i in range(session.get_entity_count())]
+                        ai_p = session.get_player(pid)
                         alive_opponents = [
                             session.get_player(j)
                             for j in range(num_players)
@@ -271,17 +277,24 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                             key=lambda q: max(abs(ai_p.x - q.x), abs(ai_p.y - q.y)),
                             default=session.get_player(controlled_idx),
                         )
-                        inputs.append(ai_controllers[pid].decide(ai_p, opp_p, entities))
+                        ctrl = ai_controllers[pid]
+                        if hasattr(ctrl, 'set_replan_budget'):
+                            ctrl.set_replan_budget(goap_replan_budget > 0)
+                        mask = ctrl.decide(ai_p, opp_p, entities_snapshot)
+                        if getattr(ctrl, 'did_replan', False):
+                            goap_replan_budget -= 1
+                        inputs.append(mask)
                     else:
                         inputs.append(0)
                 session.advance(inputs)
             else:
                 inputs = [0] * num_players
                 inputs[controlled_idx] = input_mask
+                entities_snapshot = [session.get_entity(i)
+                                     for i in range(session.get_entity_count())]
+                goap_replan_budget = 1
                 for pid, controller in ai_controllers.items():
-                    ai_p     = session.get_player(pid)
-                    entities = [session.get_entity(i)
-                                for i in range(session.get_entity_count())]
+                    ai_p = session.get_player(pid)
                     alive_opponents = [
                         session.get_player(j)
                         for j in range(num_players)
@@ -292,7 +305,12 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                         key=lambda q: max(abs(ai_p.x - q.x), abs(ai_p.y - q.y)),
                         default=session.get_player(controlled_idx),
                     )
-                    inputs[pid] = controller.decide(ai_p, opp_p, entities)
+                    if hasattr(controller, 'set_replan_budget'):
+                        controller.set_replan_budget(goap_replan_budget > 0)
+                    mask = controller.decide(ai_p, opp_p, entities_snapshot)
+                    if getattr(controller, 'did_replan', False):
+                        goap_replan_budget -= 1
+                    inputs[pid] = mask
                 session.advance(inputs)
             _clamp_world_bounds(session, num_players)
 
@@ -581,6 +599,13 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             screen.blit(hint_surf, hint_surf.get_rect(center=(cx, cy + 40)))
 
         pygame.display.flip()
+        if _perf_enabled:
+            _frame_times.append(time.perf_counter() - _t0)
+            if len(_frame_times) >= 300:
+                p99 = sorted(_frame_times)[-3]
+                avg = sum(_frame_times) / len(_frame_times)
+                print(f"[perf] p99={p99*1000:.1f}ms  avg={avg*1000:.1f}ms")
+                _frame_times.clear()
         clock.tick(60)
 
     del session  # 確保 GGRS UDP socket 在 pygame.quit() 前釋放
