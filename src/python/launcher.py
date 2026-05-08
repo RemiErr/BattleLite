@@ -41,7 +41,8 @@ LOBBY_HTTP_URL = LOBBY_WS_URL.replace(
     "ws://", "http://").replace("wss://", "https://")
 
 CHAR_NAMES = ["Knight", "Mage", "Archer", "Paladin", "Wizard"]
-_WIN_W, _WIN_H = 600, 400
+_WIN_W, _WIN_H   = 600, 400
+_BG_PREV_W, _BG_PREV_H = 220, 165  # 4:3 preview dimensions
 _TIER_LABELS = {
     "placement": "定位賽",
     "bronze":    "銅牌",
@@ -214,10 +215,12 @@ class LauncherApp(ctk.CTk):
     def _build_settings_frame(self):
         f = ctk.CTkFrame(self, corner_radius=10)
         f.grid_columnconfigure(0, weight=1)
+        f.grid_columnconfigure(1, minsize=_BG_PREV_W + 32)
         self.settings_frame = f
 
+        # Header (spans both columns)
         hdr = ctk.CTkFrame(f, fg_color="transparent")
-        hdr.grid(row=0, column=0, padx=15, pady=(15, 5), sticky="ew")
+        hdr.grid(row=0, column=0, columnspan=2, padx=15, pady=(15, 5), sticky="ew")
         hdr.grid_columnconfigure(1, weight=1)
         ctk.CTkButton(hdr, text="← 返回", width=80, fg_color="gray30",
                       command=self._show_main).grid(row=0, column=0)
@@ -226,8 +229,9 @@ class LauncherApp(ctk.CTk):
         ctk.CTkFrame(hdr, fg_color="transparent", width=80,
                      height=28).grid(row=0, column=2)
 
+        # ── 左欄：控制項 ──────────────────────────────────────────────────
         ctk.CTkLabel(f, text="音量", font=_font(14)).grid(
-            row=1, column=0, pady=(24, 4))
+            row=1, column=0, pady=(16, 4))
         self._settings_vol = ctk.IntVar(value=self.settings_mgr.get("volume"))
         slider = ctk.CTkSlider(f, from_=0, to=100,
                                variable=self._settings_vol, width=260)
@@ -240,30 +244,43 @@ class LauncherApp(ctk.CTk):
                 text=f"{int(v)}%"))
 
         ctk.CTkLabel(f, text="按鍵組合", font=_font(14)).grid(
-            row=4, column=0, pady=(20, 4))
+            row=4, column=0, pady=(12, 4))
         self._settings_preset_seg = ctk.CTkSegmentedButton(
             f, values=_PRESET_LABELS, width=260)
         self._settings_preset_seg.set(
             _PRESET_LABELS[self.settings_mgr.get("key_preset")])
         self._settings_preset_seg.grid(row=5, column=0, pady=4)
 
-        bg_row = ctk.CTkFrame(f, fg_color="transparent")
-        bg_row.grid(row=6, column=0, pady=(20, 4))
-        ctk.CTkLabel(bg_row, text="背景圖", font=_font(14)).pack(side="left", padx=(0, 8))
-        self._settings_bg_switch = ctk.CTkSwitch(bg_row, text="")
+        bg_ctrl = ctk.CTkFrame(f, fg_color="transparent")
+        bg_ctrl.grid(row=6, column=0, pady=(12, 4))
+        ctk.CTkLabel(bg_ctrl, text="背景圖", font=_font(14)).pack(side="left", padx=(0, 8))
+        self._settings_bg_switch = ctk.CTkSwitch(
+            bg_ctrl, text="", command=self._update_bg_preview)
         self._settings_bg_switch.pack(side="left")
         if self.settings_mgr.get("background_enabled"):
             self._settings_bg_switch.select()
         else:
             self._settings_bg_switch.deselect()
 
+        # ── 右欄：背景預覽 + 選號列 ──────────────────────────────────────
+        preview_frame = ctk.CTkFrame(f, fg_color="gray17", corner_radius=8)
+        preview_frame.grid(row=1, column=1, rowspan=6,
+                           padx=(8, 15), pady=(8, 4), sticky="n")
+        ctk.CTkLabel(preview_frame, text="預覽", font=_font(12),
+                     text_color="gray60").pack(pady=(8, 4))
+        self._bg_preview_label = ctk.CTkLabel(
+            preview_frame, text="", width=_BG_PREV_W, height=_BG_PREV_H,
+            fg_color="gray25", corner_radius=4)
+        self._bg_preview_label.pack(padx=8, pady=(0, 6))
         self._settings_bg_seg = ctk.CTkSegmentedButton(
-            f, values=[str(i) for i in range(1, 10)], width=260)
+            preview_frame, values=[str(i) for i in range(1, 10)],
+            width=_BG_PREV_W, command=lambda _: self._update_bg_preview())
         self._settings_bg_seg.set(str(self.settings_mgr.get("background_id")))
-        self._settings_bg_seg.grid(row=7, column=0, pady=4)
+        self._settings_bg_seg.pack(padx=8, pady=(0, 10))
 
+        # 儲存（橫跨兩欄）
         ctk.CTkButton(f, text="儲存", command=self._save_settings).grid(
-            row=8, column=0, pady=20)
+            row=7, column=0, columnspan=2, pady=(12, 16))
 
     # ── Leaderboard Frame ─────────────────────────────────────────────────
 
@@ -817,9 +834,54 @@ class LauncherApp(ctk.CTk):
             text=f"{self.settings_mgr.get('volume')}%")
         self._settings_preset_seg.set(
             _PRESET_LABELS[self.settings_mgr.get("key_preset")])
+        if self.settings_mgr.get("background_enabled"):
+            self._settings_bg_switch.select()
+        else:
+            self._settings_bg_switch.deselect()
+        self._settings_bg_seg.set(str(self.settings_mgr.get("background_id")))
         self._hide_all_frames()
         self.settings_frame.grid(
             row=0, column=0, padx=20, pady=20, sticky="nsew")
+        self._update_bg_preview()
+
+    def _update_bg_preview(self, *_):
+        from PIL import Image as PILImage
+        bg_id   = int(self._settings_bg_seg.get())
+        enabled = bool(self._settings_bg_switch.get())
+
+        resample = getattr(
+            getattr(PILImage, "Resampling", None), "LANCZOS", None
+        ) or PILImage.LANCZOS  # type: ignore[attr-defined]
+
+        if not enabled:
+            placeholder = PILImage.new("RGB", (_BG_PREV_W, _BG_PREV_H), (37, 37, 37))
+            self._bg_preview_ctk_img = ctk.CTkImage(
+                light_image=placeholder, dark_image=placeholder,
+                size=(_BG_PREV_W, _BG_PREV_H))
+            self._bg_preview_label.configure(
+                image=self._bg_preview_ctk_img,
+                text="已關閉", compound="center")
+            return
+
+        bg_path = os.path.join(
+            PROJECT_ROOT, "src", "assets", "background", f"{bg_id}.png")
+        try:
+            pil_img = PILImage.open(bg_path).resize(
+                (_BG_PREV_W, _BG_PREV_H), resample)
+            self._bg_preview_ctk_img = ctk.CTkImage(
+                light_image=pil_img, dark_image=pil_img,
+                size=(_BG_PREV_W, _BG_PREV_H))
+            self._bg_preview_label.configure(
+                image=self._bg_preview_ctk_img,
+                text="", compound="center")
+        except Exception:
+            placeholder = PILImage.new("RGB", (_BG_PREV_W, _BG_PREV_H), (37, 37, 37))
+            self._bg_preview_ctk_img = ctk.CTkImage(
+                light_image=placeholder, dark_image=placeholder,
+                size=(_BG_PREV_W, _BG_PREV_H))
+            self._bg_preview_label.configure(
+                image=self._bg_preview_ctk_img,
+                text="無法載入", compound="center")
 
     def _show_leaderboard(self):
         self._hide_all_frames()
