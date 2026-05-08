@@ -378,36 +378,35 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                     _replay_writer.append_frame(session.get_last_inputs())
                 _clamp_world_bounds(session, num_players)
 
-            # --- SFX 事件偵測（重播模式略過）---
-            if not is_replay:
-                for i in range(num_players):
-                    p      = session.get_player(i)
-                    ct     = p.character_type
-                    old_st = mm.last_states[i]
-                    if p.state != old_st:
-                        if p.state == STATE_HURT:
-                            sfx_manager.on_hurt(ct)
-                            for j in range(num_players):
-                                if j == i:
-                                    continue
-                                atk = session.get_player(j)
-                                ab  = char_assets.get(
-                                    atk.character_type, char_assets[0]).get_ability(mm.last_states[j])
-                                if ab and ab.melee_enabled:
-                                    sfx_manager.on_hit(atk.character_type, mm.last_states[j])
-                                    break
-                        elif p.state == STATE_DEAD:
-                            sfx_manager.on_dead(ct)
-                        elif p.state not in (STATE_IDLE, STATE_WALK):
-                            sfx_manager.on_ability(ct, p.state)
-                    if prev_z[i] == 0 and p.z > 0 and p.state not in (STATE_HURT, STATE_DEAD):
-                        sfx_manager.on_jump(ct)
-                    if prev_z[i] > 0 and p.z == 0:
-                        sfx_manager.on_land(ct)
+            # --- SFX 事件偵測 ---
+            for i in range(num_players):
+                p      = session.get_player(i)
+                ct     = p.character_type
+                old_st = mm.last_states[i]
+                if p.state != old_st:
+                    if p.state == STATE_HURT:
+                        sfx_manager.on_hurt(ct)
+                        for j in range(num_players):
+                            if j == i:
+                                continue
+                            atk = session.get_player(j)
+                            ab  = char_assets.get(
+                                atk.character_type, char_assets[0]).get_ability(mm.last_states[j])
+                            if ab and ab.melee_enabled:
+                                sfx_manager.on_hit(atk.character_type, mm.last_states[j])
+                                break
+                    elif p.state == STATE_DEAD:
+                        sfx_manager.on_dead(ct)
+                    elif p.state not in (STATE_IDLE, STATE_WALK):
+                        sfx_manager.on_ability(ct, p.state)
+                if prev_z[i] == 0 and p.z > 0 and p.state not in (STATE_HURT, STATE_DEAD):
+                    sfx_manager.on_jump(ct)
+                if prev_z[i] > 0 and p.z == 0:
+                    sfx_manager.on_land(ct)
 
-                for eid in range(prev_entity_count, session.get_entity_count()):
-                    e = session.get_entity(eid)
-                    sfx_manager.on_proj(e.character_type, e.ability_state_id)
+            for eid in range(prev_entity_count, session.get_entity_count()):
+                e = session.get_entity(eid)
+                sfx_manager.on_proj(e.character_type, e.ability_state_id)
             # --- SFX 事件偵測結束 ---
 
             if num_players > 1 and mm.match_result is None:
