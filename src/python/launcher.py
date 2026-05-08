@@ -540,13 +540,13 @@ class LauncherApp(ctk.CTk):
         info_f.grid(row=0, column=0, padx=8, pady=4, sticky="ew")
 
         ctk.CTkLabel(info_f, text=ts_disp, font=_font(11),
-                     text_color="gray70", width=120, anchor="w").pack(side="left", padx=2)
+                     text_color="gray70", width=110, anchor="w").pack(side="left", padx=2)
         ctk.CTkLabel(info_f, text=players_str, font=_font(11),
-                     width=200, anchor="w").pack(side="left", padx=6)
-        ctk.CTkLabel(info_f, text=f"勝者: {winner_str}", font=_font(11),
-                     width=130, anchor="w").pack(side="left", padx=4)
+                     width=170, anchor="w").pack(side="left", padx=4)
         ctk.CTkLabel(info_f, text=dur_str, font=_font(11),
-                     text_color="gray60", width=60, anchor="w").pack(side="left", padx=2)
+                     text_color="gray60", width=55, anchor="w").pack(side="right", padx=4)
+        ctk.CTkLabel(info_f, text=f"勝者: {winner_str}", font=_font(11),
+                     anchor="w").pack(side="left", padx=4, fill="x", expand=True)
 
         path = entry.get("_path", "")
         ctk.CTkButton(row_f, text="播放", width=60, height=26,
