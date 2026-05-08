@@ -92,8 +92,14 @@ class GOAPAIController(AIController):
         self._prev_ws:    dict = {}
         self._mode:       str  = "balanced"
         self._replan_count: int = 0   # debug 用
+        self._replan_allowed: bool = True
+        self.did_replan:      bool = False
+
+    def set_replan_budget(self, allowed: bool) -> None:
+        self._replan_allowed = allowed
 
     def decide(self, ai_p, opp_p, entities: list) -> int:
+        self.did_replan = False
         ws = build_goap_world_state(ai_p, opp_p, self.profile.attack_range, self._prev_ws)
 
         needs_replan = (
@@ -102,15 +108,16 @@ class GOAPAIController(AIController):
             or (self._plan_age >= 5 and should_replan(self._prev_ws, ws))
         )
 
-        if needs_replan:
+        if needs_replan and self._replan_allowed:
             goal, mode = _select_goal(ws, self.profile)
             ws["mode"] = mode
-            self._mode      = mode
-            self._plan      = plan(ws, goal, self.actions)
-            self._plan_step = 0
+            self._mode       = mode
+            self._plan       = plan(ws, goal, self.actions)
+            self._plan_step  = 0
             self._step_timer = 0
-            self._plan_age  = 0
+            self._plan_age   = 0
             self._replan_count += 1
+            self.did_replan  = True
 
         self._prev_ws  = ws
         self._plan_age += 1
