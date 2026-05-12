@@ -1,10 +1,10 @@
-<img alt="GitHub Created At" src="https://img.shields.io/github/created-at/RemiErr/BattleLite?style=flat-square&color=%23c97064">
-<img alt="Static Badge" src="https://img.shields.io/badge/github-repo-x?style=flat-square&logo=github&color=%232e8a56&link=https%3A%2F%2Fgithub.com%2FRemiErr%2FBattleLite">
-<img alt="GitHub Release" src="https://img.shields.io/github/v/release/RemiErr/BattleLite?sort=semver&display_name=release&style=flat-square&logo=python&logoColor=yellow&link=https%3A%2F%2Fgithub.com%2FRemiErr%2FBattleLite%2Freleases%2Flatest">
+[![GitHub Created At](https://img.shields.io/github/created-at/RemiErr/BattleLite?style=flat-square&color=%23c97064)](https://github.com/RemiErr/BattleLite)
+[![Static Badge](https://img.shields.io/badge/github-repo-x?style=flat-square&logo=github&color=%232e8a56)](https://github.com/RemiErr/BattleLite)
+[![GitHub Release](https://img.shields.io/github/v/release/RemiErr/BattleLite?sort=semver&display_name=release&style=flat-square&logo=python&logoColor=yellow)](https://github.com/RemiErr/BattleLite/releases/latest)
 
 ---
 
-# BattleLite<img alt="Static Badge" src="https://img.shields.io/badge/%E6%BF%80%E6%88%B0-%E8%BC%95%E6%8B%B3%E9%80%A3%E6%93%8A！-x?style=social" style="padding:0px 12px; transform: scale(1.5); transform-origin: left center;">
+# BattleLite ![Static Badge](https://img.shields.io/badge/%E6%BF%80%E6%88%B0-%E8%BC%95%E6%8B%B3%E9%80%A3%E6%93%8A！-x?style=social)
 
 ![BattleLite preview](img/preview.png)
 
