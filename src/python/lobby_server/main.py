@@ -6,10 +6,13 @@ import random
 import asyncio
 import uuid
 import os
+import json
 import datetime
 import aiosqlite
+import httpx
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "leaderboard.db")
+SHEETS_WEBHOOK_URL = os.environ.get("SHEETS_WEBHOOK_URL", "")
 QUEUE_MIN = 2  # TODO: for testing, default is 4
 PUNCH_DURATION = 2.0
 
@@ -44,21 +47,39 @@ async def _init_db():
         PRAGMA foreign_keys = ON;
 
         CREATE TABLE IF NOT EXISTS matches (
-            match_id   TEXT PRIMARY KEY,
-            room_code  TEXT NOT NULL,
-            started_at TEXT NOT NULL DEFAULT (datetime('now'))
+            match_id      TEXT    PRIMARY KEY,
+            room_code     TEXT    NOT NULL,
+            num_players   INTEGER NOT NULL DEFAULT 2,
+            sheets_posted INTEGER NOT NULL DEFAULT 0,
+            started_at    TEXT    NOT NULL DEFAULT (datetime('now'))
         );
 
         CREATE TABLE IF NOT EXISTS match_results (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
             match_id     TEXT    NOT NULL REFERENCES matches(match_id) ON DELETE CASCADE,
+            player_id    INTEGER NOT NULL DEFAULT 0,
             nickname     TEXT    NOT NULL,
             char_type    INTEGER NOT NULL,
             result       TEXT    NOT NULL CHECK(result IN ('win', 'lose', 'draw')),
             submitted_at TEXT    NOT NULL DEFAULT (datetime('now')),
-            UNIQUE(match_id, nickname)
+            UNIQUE(match_id, player_id)
         );
     """)
+    await _db.commit()
+
+
+# ── DB 欄位升級（舊 DB 補欄位，CREATE IF NOT EXISTS 不會自動加）─────────────
+
+async def _migrate_db():
+    for stmt in [
+        "ALTER TABLE matches ADD COLUMN num_players   INTEGER NOT NULL DEFAULT 2",
+        "ALTER TABLE matches ADD COLUMN sheets_posted INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE match_results ADD COLUMN player_id INTEGER NOT NULL DEFAULT 0",
+    ]:
+        try:
+            await _db.execute(stmt)
+        except Exception:
+            pass  # 欄位已存在
     await _db.commit()
 
 
@@ -93,6 +114,7 @@ async def _weekly_purge_loop():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await _init_db()
+    await _migrate_db()
     asyncio.create_task(_weekly_purge_loop())
     yield
     if _db:
@@ -191,32 +213,97 @@ async def get_player_tier(nickname: str):
 
 
 class ResultItem(BaseModel):
-    match_id:  str
-    room_code: str
-    nickname:  str
-    char_type: int
-    result:    str
+    match_id:    str
+    room_code:   str
+    nickname:    str
+    char_type:   int
+    result:      str
+    player_id:   int = 0
+    num_players: int = 2
 
 
 @app.post("/submit_result")
 async def submit_result(item: ResultItem):
     if item.result not in ("win", "lose", "draw"):
         raise HTTPException(400, "result must be win / lose / draw")
-    if not _is_queue_room(item.room_code):
-        return {"ok": True, "ranked": False}
     if not _db:
         raise HTTPException(503, "DB not ready")
+    is_ranked = _is_queue_room(item.room_code)
     await _db.execute(
-        "INSERT OR IGNORE INTO matches (match_id, room_code) VALUES (?, ?)",
-        (item.match_id, item.room_code),
+        "INSERT OR IGNORE INTO matches (match_id, room_code, num_players) VALUES (?, ?, ?)",
+        (item.match_id, item.room_code, item.num_players),
     )
     await _db.execute(
-        """INSERT OR IGNORE INTO match_results (match_id, nickname, char_type, result)
-           VALUES (?, ?, ?, ?)""",
-        (item.match_id, item.nickname, item.char_type, item.result),
+        """INSERT OR IGNORE INTO match_results (match_id, player_id, nickname, char_type, result)
+           VALUES (?, ?, ?, ?, ?)""",
+        (item.match_id, item.player_id, item.nickname, item.char_type, item.result),
     )
     await _db.commit()
-    return {"ok": True, "ranked": True}
+    asyncio.create_task(_maybe_push_to_sheets(item.match_id))
+    return {"ok": True, "ranked": is_ranked}
+
+
+# ── Google Sheets 推送 ────────────────────────────────────────────────────
+
+async def _maybe_push_to_sheets(match_id: str) -> None:
+    if not SHEETS_WEBHOOK_URL or not _db:
+        return
+
+    async with _db.execute(
+        "SELECT num_players, sheets_posted, room_code FROM matches WHERE match_id = ?",
+        (match_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if not row or row[1]:  # 不存在或已推送
+        return
+    num_players, _, room_code = row
+
+    async with _db.execute(
+        "SELECT COUNT(*) FROM match_results WHERE match_id = ?",
+        (match_id,),
+    ) as cur:
+        count = (await cur.fetchone())[0]
+    if count < num_players:
+        return  # 尚有玩家未提交
+
+    async with _db.execute(
+        """SELECT player_id, nickname, char_type, result
+           FROM match_results WHERE match_id = ? ORDER BY player_id""",
+        (match_id,),
+    ) as cur:
+        players = [
+            {"player_id": r[0], "nickname": r[1], "char_type": r[2], "result": r[3]}
+            for r in await cur.fetchall()
+        ]
+
+    winners = [p["nickname"] for p in players if p["result"] == "win"]
+    winner_str = winners[0] if winners else "平手: " + " / ".join(p["nickname"] for p in players)
+
+    now_tw = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=8)
+    payload = {
+        "match_id":  match_id,
+        "room_code": room_code,
+        "room_type": "ranked" if _is_queue_room(room_code) else "custom",
+        "timestamp": now_tw.strftime("%Y-%m-%d %H:%M:%S"),
+        "players":   players,
+        "winner":    winner_str,
+    }
+
+    # 先標記避免重複推送
+    await _db.execute(
+        "UPDATE matches SET sheets_posted = 1 WHERE match_id = ?", (match_id,))
+    await _db.commit()
+
+    asyncio.create_task(_post_to_sheets(payload))
+
+
+async def _post_to_sheets(payload: dict) -> None:
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            await client.post(SHEETS_WEBHOOK_URL, json=payload)
+        print(f"[OK] Sheets pushed: {payload['match_id']} ({payload['room_type']})")
+    except Exception as e:
+        print(f"[WARN] Sheets push failed: {e}")
 
 
 # ── WebSocket ─────────────────────────────────────────────────────────────

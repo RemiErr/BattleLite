@@ -75,12 +75,15 @@ def _submit_result(config: dict, controlled_idx: int, char_type: int, match_resu
         result = "draw"
     else:
         result = "lose"
+    num_human = config.get("num_players", 2) - len(config.get("ai_players", {}))
     payload = json.dumps({
-        "match_id":  match_id,
-        "room_code": config.get("room", ""),
-        "nickname":  config.get("nickname", "Player"),
-        "char_type": char_type,
-        "result":    result,
+        "match_id":    match_id,
+        "room_code":   config.get("room", ""),
+        "nickname":    config.get("nickname", "Player"),
+        "char_type":   char_type,
+        "result":      result,
+        "player_id":   controlled_idx,
+        "num_players": max(1, num_human),
     }).encode()
     try:
         req = urllib.request.Request(
