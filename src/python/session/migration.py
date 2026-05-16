@@ -26,6 +26,7 @@ def rebuild_after_host_death(
     """
     controlled_idx = config["local_id"]
     ai_player_ids  = [int(k) for k in config.get("ai_players", {}).keys()]
+    i_am_new_host  = (controlled_idx == new_host_id)
 
     snapshots = [old_adapter.get_player(i) for i in range(num_players)]
 
@@ -36,7 +37,14 @@ def rebuild_after_host_death(
         (p["id"], p["ip"], p["port"])
         for p in config.get("players", [])
     ]
-    bot_ids = ai_player_ids  # bot 在雙方都是 Local，各自跑確定性 AI
+    if not i_am_new_host and ai_player_ids:
+        new_host_player = next(
+            (p for p in config.get("players", []) if p["id"] == new_host_id), None)
+        if new_host_player:
+            for pid in ai_player_ids:
+                remote_players_list.append(
+                    (pid, new_host_player["ip"], new_host_player["port"]))
+    bot_ids = ai_player_ids if i_am_new_host else []
 
     new_ggrs    = GGRSSession(
         controlled_idx, num_players, config["local_port"],
