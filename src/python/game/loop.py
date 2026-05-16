@@ -219,7 +219,6 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                                  "char_type": _ai.get("char_type", 0)})
         _rp_players.sort(key=lambda x: x["id"])
         _replay_writer = ReplayWriter({
-            "version":     1,
             "timestamp":   datetime.datetime.now().isoformat(timespec="seconds"),
             "match_id":    config.get("match_id", ""),
             "room_code":   config.get("room", ""),

@@ -599,6 +599,38 @@ class LauncherApp(ctk.CTk):
     def _do_launch_replay(self, path: str):
         if self.game_process:
             return
+        try:
+            from src.python.replay import REPLAY_FORMAT_VERSION
+            with open(path, encoding="utf-8") as fh:
+                meta = json.load(fh)
+            if meta.get("version") != REPLAY_FORMAT_VERSION:
+                self._confirm_version_mismatch(path)
+                return
+        except Exception:
+            pass
+        self._launch_replay_process(path)
+
+    def _confirm_version_mismatch(self, path: str):
+        win = ctk.CTkToplevel(self)
+        win.title("警告")
+        win.geometry("360x160")
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+        ctk.CTkLabel(
+            win,
+            text="該對戰紀錄內容與當前版本不符！\n內容可能產生誤差，是否播放？",
+            font=ctk.CTkFont(size=14), wraplength=320,
+        ).pack(pady=24)
+        btn_f = ctk.CTkFrame(win, fg_color="transparent")
+        btn_f.pack()
+        ctk.CTkButton(btn_f, text="是", width=80,
+                      command=lambda: (win.destroy(), self._launch_replay_process(path))
+                      ).pack(side="left", padx=12)
+        ctk.CTkButton(btn_f, text="否", width=80,
+                      command=win.destroy).pack(side="left", padx=12)
+
+    def _launch_replay_process(self, path: str):
         log_path = os.path.join(os.path.dirname(sys.executable)
                                 if getattr(sys, 'frozen', False) else PROJECT_ROOT,
                                 "game_launch.log")
