@@ -60,7 +60,7 @@ def _submit_result(config: dict, controlled_idx: int, char_type: int, match_resu
     payload = json.dumps({
         "match_id":    match_id,
         "room_code":   config.get("room", ""),
-        "nickname":    config.get("nickname", "Player"),
+        "nickname":    config.get("nickname", "Player")[:20],
         "char_type":   char_type,
         "result":      result,
         "player_id":   controlled_idx,
