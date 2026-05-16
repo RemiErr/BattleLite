@@ -207,6 +207,10 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
     mm = MatchManager(session, num_players, char_assets, fx_manager, hud)
     switch_player    = 0
     sync_wait_frames = 0
+    _prev_dc_mask    = 0
+    _dc_notices:  list[tuple[str, int]] = []
+    _DC_NOTICE_FRAMES = 180
+    _migrated_hosts: set[int] = set()
 
     # --- 重播系統 ---
     _replay_writer: ReplayWriter | None = None
@@ -373,6 +377,54 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                 session.advance(inputs)
                 if _replay_writer:
                     _replay_writer.append_frame(session.get_last_inputs())
+
+            # --- 斷線偵測 + Host 熱轉移 ---
+            if not is_offline and not is_replay:
+                cur_mask = session.get_disconnected_mask()
+                new_bits = cur_mask & ~_prev_dc_mask
+                if new_bits:
+                    for _i in range(num_players):
+                        if new_bits & (1 << _i):
+                            _name = player_names.get(_i, f"Player {_i + 1}")
+                            _dc_notices.append((f"{_name} 已斷線", _DC_NOTICE_FRAMES))
+                    _prev_dc_mask = cur_mask
+
+                if (mm.match_result is None
+                        and (cur_mask & (1 << host_id))
+                        and host_id not in _migrated_hosts
+                        and config.get("ai_players")):
+                    alive_ids = [
+                        _i for _i in range(num_players)
+                        if _i != host_id
+                        and session.get_player(_i).state != STATE_DEAD
+                    ]
+                    if alive_ids:
+                        _migrated_hosts.add(host_id)
+                        from src.python.session.migration import rebuild_after_host_death
+                        from src.python.session.char_config import apply_char_config
+                        new_host_id = min(alive_ids)
+                        try:
+                            session = rebuild_after_host_death(
+                                config, session, new_host_id,
+                                num_players, char_assets, apply_char_config,
+                            )
+                            host_id    = new_host_id
+                            i_am_host  = (controlled_idx == new_host_id)
+                            config["host_id"] = new_host_id
+                            _prev_dc_mask = 0
+                            if i_am_host:
+                                for _pid_str, _ai_info in config.get("ai_players", {}).items():
+                                    _pid = int(_pid_str)
+                                    _ct  = _ai_info.get("char_type", 0)
+                                    if _pid not in ai_controllers and _ct in char_assets:
+                                        ai_controllers[_pid] = make_ai(
+                                            _ct, _ai_info.get("level", 1), seed)
+                            _dc_notices.append(
+                                (f"Host 轉移 → Player {new_host_id + 1}", _DC_NOTICE_FRAMES))
+                            print(f"[MIGRATION] host {host_id} → {new_host_id}")
+                        except Exception as _e:
+                            _dc_notices.append(("Host 轉移失敗", _DC_NOTICE_FRAMES))
+                            print(f"[MIGRATION ERROR] {_e}")
 
             # --- SFX 事件偵測 ---
             for i in range(num_players):
@@ -673,6 +725,14 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             rt_surf    = info_font.render(replay_txt, True, (220, 220, 60))
             screen.blit(rt_surf, (SCREEN_W - rt_surf.get_width() - 10,
                                   SCREEN_H - rt_surf.get_height() - 10))
+
+        # 斷線 / Host 轉移通知
+        _dc_notices = [(msg, t - 1) for msg, t in _dc_notices if t > 1]
+        for _idx, (_msg, _t) in enumerate(_dc_notices):
+            _alpha = min(255, _t * 3)
+            _ns = info_font.render(_msg, True, (255, 100, 100))
+            _ns.set_alpha(_alpha)
+            screen.blit(_ns, (SCREEN_W // 2 - _ns.get_width() // 2, 20 + _idx * 24))
 
         pygame.display.flip()
         if _perf_enabled:

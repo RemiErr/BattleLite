@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 use pyo3::exceptions::{PyRuntimeError, PyIndexError};
 use ggrs::{
     P2PSession, PlayerType, SessionBuilder, SessionState,
-    GgrsRequest, UdpNonBlockingSocket,
+    GgrsRequest, InputStatus, UdpNonBlockingSocket,
 };
 use std::net::SocketAddr;
 
@@ -13,13 +13,14 @@ use crate::game_state::{GameState, BattleConfig, perform_tick};
 
 #[pyclass(unsendable)]
 pub struct GGRSSession {
-    session:         P2PSession<BattleConfig>,
-    current_state:   GameState,
-    local_player_id: usize,
+    session:           P2PSession<BattleConfig>,
+    current_state:     GameState,
+    local_player_id:   usize,
     #[allow(dead_code)]
-    bot_ids:         Vec<usize>,
-    char_configs:    Vec<CharConfig>,
-    last_inputs:     Vec<u8>,
+    bot_ids:           Vec<usize>,
+    char_configs:      Vec<CharConfig>,
+    last_inputs:       Vec<u8>,
+    disconnected_mask: u8,
 }
 
 #[pymethods]
@@ -59,6 +60,7 @@ impl GGRSSession {
             bot_ids,
             char_configs: configs,
             last_inputs: Vec::new(),
+            disconnected_mask: 0,
         })
     }
 
@@ -149,6 +151,10 @@ impl GGRSSession {
     fn get_last_inputs(&self) -> Vec<u8> {
         self.last_inputs.clone()
     }
+
+    fn get_disconnected_mask(&self) -> u8 {
+        self.disconnected_mask
+    }
 }
 
 impl GGRSSession {
@@ -158,6 +164,11 @@ impl GGRSSession {
             match req {
                 GgrsRequest::AdvanceFrame { inputs } => {
                     self.last_inputs = inputs.iter().map(|(inp, _)| *inp).collect();
+                    for (i, (_, status)) in inputs.iter().enumerate() {
+                        if *status == InputStatus::Disconnected && i < 8 {
+                            self.disconnected_mask |= 1 << i;
+                        }
+                    }
                     perform_tick(&mut self.current_state, &inputs, &configs);
                 }
                 GgrsRequest::SaveGameState { cell, frame } => {

@@ -39,6 +39,9 @@ class _SessionAdapterBase:
     def set_ability(self, *args, **kwargs) -> None:
         self._s.set_ability(*args, **kwargs)
 
+    def get_disconnected_mask(self) -> int:
+        return self._s.get_disconnected_mask()
+
 
 class OfflineAdapter(_SessionAdapterBase):
     def __init__(self, session):
@@ -54,6 +57,9 @@ class OfflineAdapter(_SessionAdapterBase):
 
     def clear_entities(self) -> None:
         self._s.clear_entities()
+
+    def get_disconnected_mask(self) -> int:
+        return 0
 
 
 class GGRSAdapter(_SessionAdapterBase):
