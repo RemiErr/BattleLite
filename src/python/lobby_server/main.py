@@ -105,8 +105,9 @@ async def _migrate_db():
     ]:
         try:
             await _db.execute(stmt)
-        except Exception:
-            pass  # 欄位已存在
+        except aiosqlite.OperationalError as e:
+            if "duplicate column name" not in str(e).lower():
+                raise
     await _db.commit()
 
 
