@@ -43,25 +43,6 @@ def _set_spawn_positions(session, num_players: int):
         session.set_player(i, p)
 
 
-def _clamp_world_bounds(session, num_players: int):
-    for i in range(num_players):
-        p = session.get_player(i)
-        changed = False
-        if p.x < WORLD_X_MIN:
-            p.x, p.vx = WORLD_X_MIN, 0
-            changed = True
-        elif p.x > WORLD_X_MAX:
-            p.x, p.vx = WORLD_X_MAX, 0
-            changed = True
-        if p.y < WORLD_Y_MIN:
-            p.y, p.vy = WORLD_Y_MIN, 0
-            changed = True
-        elif p.y > WORLD_Y_MAX:
-            p.y, p.vy = WORLD_Y_MAX, 0
-            changed = True
-        if changed:
-            session.set_player(i, p)
-
 
 def _submit_result(config: dict, controlled_idx: int, char_type: int, match_result: int):
     import urllib.request
@@ -333,7 +314,6 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                             mm.match_result = -2
                             break
                         session.advance(inp)
-                        _clamp_world_bounds(session, num_players)
                         _advance_budget -= 1.0
 
             elif is_offline:
@@ -366,7 +346,6 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                     else:
                         inputs.append(0)
                 session.advance(inputs)
-                _clamp_world_bounds(session, num_players)
 
             else:
                 inputs = [0] * num_players
@@ -395,7 +374,6 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                 session.advance(inputs)
                 if _replay_writer:
                     _replay_writer.append_frame(session.get_last_inputs())
-                _clamp_world_bounds(session, num_players)
 
             # --- SFX 事件偵測 ---
             for i in range(num_players):
