@@ -33,9 +33,11 @@ except ImportError as e:
 def _load_pubkey():
     """從 config/lobby_pubkey.txt 讀取 Ed25519 公鑰（hex 格式）。"""
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-    pubkey_path = os.path.join(
-        os.path.dirname(__file__), '..', '..', 'config', 'lobby_pubkey.txt')
-    pubkey_path = os.path.normpath(pubkey_path)
+    if getattr(sys, 'frozen', False):
+        base = os.path.dirname(sys.executable)   # 打包後：exe 所在目錄
+    else:
+        base = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    pubkey_path = os.path.join(base, 'config', 'lobby_pubkey.txt')
     with open(pubkey_path, encoding="utf-8") as f:
         hex_key = f.read().strip()
     return Ed25519PublicKey.from_public_bytes(bytes.fromhex(hex_key))

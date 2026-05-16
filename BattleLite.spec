@@ -63,10 +63,7 @@ launcher_analysis = Analysis(
 game_analysis = Analysis(
     ['src/python/main.py'],
     pathex=IMPORT_PATHS,
-    datas=[
-        ('src/assets', 'src/assets'),
-        ('config/lobby_pubkey.txt', 'config'),  # Ed25519 公鑰，隨 exe 發布
-    ],
+    datas=[('src/assets', 'src/assets')],
     hiddenimports=_GAME_HIDDEN,
     excludes=['lobby_server', 'fastapi', 'uvicorn', 'starlette', 'pytest'],
 )
