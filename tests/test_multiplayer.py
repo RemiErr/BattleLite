@@ -8,12 +8,15 @@ def test_four_player_initialization():
     num_players = 4
     session = GGRSSession(local_player_id=0, num_players=num_players, port=12360)
     
-    # 驗證是否能成功取得 4 位玩家的初始狀態
+    _SPAWN_X = [200_000, 824_000, 200_000, 824_000]
+    _SPAWN_Y = [300_000, 300_000, 450_000, 450_000]
+
+    # 驗證是否能成功取得 4 位玩家的初始狀態，座標須符合 Rust GGRSSession::new() 的 spawn_points
     for i in range(num_players):
         player = session.get_player(i)
         assert player is not None
-        assert player.x == 0
-        assert player.y == 0
+        assert player.x == _SPAWN_X[i]
+        assert player.y == _SPAWN_Y[i]
 
 def test_player_out_of_range():
     """

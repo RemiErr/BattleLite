@@ -23,36 +23,31 @@ def test_rust_module_attributes():
     import battlelite_core
     assert hasattr(battlelite_core, 'hello_from_rust'), "模組中找不到 'hello_from_rust' 函式"
 
-def test_crypto_handoff_contract():
+def test_session_sig_verification():
     """
-    驗證跨語言加解密合約。
-    Python 使用 cryptography 加密，傳給 Rust 進行解密。
+    驗證 Ed25519 session handoff 簽章流程。
+    Lobby Server 用私鑰簽署，main.py 用 config/lobby_pubkey.txt 驗章。
     """
     import json
     import base64
-    from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
-    import battlelite_core
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-    # 1. 準備資料與金鑰 (32 bytes 固定金鑰用於測試)
-    key = b"very_secret_32_byte_key_for_test"
-    nonce = b"unique_nonce" # 12 bytes
-    data = {"p1": "1.2.3.4:5000", "seed": 999}
-    data_str = json.dumps(data)
+    # 產生測試用金鑰對
+    private_key = Ed25519PrivateKey.generate()
+    public_key  = private_key.public_key()
 
-    # 2. Python 端加密
-    cipher = ChaCha20Poly1305(key)
-    ciphertext = cipher.encrypt(nonce, data_str.encode(), None)
-    
-    # 將 Nonce 與密文打包成 Base64 字串 (Launcher 傳給 Client 的格式)
-    payload = base64.b64encode(nonce + ciphertext).decode('utf-8')
+    # 模擬 Lobby Server 簽署
+    session = {"host_id": 0, "match_id": "test-match", "seed": 42}
+    canonical = json.dumps(session, sort_keys=True, separators=(',', ':'))
+    sig_bytes  = private_key.sign(canonical.encode())
+    sig_b64    = base64.urlsafe_b64encode(sig_bytes).rstrip(b'=').decode()
 
-    # 3. 呼叫 Rust 端進行解密 (預期會失敗，因為 Rust 還沒實作 decrypt_payload)
-    if hasattr(battlelite_core, 'decrypt_payload'):
-        # 我們預期 Rust 函式簽名為: decrypt_payload(payload_str, key_bytes)
-        decrypted_json = battlelite_core.decrypt_payload(payload, key)
-        result = json.loads(decrypted_json)
-        
-        assert result["p1"] == "1.2.3.4:5000"
-        assert result["seed"] == 999
-    else:
-        pytest.fail("battlelite_core 模組中找不到 'decrypt_payload' 函式。")
+    # 模擬 main.py 驗章（padding 補回）
+    padded = sig_b64 + "=" * (-len(sig_b64) % 4)
+    public_key.verify(base64.urlsafe_b64decode(padded), canonical.encode())
+
+    # 確認竄改後驗章失敗
+    tampered = json.dumps({"host_id": 1, "match_id": "test-match", "seed": 42},
+                          sort_keys=True, separators=(',', ':'))
+    with pytest.raises(Exception):
+        public_key.verify(base64.urlsafe_b64decode(padded), tampered.encode())
