@@ -338,6 +338,13 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             mm.countdown_frames -= 1
             input_mask = 0
 
+        # 線上模式每幀都需 poll GGRS，否則握手永遠無法完成：
+        #   - 握手期（Synchronizing）：Rust 層不推進 frame，僅交換 SyncRequest/Reply
+        #   - 倒計時期（Running, countdown > 0）：以零輸入維持心跳，Rust 正常推進 idle 狀態
+        if not is_offline and not is_replay and mm.match_result is None and not mm.paused:
+            if not session.is_synchronized() or mm.countdown_frames > 0:
+                session.advance([0] * num_players)
+
         if mm.match_result is None and not mm.paused and mm.countdown_frames == 0:
             prev_z            = [session.get_player(i).z for i in range(num_players)]
             prev_entity_count = session.get_entity_count()
