@@ -10,6 +10,7 @@ import os
 import json
 import base64
 import datetime
+import time
 import aiosqlite
 import httpx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -27,7 +28,8 @@ _signing_key: Ed25519PrivateKey | None = None
 _signing_key_hex = os.environ.get("LOBBY_SIGNING_KEY", "")
 if _signing_key_hex:
     try:
-        _signing_key = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(_signing_key_hex))
+        _signing_key = Ed25519PrivateKey.from_private_bytes(
+            bytes.fromhex(_signing_key_hex))
     except Exception as e:
         print(f"[WARN] LOBBY_SIGNING_KEY 格式錯誤，簽章停用: {e}")
 
@@ -42,6 +44,7 @@ def _sign_session(match_id: str, seed: int, host_id: int) -> str:
     )
     sig = _signing_key.sign(canonical.encode())
     return base64.urlsafe_b64encode(sig).rstrip(b'=').decode()
+
 
 TIER_THRESHOLDS = {"games": 5, "silver_min": 40.0, "gold_min": 60.0}
 RANKED_ROOM_PATTERN = r"\_\_queue\_%\_\_"
@@ -144,6 +147,7 @@ async def lifespan(app: FastAPI):
     await _init_db()
     await _migrate_db()
     asyncio.create_task(_weekly_purge_loop())
+    asyncio.create_task(_idle_room_sweep())
     yield
     if _db:
         await _db.close()
@@ -311,14 +315,17 @@ async def _maybe_push_to_sheets(match_id: str) -> None:
         (match_id,),
     ) as cur:
         players = [
-            {"player_id": r[0], "nickname": r[1], "char_type": r[2], "result": r[3]}
+            {"player_id": r[0], "nickname": r[1],
+                "char_type": r[2], "result": r[3]}
             for r in await cur.fetchall()
         ]
 
     winners = [p["nickname"] for p in players if p["result"] == "win"]
-    winner_str = winners[0] if winners else "平手: " + " / ".join(p["nickname"] for p in players)
+    winner_str = winners[0] if winners else "平手: " + \
+        " / ".join(p["nickname"] for p in players)
 
-    now_tw = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=8)
+    now_tw = datetime.datetime.now(
+        datetime.timezone.utc) + datetime.timedelta(hours=8)
     payload = {
         "match_id":  match_id,
         "room_code": room_code,
@@ -340,7 +347,8 @@ async def _post_to_sheets(payload: dict) -> None:
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             await client.post(SHEETS_WEBHOOK_URL, json=payload)
-        print(f"[OK] Sheets pushed: {payload['match_id']} ({payload['room_type']})")
+        print(
+            f"[OK] Sheets pushed: {payload['match_id']} ({payload['room_type']})")
     except Exception as e:
         print(f"[WARN] Sheets push failed: {e}")
 
@@ -378,6 +386,7 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
         rooms[room_id] = {
             "players": [], "started": False,
             "is_queue": is_queue, "target_size": target_size,
+            "last_activity": time.monotonic(),
         }
     room = rooms[room_id]
 
@@ -406,6 +415,7 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
     try:
         while True:
             data = await websocket.receive_json()
+            room["last_activity"] = time.monotonic()
             t = data.get("type")
 
             if t == "report_endpoint":
@@ -450,7 +460,8 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
                             ct = int(v.get("char_type", 0))
                             lv = int(v.get("level", 1))
                             if 0 <= ai_pid <= 3 and 0 <= ct <= 4 and 1 <= lv <= 3:
-                                ai_players[str(ai_pid)] = {"char_type": ct, "level": lv}
+                                ai_players[str(ai_pid)] = {
+                                    "char_type": ct, "level": lv}
                         except (ValueError, AttributeError):
                             pass
                     room["ai_players"] = ai_players
@@ -550,6 +561,8 @@ async def _delayed_game_start(
 
 
 _ROOM_TTL_SECS = 3600  # 遊戲開始後最長保留 1 小時
+_IDLE_TIMEOUT_SECS = 300   # 等待房間閒置超過 5 分鐘即關閉連線
+_SWEEP_INTERVAL_SECS = 60    # 每 60 秒掃描一次閒置房間
 
 
 async def _room_ttl_cleanup(room_id: str) -> None:
@@ -558,6 +571,31 @@ async def _room_ttl_cleanup(room_id: str) -> None:
     if room_id in rooms and rooms[room_id].get("started"):
         del rooms[room_id]
         print(f"🧹 TTL 清理房間 {room_id}")
+
+
+async def _idle_room_sweep() -> None:
+    """定期掃描閒置等待房間，關閉其 WebSocket 連線以觸發正常斷線清理。"""
+    while True:
+        await asyncio.sleep(_SWEEP_INTERVAL_SECS)
+        now = time.monotonic()
+        stale = [
+            rid for rid, room in list(rooms.items())
+            if not room.get("started")
+            and now - room.get("last_activity", now) > _IDLE_TIMEOUT_SECS
+        ]
+        for rid in stale:
+            room = rooms.get(rid)
+            if not room:
+                continue
+            print(f"閒置清理房間 {rid} ({len(room['players'])} 玩家)")
+            for p in list(room["players"]):
+                try:
+                    await asyncio.wait_for(
+                        p["websocket"].close(code=1001, reason="Idle timeout"),
+                        timeout=5.0,
+                    )
+                except Exception:
+                    pass
 
 
 if __name__ == "__main__":
