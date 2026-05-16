@@ -14,7 +14,7 @@ BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透�
 
 ## 目錄
 
-- [BattleLite](#battlelite)
+- [BattleLite ](#battlelite-)
   - [目錄](#目錄)
   - [一、 架構總覽](#一-架構總覽)
     - [模組分工](#模組分工)
@@ -82,7 +82,7 @@ BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透�
 │  │  │ 配對大廳  │    │  遊戲主循環  │  │ Signaling Server │   │   │
 │  │  │ (CTk)    │    │  (Pygame)   │  │     (FastAPI)    │   │   │
 │  │  └────┬─────┘    └──────┬──────┘  └──────────────────┘   │   │
-│  │       │ 加密 payload    │ 讀取/渲染狀態                   │   │
+│  │       │ 簽章 payload    │ 讀取/渲染狀態                   │   │
 │  └───────┼─────────────────┼────────────────────────────────┘   │
 │          │ CLI 參數        │ PyO3 綁定                          │
 │  ┌───────▼─────────────────▼────────────────────────────────┐   │
@@ -128,7 +128,7 @@ BattleLite/
 │   ├── assets_manager/          # 角色 Sprite / PhysicsStats / AbilityDef
 │   └── *_manager.py             # 算繪、特效、音效、Debug 管理器
 ├── src/rust_core/src/
-│   ├── lib.rs                   # PyO3 模組入口、封包解密
+│   ├── lib.rs                   # PyO3 模組入口
 │   ├── config.rs                # 綁定各種 Config
 │   ├── player.rs                # 綁定遊戲角色參數
 │   ├── entity.rs                # 綁定投射物
@@ -160,18 +160,18 @@ Pygame Renderer / HUD / FX / SFX
 
 ### Tech Stack
 
-| 類別         | 技術                       | 用途                                     |
-| ------------ | -------------------------- | ---------------------------------------- |
-| 遊戲畫面     | Pygame                     | 視窗、輸入、Sprite、音效與主循環         |
-| Launcher UI  | CustomTkinter              | 主選單、設定、房間、離線 AI 面板、排行榜 |
-| 戰鬥核心     | Rust + PyO3                | Python 可呼叫的 `battlelite_core` 擴充   |
-| Rollback     | GGRS                       | P2P input synchronization + rollback     |
-| 信令伺服器   | FastAPI + WebSocket        | 房間狀態、端點交換、game_start 廣播      |
-| 排行榜資料庫 | SQLite + aiosqlite         | `matches` / `match_results` 牌位賽統計   |
-| 安全傳遞     | ChaCha20-Poly1305 + Base64 | Launcher → Game 的 session payload 加密  |
-| 網路探測     | STUN + UDP Hole Punching   | NAT 後方玩家建立 P2P UDP 通道            |
-| 設定管理     | JSON + python-dotenv       | `settings.json`、Lobby URL、執行環境切換 |
-| 打包         | PyInstaller                | `BattleLite` + `Game` 雙執行檔           |
+| 類別         | 技術                     | 用途                                     |
+| ------------ | ------------------------ | ---------------------------------------- |
+| 遊戲畫面     | Pygame                   | 視窗、輸入、Sprite、音效與主循環         |
+| Launcher UI  | CustomTkinter            | 主選單、設定、房間、離線 AI 面板、排行榜 |
+| 戰鬥核心     | Rust + PyO3              | Python 可呼叫的 `battlelite_core` 擴充   |
+| Rollback     | GGRS                     | P2P input synchronization + rollback     |
+| 信令伺服器   | FastAPI + WebSocket      | 房間狀態、端點交換、game_start 廣播      |
+| 排行榜資料庫 | SQLite + aiosqlite       | `matches` / `match_results` 牌位賽統計   |
+| 安全傳遞     | Ed25519 非對稱簽章       | Lobby Server 簽署 session，Client 驗章   |
+| 網路探測     | STUN + UDP Hole Punching | NAT 後方玩家建立 P2P UDP 通道            |
+| 設定管理     | JSON + python-dotenv     | `settings.json`、Lobby URL、執行環境切換 |
+| 打包         | PyInstaller              | `BattleLite` + `Game` 雙執行檔           |
 
 
 ### 遊戲流程
@@ -216,11 +216,11 @@ Launcher 呼叫 Game 流程：
 ```
 BattleLite Launcher
   │
-  │ encrypt_payload(session_data)
+  │ --payload <plaintext JSON + sig>
   ▼
 Game executable / main.py
   │
-  │ decrypt_payload()
+  │ Ed25519 驗章（config/lobby_pubkey.txt）
   ▼
 OfflineSession 或 GGRSSession
 ```
@@ -675,14 +675,17 @@ SaveGameState → LoadGameState → N × AdvanceFrame
 ### 輸入延遲（Input Delay）
 
 ```
-GGRS 預設加入 2 幀人工輸入延遲:
+目前未啟用人工輸入延遲（with_input_delay 未設定）。
+
+GGRS 支援加入 N 幀人工延遲以減少回滾頻率:
   Frame 1: 你按了跳躍
-  Frame 3: 你看到角色跳起來（延遲 2 幀）
+  Frame N+1: 角色跳起來（延遲 N 幀）
 
-好處: 減少需要回滾的頻率
-代價: 操作有 ~33ms 的輕微延遲感
+好處: 延遲穩定時可減少需要回滾的頻率
+代價: 操作有 N × 16ms 的輕微延遲感
 
-設定位置: SessionBuilder::with_input_delay(2)
+若日後網路測試顯示回滾頻繁，可在 ggrs_session.rs 的
+SessionBuilder 加入 .with_input_delay(2) 啟用。
 ```
 
 ---
@@ -691,32 +694,36 @@ GGRS 預設加入 2 幀人工輸入延遲:
 
 ### 安全的 Session 資料傳遞
 
-由於 Launcher 需要把 IP、Port、Seed 等資訊傳給 `main.py`，但透過 CLI 參數傳遞明文資料並不安全，因此在傳遞前先透過 [ChaCha20-Poly1305](https://en.wikipedia.org/wiki/ChaCha20-Poly1305) 演算法加密。
+Launcher 從 Lobby Server 取得對戰資訊後，以 CLI 參數明文傳給 `main.py`。
+為確保資料來自合法 Lobby Server 而非偽造，採用 **Ed25519 非對稱簽章**：
 
 ```
- Launcher                             main.py
-    │                                    │
-    │  payload = {                       │
-    │    "local_id": 0,                  │
-    │    "players": [                    │
-    │      {"ip": "1.2.3.4",             │
-    │       "port": 10001, "id": 1}      │
-    │    ],                              │
-    │    "seed": 123456                  │
-    │  }                                 │
-    │                                    │
-    │  nonce = os.urandom(12)            │
-    │  ciphertext = ChaCha20(payload)    │
-    │  encoded = base64(nonce + cipher)  │
-    │                                    │
-    │── python main.py --payload <B64>─▶│
-    │                                    │
-    │                decrypt_payload()   │
-    │                → 取得 ip/port/seed │
-    │                → 建立 GGRSSession  │
+Lobby Server                  Launcher                         main.py
+     │                            │                               │
+     │  私鑰簽署                   │                               │
+     │  sign({host_id,            │                               │
+     │        match_id, seed})    │                               │
+     │                            │                               │
+     │── game_start (WS) ────────▶│                              │
+     │   { players, seed,         │                               │
+     │     sig: <Ed25519 sig> }   │                               │
+     │                            │                               │
+     │                            │── --payload <JSON+sig> ────▶ │
+     │                            │                               │
+     │                            │    讀 config/lobby_pubkey.txt │
+     │                            │    Ed25519 驗章               │
+     │                            │    → 驗章失敗則拒絕啟動        │
+     │                            │    → 驗章通過                 │
+     │                            │    → 建立 GGRSSession         │
 ```
 
-> **格式：** `Base64(Nonce[12 bytes] + Ciphertext)`
+| 金鑰 | 位置                                    | 說明                     |
+| ---- | --------------------------------------- | ------------------------ |
+| 私鑰 | Lobby Server `.env` `LOBBY_SIGNING_KEY` | 只有伺服器持有，永不分發 |
+| 公鑰 | 遊戲目錄 `config/lobby_pubkey.txt`      | 隨遊戲散佈，可公開       |
+
+> 簽章僅覆蓋 `{host_id, match_id, seed}` 三個影響對戰確定性的欄位。
+> IP / Port 等玩家資訊不在簽章範圍內，但同樣包含在 payload JSON 中。
 
 ---
 
@@ -981,14 +988,14 @@ dist/BattleLite/
 Launcher 在開發模式下以 Python 腳本啟動 Game：
 
 ```
-python src/python/main.py --payload <B64>
+python src/python/main.py --payload <JSON+sig>
 ```
 
 在 frozen 模式下則呼叫同目錄的 `Game` 執行檔：
 
 ```
 dist/BattleLite/BattleLite.exe
-  └─ launches → dist/BattleLite/Game.exe --payload <B64>
+  └─ launches → dist/BattleLite/Game.exe --payload <JSON+sig>
 ```
 
 ### 資源根目錄
