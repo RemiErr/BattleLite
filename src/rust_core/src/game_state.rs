@@ -18,6 +18,11 @@ pub(crate) struct GameState {
     pub(crate) entities: Vec<Entity>,
 }
 
+const WORLD_X_MIN: i32 = 0;
+const WORLD_X_MAX: i32 = 3_072_000;
+const WORLD_Y_MIN: i32 = 250_000;
+const WORLD_Y_MAX: i32 = 520_000;
+
 pub(crate) struct BattleConfig;
 impl Config for BattleConfig {
     type Input   = u8;
@@ -214,5 +219,13 @@ pub(crate) fn perform_tick(
                 state.players[i].hp = (state.players[i].hp + ab.on_hit_hp_restore).min(max_hp);
             }
         }
+    }
+
+    // 世界邊界夾緊（在 GGRS 快照週期內，確保 rollback 後確定性一致）
+    for p in state.players.iter_mut() {
+        if p.x < WORLD_X_MIN      { p.x = WORLD_X_MIN; p.vx = 0; }
+        else if p.x > WORLD_X_MAX { p.x = WORLD_X_MAX; p.vx = 0; }
+        if p.y < WORLD_Y_MIN      { p.y = WORLD_Y_MIN; p.vy = 0; }
+        else if p.y > WORLD_Y_MAX { p.y = WORLD_Y_MAX; p.vy = 0; }
     }
 }
