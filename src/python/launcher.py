@@ -32,7 +32,6 @@ if PROJECT_ROOT not in sys.path:
 
 try:
     from src.python.launcher_settings import SettingsManager
-    from src.python.crypto_utils import encrypt_payload
     from src.python.stun_utils import probe_stun_on_sock, get_local_ip
     from src.python.lobby_client import LobbyClient
 except ImportError as e:
@@ -1231,6 +1230,7 @@ class LauncherApp(ctk.CTk):
                             "match_id":    msg.get("match_id", ""),
                             "lobby_url":   LOBBY_HTTP_URL,
                             "ai_players":  ai_players_final,
+                            "sig":         msg.get("sig", ""),
                         }
                         await client.close()
                         self.after(
@@ -1318,7 +1318,7 @@ class LauncherApp(ctk.CTk):
             pass
 
     def _do_launch(self, session_data: dict):
-        payload = encrypt_payload(session_data)
+        payload = json.dumps(session_data, separators=(',', ':'))
         self.settings_mgr.set("nickname", session_data["nickname"])
         self.settings_mgr.save()
         log_path = os.path.join(os.path.dirname(sys.executable)

@@ -7,14 +7,37 @@ import asyncio
 import uuid
 import os
 import json
+import base64
 import datetime
 import aiosqlite
 import httpx
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "leaderboard.db")
 SHEETS_WEBHOOK_URL = os.environ.get("SHEETS_WEBHOOK_URL", "")
 QUEUE_MIN = 2  # TODO: for testing, default is 4
 PUNCH_DURATION = 2.0
+
+# Ed25519 簽章金鑰（私鑰 seed，32 bytes hex，64 chars）。不設定則 sig 為空字串。
+_signing_key: Ed25519PrivateKey | None = None
+_signing_key_hex = os.environ.get("LOBBY_SIGNING_KEY", "")
+if _signing_key_hex:
+    try:
+        _signing_key = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(_signing_key_hex))
+    except Exception as e:
+        print(f"[WARN] LOBBY_SIGNING_KEY 格式錯誤，簽章停用: {e}")
+
+
+def _sign_session(match_id: str, seed: int, host_id: int) -> str:
+    """以伺服器私鑰簽署核心 session 欄位，回傳 base64url（無 padding）。"""
+    if _signing_key is None:
+        return ""
+    canonical = json.dumps(
+        {"host_id": host_id, "match_id": match_id, "seed": seed},
+        sort_keys=True, separators=(',', ':'),
+    )
+    sig = _signing_key.sign(canonical.encode())
+    return base64.urlsafe_b64encode(sig).rstrip(b'=').decode()
 
 TIER_THRESHOLDS = {"games": 5, "silver_min": 40.0, "gold_min": 60.0}
 RANKED_ROOM_PATTERN = r"\_\_queue\_%\_\_"
@@ -453,6 +476,7 @@ async def _delayed_game_start(
         "players":   players_info,
         "match_id":  match_id,
         "ai_players": rooms.get(room_id, {}).get("ai_players", {}),
+        "sig":        _sign_session(match_id, seed, host_id),
     }
     print(f"🎮 game_start room={room_id} match={match_id}")
     for p in rooms.get(room_id, {}).get("players", []):
@@ -460,6 +484,19 @@ async def _delayed_game_start(
             await p["websocket"].send_json(game_msg)
         except Exception:
             pass
+
+    asyncio.create_task(_room_ttl_cleanup(room_id))
+
+
+_ROOM_TTL_SECS = 3600  # 遊戲開始後最長保留 1 小時
+
+
+async def _room_ttl_cleanup(room_id: str) -> None:
+    """遊戲開始後若房間殘留超過 TTL，自動清除以防記憶體洩漏。"""
+    await asyncio.sleep(_ROOM_TTL_SECS)
+    if room_id in rooms and rooms[room_id].get("started"):
+        del rooms[room_id]
+        print(f"🧹 TTL 清理房間 {room_id}")
 
 
 if __name__ == "__main__":
