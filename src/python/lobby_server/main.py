@@ -160,7 +160,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 _ws_connections: dict[str, int] = {}
-_MAX_WS_PER_IP = 1   # 同一 IP 最多 1 條；localhost 豁免
+_MAX_WS_PER_IP = 4   # 同一 IP 最多 4 條；localhost 豁免
 
 
 # ── 玩家資料工廠 ──────────────────────────────────────────────────────────
@@ -387,6 +387,7 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
             "players": [], "started": False,
             "is_queue": is_queue, "target_size": target_size,
             "last_activity": time.monotonic(),
+            "ai_players": {},
         }
     room = rooms[room_id]
 
@@ -449,6 +450,23 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
                     player["ready"] = False
                     await _broadcast_room_update(room_id)
 
+            elif t == "update_ai_players":
+                if not is_queue and pid == 0:
+                    raw_ai = data.get("ai_players", {})
+                    ai_players: dict = {}
+                    for k, v in raw_ai.items():
+                        try:
+                            ai_pid = int(k)
+                            ct = int(v.get("char_type", 0))
+                            lv = int(v.get("level", 1))
+                            if 0 <= ai_pid <= 3 and 0 <= ct <= 4 and 1 <= lv <= 3:
+                                ai_players[str(ai_pid)] = {
+                                    "char_type": ct, "level": lv}
+                        except (ValueError, AttributeError):
+                            pass
+                    room["ai_players"] = ai_players
+                    await _broadcast_room_update(room_id)
+
             elif t == "start_game":
                 if not is_queue and pid == 0:
                     ai_count = max(0, min(3, int(data.get("ai_count", 0))))
@@ -494,7 +512,8 @@ async def _broadcast_room_update(room_id: str):
     host_id = 0 if not room.get("is_queue") else -1
     msg = {"type": "room_update", "host_id": host_id,
            "target_size": room.get("target_size", 2),
-           "players": [_pub(p) for p in room["players"]]}
+           "players": [_pub(p) for p in room["players"]],
+           "ai_players": room.get("ai_players", {})}
     for p in room["players"]:
         try:
             await p["websocket"].send_json(msg)

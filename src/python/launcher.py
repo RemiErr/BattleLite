@@ -49,7 +49,7 @@ LOBBY_HTTP_URL = LOBBY_WS_URL.replace(
     "ws://", "http://").replace("wss://", "https://")
 
 CHAR_NAMES = ["Knight", "Mage", "Archer", "Paladin", "Wizard"]
-_WIN_W, _WIN_H   = 600, 400
+_WIN_W, _WIN_H = 600, 400
 _BG_PREV_W, _BG_PREV_H = 220, 165  # 4:3 preview dimensions
 _TIER_LABELS = {
     "placement": "定位賽",
@@ -228,7 +228,8 @@ class LauncherApp(ctk.CTk):
 
         # Header (spans both columns)
         hdr = ctk.CTkFrame(f, fg_color="transparent")
-        hdr.grid(row=0, column=0, columnspan=2, padx=15, pady=(15, 5), sticky="ew")
+        hdr.grid(row=0, column=0, columnspan=2,
+                 padx=15, pady=(15, 5), sticky="ew")
         hdr.grid_columnconfigure(1, weight=1)
         ctk.CTkButton(hdr, text="← 返回", width=80, fg_color="gray30",
                       command=self._show_main).grid(row=0, column=0)
@@ -261,7 +262,8 @@ class LauncherApp(ctk.CTk):
 
         bg_ctrl = ctk.CTkFrame(f, fg_color="transparent")
         bg_ctrl.grid(row=6, column=0, pady=(12, 4))
-        ctk.CTkLabel(bg_ctrl, text="背景圖", font=_font(14)).pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(bg_ctrl, text="背景圖", font=_font(14)
+                     ).pack(side="left", padx=(0, 8))
         self._settings_bg_switch = ctk.CTkSwitch(
             bg_ctrl, text="", command=self._update_bg_preview)
         self._settings_bg_switch.pack(side="left")
@@ -625,7 +627,8 @@ class LauncherApp(ctk.CTk):
         btn_f = ctk.CTkFrame(win, fg_color="transparent")
         btn_f.pack()
         ctk.CTkButton(btn_f, text="是", width=80,
-                      command=lambda: (win.destroy(), self._launch_replay_process(path))
+                      command=lambda: (
+                          win.destroy(), self._launch_replay_process(path))
                       ).pack(side="left", padx=12)
         ctk.CTkButton(btn_f, text="否", width=80,
                       command=win.destroy).pack(side="left", padx=12)
@@ -712,6 +715,11 @@ class LauncherApp(ctk.CTk):
         players = data.get("players", [])
         host_id = data.get("host_id", 0)
         target_size = data.get("target_size", 2)
+
+        # 非房主從伺服器廣播取得 AI 設定
+        if not self._is_host:
+            self._ai_players = {
+                int(k): v for k, v in data.get("ai_players", {}).items()}
 
         # 清除舊列
         for w in self._rows_frame.winfo_children():
@@ -825,16 +833,35 @@ class LauncherApp(ctk.CTk):
                                  text_color="gray50").grid(
                         row=row, column=2, padx=4, pady=4)
             else:
-                ctk.CTkLabel(self._rows_frame, text=f"P{i} (空)",
-                             width=120, anchor="w",
-                             text_color="gray50").grid(
-                    row=row, column=0, padx=4, pady=4, sticky="w")
-                ctk.CTkLabel(self._rows_frame, text="---",
-                             width=380, anchor="center",
-                             text_color="gray50").grid(row=row, column=1, padx=4, pady=4)
-                ctk.CTkLabel(self._rows_frame, text="---",
-                             width=70, anchor="center",
-                             text_color="gray50").grid(row=row, column=2, padx=4, pady=4)
+                pid = i
+                if pid in self._ai_players:
+                    ai_info = self._ai_players[pid]
+                    ctk.CTkLabel(self._rows_frame,
+                                 text=f"P{pid} (AI)",
+                                 width=120, anchor="w").grid(
+                        row=row, column=0, padx=4, pady=4, sticky="w")
+                    ctk.CTkLabel(self._rows_frame,
+                                 text=CHAR_NAMES[ai_info.get("char_type", 0)],
+                                 width=380, anchor="center",
+                                 fg_color=("gray75", "gray30"),
+                                 corner_radius=6).grid(
+                        row=row, column=1, padx=4, pady=4)
+                    ctk.CTkLabel(self._rows_frame,
+                                 text=f"LV{ai_info.get('level', 1)}",
+                                 width=70, anchor="center",
+                                 fg_color="gray40", corner_radius=6).grid(
+                        row=row, column=2, padx=4, pady=4)
+                else:
+                    ctk.CTkLabel(self._rows_frame, text=f"P{i} (空)",
+                                 width=120, anchor="w",
+                                 text_color="gray50").grid(
+                        row=row, column=0, padx=4, pady=4, sticky="w")
+                    ctk.CTkLabel(self._rows_frame, text="---",
+                                 width=380, anchor="center",
+                                 text_color="gray50").grid(row=row, column=1, padx=4, pady=4)
+                    ctk.CTkLabel(self._rows_frame, text="---",
+                                 width=70, anchor="center",
+                                 text_color="gray50").grid(row=row, column=2, padx=4, pady=4)
 
         # 人數選擇器（房主且非天梯）
         if self._is_host and not self._is_queue:
@@ -886,7 +913,7 @@ class LauncherApp(ctk.CTk):
 
     def _update_bg_preview(self, *_):
         from PIL import Image as PILImage
-        bg_id   = int(self._settings_bg_seg.get())
+        bg_id = int(self._settings_bg_seg.get())
         enabled = bool(self._settings_bg_switch.get())
 
         resample = getattr(
@@ -894,7 +921,8 @@ class LauncherApp(ctk.CTk):
         ) or PILImage.LANCZOS  # type: ignore[attr-defined]
 
         if not enabled:
-            placeholder = PILImage.new("RGB", (_BG_PREV_W, _BG_PREV_H), (37, 37, 37))
+            placeholder = PILImage.new(
+                "RGB", (_BG_PREV_W, _BG_PREV_H), (37, 37, 37))
             self._bg_preview_ctk_img = ctk.CTkImage(
                 light_image=placeholder, dark_image=placeholder,
                 size=(_BG_PREV_W, _BG_PREV_H))
@@ -915,7 +943,8 @@ class LauncherApp(ctk.CTk):
                 image=self._bg_preview_ctk_img,
                 text="", compound="center")
         except Exception:
-            placeholder = PILImage.new("RGB", (_BG_PREV_W, _BG_PREV_H), (37, 37, 37))
+            placeholder = PILImage.new(
+                "RGB", (_BG_PREV_W, _BG_PREV_H), (37, 37, 37))
             self._bg_preview_ctk_img = ctk.CTkImage(
                 light_image=placeholder, dark_image=placeholder,
                 size=(_BG_PREV_W, _BG_PREV_H))
@@ -934,8 +963,10 @@ class LauncherApp(ctk.CTk):
         self.settings_mgr.set(
             "key_preset",
             _PRESET_LABELS.index(self._settings_preset_seg.get()))
-        self.settings_mgr.set("background_enabled", bool(self._settings_bg_switch.get()))
-        self.settings_mgr.set("background_id",      int(self._settings_bg_seg.get()))
+        self.settings_mgr.set("background_enabled", bool(
+            self._settings_bg_switch.get()))
+        self.settings_mgr.set("background_id",      int(
+            self._settings_bg_seg.get()))
         self.settings_mgr.save()
         self._show_main()
 
@@ -990,23 +1021,36 @@ class LauncherApp(ctk.CTk):
             asyncio.run_coroutine_threadsafe(
                 self._client.send_char_select(ct), self.loop)
 
+    def _send_ai_update(self):
+        if self.loop and self._client:
+            asyncio.run_coroutine_threadsafe(
+                self._client.send_data({
+                    "type": "update_ai_players",
+                    "ai_players": {str(k): v for k, v in self._ai_players.items()},
+                }),
+                self.loop)
+
     def _on_add_ai(self, pid: int):
         self._ai_players[pid] = {"char_type": 0, "level": 1}
         if self._room_data:
             self._update_room_ui(self._room_data)
+        self._send_ai_update()
 
     def _on_remove_ai(self, pid: int):
         self._ai_players.pop(pid, None)
         if self._room_data:
             self._update_room_ui(self._room_data)
+        self._send_ai_update()
 
     def _on_room_ai_char(self, pid: int, name: str):
         ct = CHAR_NAMES.index(name) if name in CHAR_NAMES else 0
         self._ai_players.setdefault(pid, {"level": 1})["char_type"] = ct
+        self._send_ai_update()
 
     def _on_room_ai_level(self, pid: int, level_str: str):
         level = int(level_str.replace("LV", ""))
         self._ai_players.setdefault(pid, {"char_type": 0})["level"] = level
+        self._send_ai_update()
 
     def _on_room_size_change(self, label: str):
         size_map = {"2人": 2, "3人": 3, "4人": 4}
@@ -1023,7 +1067,8 @@ class LauncherApp(ctk.CTk):
         if self._is_queue:
             self._btn_ready.configure(text="排隊中…", state="disabled")
         else:
-            self._btn_ready.configure(text="取消準備", command=self._on_cancel_ready)
+            self._btn_ready.configure(
+                text="取消準備", command=self._on_cancel_ready)
         if self.loop and self._client:
             asyncio.run_coroutine_threadsafe(
                 self._client.send_ready(), self.loop)
