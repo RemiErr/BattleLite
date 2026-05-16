@@ -337,7 +337,7 @@ async def _maybe_push_to_sheets(match_id: str) -> None:
 
 async def _post_to_sheets(payload: dict) -> None:
     try:
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             await client.post(SHEETS_WEBHOOK_URL, json=payload)
         print(f"[OK] Sheets pushed: {payload['match_id']} ({payload['room_type']})")
     except Exception as e:
@@ -359,6 +359,14 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
     if not room_id or len(room_id) > 32 or not re.match(r'^[\w\-]+$', room_id):
         await websocket.close(code=1008, reason="Invalid room ID")
         return
+    if room_id in rooms:
+        _r = rooms[room_id]
+        if _r.get("started"):
+            await websocket.close(code=1008, reason="Game already started")
+            return
+        if len(_r["players"]) >= _r["target_size"]:
+            await websocket.close(code=1008, reason="Room full")
+            return
 
     _ws_connections[ip] = _ws_connections.get(ip, 0) + 1
     await websocket.accept()
@@ -425,8 +433,19 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
 
             elif t == "start_game":
                 if not is_queue and pid == 0:
-                    ai_count = int(data.get("ai_count", 0))
-                    room["ai_players"] = data.get("ai_players", {})
+                    ai_count = max(0, min(3, int(data.get("ai_count", 0))))
+                    raw_ai = data.get("ai_players", {})
+                    ai_players: dict = {}
+                    for k, v in raw_ai.items():
+                        try:
+                            ai_pid = int(k)
+                            ct = int(v.get("char_type", 0))
+                            lv = int(v.get("level", 1))
+                            if 0 <= ai_pid <= 3 and 0 <= ct <= 4 and 1 <= lv <= 3:
+                                ai_players[str(ai_pid)] = {"char_type": ct, "level": lv}
+                        except (ValueError, AttributeError):
+                            pass
+                    room["ai_players"] = ai_players
                     ps = room["players"]
                     if (len(ps) + ai_count >= room["target_size"]
                             and all(p["ready"] for p in ps)
