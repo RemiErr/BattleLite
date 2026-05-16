@@ -1,7 +1,8 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
+from pydantic import BaseModel, Field
 from typing import Dict
+import re
 import random
 import asyncio
 import uuid
@@ -12,6 +13,9 @@ import datetime
 import aiosqlite
 import httpx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "leaderboard.db")
 SHEETS_WEBHOOK_URL = os.environ.get("SHEETS_WEBHOOK_URL", "")
@@ -144,7 +148,14 @@ async def lifespan(app: FastAPI):
         await _db.close()
 
 
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="BattleLite Signaling Lobby", lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+_ws_connections: dict[str, int] = {}
+_MAX_WS_PER_IP = 1   # 同一 IP 最多 1 條；localhost 豁免
 
 
 # ── 玩家資料工廠 ──────────────────────────────────────────────────────────
@@ -178,12 +189,14 @@ async def root():
 
 
 @app.get("/online")
-async def online_count():
+@limiter.limit("60/minute")
+async def online_count(request: Request):
     return {"count": sum(len(r["players"]) for r in rooms.values())}
 
 
 @app.get("/leaderboard")
-async def get_leaderboard(limit: int = 30):
+@limiter.limit("60/minute")
+async def get_leaderboard(request: Request, limit: int = 30):
     if not _db:
         raise HTTPException(503, "DB not ready")
     t = TIER_THRESHOLDS
@@ -216,7 +229,8 @@ async def get_leaderboard(limit: int = 30):
 
 
 @app.get("/player_tier/{nickname}")
-async def get_player_tier(nickname: str):
+@limiter.limit("60/minute")
+async def get_player_tier(request: Request, nickname: str):
     if not _db:
         raise HTTPException(503, "DB not ready")
     async with _db.execute(
@@ -236,17 +250,18 @@ async def get_player_tier(nickname: str):
 
 
 class ResultItem(BaseModel):
-    match_id:    str
-    room_code:   str
-    nickname:    str
-    char_type:   int
+    match_id:    str = Field(..., min_length=1, max_length=36)
+    room_code:   str = Field(..., min_length=1, max_length=32)
+    nickname:    str = Field(..., min_length=1, max_length=20)
+    char_type:   int = Field(..., ge=0, le=4)
     result:      str
-    player_id:   int = 0
-    num_players: int = 2
+    player_id:   int = Field(0, ge=0, le=3)
+    num_players: int = Field(2, ge=2, le=4)
 
 
 @app.post("/submit_result")
-async def submit_result(item: ResultItem):
+@limiter.limit("20/hour")
+async def submit_result(request: Request, item: ResultItem):
     if item.result not in ("win", "lose", "draw"):
         raise HTTPException(400, "result must be win / lose / draw")
     if not _db:
@@ -333,6 +348,19 @@ async def _post_to_sheets(payload: dict) -> None:
 
 @app.websocket("/ws/{room_id}/{player_name}")
 async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
+    ip = websocket.client.host if websocket.client else "unknown"
+
+    if ip not in ("127.0.0.1", "::1") and _ws_connections.get(ip, 0) >= _MAX_WS_PER_IP:
+        await websocket.close(code=1008, reason="Too many connections")
+        return
+    if not player_name or len(player_name) > 20:
+        await websocket.close(code=1008, reason="Invalid player name")
+        return
+    if not room_id or len(room_id) > 32 or not re.match(r'^[\w\-]+$', room_id):
+        await websocket.close(code=1008, reason="Invalid room ID")
+        return
+
+    _ws_connections[ip] = _ws_connections.get(ip, 0) + 1
     await websocket.accept()
     is_queue = _is_queue_room(room_id)
 
@@ -373,7 +401,9 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
                     f"📍 {player_name} pub={player['pub_ip']}:{player['pub_port']}")
 
             elif t == "char_select":
-                player["char_type"] = int(data.get("char_type", 0))
+                char_type = int(data.get("char_type", 0))
+                if 0 <= char_type <= 4:
+                    player["char_type"] = char_type
                 await _broadcast_room_update(room_id)
 
             elif t == "set_room_size":
@@ -411,6 +441,10 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
             del rooms[room_id]
         elif room_id in rooms:
             await _broadcast_room_update(room_id)
+    finally:
+        _ws_connections[ip] = max(0, _ws_connections.get(ip, 0) - 1)
+        if _ws_connections.get(ip) == 0:
+            _ws_connections.pop(ip, None)
 
 
 # ── 廣播 & 媒合 ───────────────────────────────────────────────────────────
