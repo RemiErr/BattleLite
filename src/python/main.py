@@ -124,7 +124,7 @@ def _build_session(config: dict, char_assets: dict):
                         (pid, host_player["ip"], host_player["port"]))
                     print(f"  player id={pid}  (AI @ host)"
                           f"  {host_player['ip']}:{host_player['port']}")
-        bot_ids = ai_player_ids if i_am_host else []
+        bot_ids = ai_player_ids  # bot 在雙方都是 Local，各自跑確定性 AI 避免 sync 死鎖
         session = GGRSAdapter(
             GGRSSession(controlled_idx, num_players, config["local_port"],
                         remote_players_list, bot_ids),

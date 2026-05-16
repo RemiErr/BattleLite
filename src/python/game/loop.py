@@ -199,8 +199,7 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             p.hp = char_assets[ct].physics.max_hp
             p.mp = char_assets[ct].physics.max_mp
             session.set_player(pid, p)
-            if is_offline or i_am_host:
-                ai_controllers[pid] = make_ai(ct, ai_info.get("level", 1), seed)
+            ai_controllers[pid] = make_ai(ct, ai_info.get("level", 1), seed)
 
     _set_spawn_positions(session, num_players)
 
