@@ -1176,6 +1176,12 @@ class LauncherApp(ctk.CTk):
                     elif t == "room_update":
                         self.after(0, lambda m=msg: self._update_room_ui(m))
 
+                    elif t == "error":
+                        if msg.get("code") == "name_taken":
+                            self.after(0, self._show_name_taken_warning)
+                        result = "error"
+                        return
+
                     elif t == "punch_start":
                         my_pub = next((p["pub_ip"] for p in msg["players"]
                                        if p["id"] == self._my_id), pub_ip)
@@ -1295,6 +1301,22 @@ class LauncherApp(ctk.CTk):
         self._btn_ready.configure(state="normal", text="準備好了",
                                   command=self._on_ready)
         self._btn_start.configure(state="disabled", text="開始遊戲")
+
+    def _show_name_taken_warning(self):
+        win = ctk.CTkToplevel(self)
+        win.title("暱稱衝突")
+        win.geometry("320x140")
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+        ctk.CTkLabel(
+            win,
+            text="此暱稱已被房間內其他玩家使用，\n請更換後重試。",
+            font=ctk.CTkFont(size=14),
+        ).pack(pady=25)
+        ctk.CTkButton(win, text="確定", width=80, command=win.destroy).pack()
+        self.entry_nickname.delete(0, "end")
+        self.entry_nickname.focus()
 
     def _set_status_main(self, text: str):
         self.after(0, lambda: self._lbl_status_main.configure(text=text))

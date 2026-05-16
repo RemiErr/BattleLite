@@ -380,6 +380,13 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
         }
     room = rooms[room_id]
 
+    if any(p["name"] == player_name for p in room["players"]):
+        await websocket.send_json({"type": "error", "code": "name_taken"})
+        _ws_connections[ip] = max(0, _ws_connections.get(ip, 0) - 1)
+        if _ws_connections.get(ip) == 0:
+            _ws_connections.pop(ip, None)
+        return
+
     pid = len(room["players"])
     pub_ip = websocket.client.host if websocket.client else "unknown"
     player = _make_player(player_name, websocket, pid, pub_ip)
