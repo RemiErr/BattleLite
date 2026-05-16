@@ -288,6 +288,15 @@ async def submit_result(request: Request, item: ResultItem):
 
 # ── Google Sheets 推送 ────────────────────────────────────────────────────
 
+_player_tier = {
+    "__queue_placement__": "定位賽",
+    "__queue_bronze__": "銅牌",
+    "__queue_silver__": "銀牌",
+    "__queue_gold__": "金牌",
+    "__queue_all__": "彈性列隊",
+}
+
+
 async def _maybe_push_to_sheets(match_id: str) -> None:
     if not SHEETS_WEBHOOK_URL or not _db:
         return
@@ -328,8 +337,8 @@ async def _maybe_push_to_sheets(match_id: str) -> None:
         datetime.timezone.utc) + datetime.timedelta(hours=8)
     payload = {
         "match_id":  match_id,
-        "room_code": room_code,
-        "room_type": "ranked" if _is_queue_room(room_code) else "custom",
+        "room_code":  _player_tier[room_code] if _is_queue_room(room_code) else room_code,
+        "room_type": "排位賽" if _is_queue_room(room_code) else "自訂對戰",
         "timestamp": now_tw.strftime("%Y-%m-%d %H:%M:%S"),
         "players":   players,
         "winner":    winner_str,
