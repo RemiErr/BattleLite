@@ -252,6 +252,7 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
     _dc_notices:  list[tuple[str, int]] = []
     _DC_NOTICE_FRAMES = 180
     _migrated_hosts: set[int] = set()
+    _migration_overlay: tuple[str, float] | None = None
 
     # --- 重播系統 ---
     _replay_writer: ReplayWriter | None = None
@@ -287,6 +288,9 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
     running = True
     while running:
         _t0 = time.perf_counter() if _perf_enabled else 0.0
+        if _migration_overlay is not None and time.monotonic() >= _migration_overlay[1]:
+            mm.paused = False
+            _migration_overlay = None
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -471,10 +475,12 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                         from src.python.session.char_config import apply_char_config
                         new_host_id = min(alive_ids)
                         try:
+                            _old_host_id = host_id
                             session = rebuild_after_host_death(
                                 config, session, new_host_id,
                                 num_players, char_assets, apply_char_config,
                             )
+                            mm._session = session
                             from src.python.session.adapter import OfflineAdapter as _OA
                             if isinstance(session, _OA):
                                 is_offline = True
@@ -489,10 +495,15 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                                     if _pid not in ai_controllers and _ct in char_assets:
                                         ai_controllers[_pid] = make_ai(
                                             _ct, _ai_info.get("level", 1), seed)
-                            _dc_notices.append(
-                                (f"Host 轉移 → Player {new_host_id + 1}", _DC_NOTICE_FRAMES))
+                            _new_host_name = player_names.get(
+                                new_host_id, f"Player {new_host_id + 1}")
+                            mm.paused = True
+                            _migration_overlay = (
+                                f"新 Host：{_new_host_name}  (Player {new_host_id + 1})",
+                                time.monotonic() + 2.5,
+                            )
                             print(
-                                f"[MIGRATION] host {host_id} → {new_host_id}")
+                                f"[MIGRATION] host {_old_host_id} → {new_host_id}")
                         except Exception as _e:
                             _dc_notices.append(
                                 ("Host 轉移失敗", _DC_NOTICE_FRAMES))
@@ -802,7 +813,7 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             screen.blit(sm_surf, sm_surf.get_rect(center=(cx, cy + 50)))
 
         # 暫停畫面
-        if mm.paused and is_offline:
+        if mm.paused and is_offline and _migration_overlay is None:
             ov = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
             ov.fill((0, 0, 0, 140))
             screen.blit(ov, (0, 0))
@@ -813,6 +824,18 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             hint_surf = result_font_small.render(
                 "P: Resume  ESC: Quit", True, (180, 180, 180))
             screen.blit(hint_surf, hint_surf.get_rect(center=(cx, cy + 40)))
+
+        # Host 轉移覆蓋畫面
+        if _migration_overlay is not None:
+            ov = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+            ov.fill((0, 0, 0, 170))
+            screen.blit(ov, (0, 0))
+            cx, cy = SCREEN_W // 2, SCREEN_H // 2
+            title_surf = wait_font.render("Host 轉移中", True, (255, 220, 60))
+            name_surf = result_font_small.render(
+                _migration_overlay[0], True, (255, 255, 255))
+            screen.blit(title_surf, title_surf.get_rect(center=(cx, cy - 30)))
+            screen.blit(name_surf, name_surf.get_rect(center=(cx, cy + 20)))
 
         # 重播覆蓋提示
         if is_replay:
