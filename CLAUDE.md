@@ -13,7 +13,7 @@ BattleLite is a 2D side-scrolling brawler inspired by Little Fighter 2, supporti
 python3 -m venv venv --without-pip
 source venv/bin/activate
 curl https://bootstrap.pypa.io/get-pip.py | python3
-pip install maturin pygame pytest httpx fastapi uvicorn customtkinter cryptography websockets python-dotenv
+pip install maturin pygame pytest httpx fastapi uvicorn customtkinter cryptography websockets python-dotenv aiosqlite slowapi msgpack zstandard
 
 # Compile and install Rust core into venv
 cd src/rust_core
@@ -46,21 +46,36 @@ uvicorn src.python.lobby_server.main:app --reload --port 8000
 
 ### Rust Core (`src/rust_core/src/lib.rs`)
 Exposes a PyO3 module (`battlelite_core`) with:
-- `Player` — 11 attributes (x, y, z, vx, vy, vz, state, timer, facing_right, hp, mp), all physics coords are `i32` scaled by 1000 (no floats, prevents P2P desync)
+- `Player` — 14 attributes (x, y, z, vx, vy, vz, state, timer, facing_right, hp, mp, character_type, hitstop, shield_hp), all physics coords are `i32` scaled by 1000 (no floats, prevents P2P desync)
 - `OfflineSession` — local 4-player simulation for dev/testing
 - `GGRSSession` — P2P rollback netcode session using GGRS 0.11
 - Both sessions share `perform_tick()` for deterministic physics; both expose `advance()`, `get_player()`, `set_player()`, `current_frame()`
-- Player states: IDLE=0, WALK=1, ATTACK=2, HURT=3, SKILL=4
-- Constants: GRAVITY=400, JUMP_IMPULSE=9000, MAX_MP=50000, MP regen=50/frame
+- Player states: IDLE=0, WALK=1, ATTACK=2, HURT=3, SKILL=4, DEAD=5
+- Constants: GRAVITY=400, JUMP_IMPULSE=9000, MAX_HP=100000, MAX_MP=50000, MP regen=50/frame
 
 ### Python Layer (`src/python/`)
-- `main.py` — game loop: reads keyboard input → u8 bitmask → `session.advance(mask)` → renders Rust state
+- `main.py` — entry point: parses CLI payload, verifies Ed25519 sig, launches game loop
+- `app_root.py` — resolves `PROJECT_ROOT` for both dev and PyInstaller frozen environments
+- `game_constants.py` — re-exports Rust state constants and shared numeric literals
+- `game/loop.py` — main game loop: reads keyboard input → u8 bitmask → `session.advance()` → renders Rust state
+- `game/match_manager.py` — win/loss detection, match lifecycle (round start/end, result submission)
+- `game/input_manager.py` — keyboard polling and bitmask assembly
 - `renderer.py` — converts Rust 2.5D coords (X: lateral, Y: depth, Z: height) to screen pixels
-- `launcher.py` — CustomTkinter UI for nickname, room codes, offline/online mode
+- `hud.py` — HP/MP bars, player name tags, match status overlay
+- `fx_manager.py` — visual effects (hit sparks, screen shake, etc.)
+- `sfx_manager.py` — sound effect playback tied to game events
+- `session/adapter.py` — unified Python wrapper over `OfflineSession` / `GGRSSession` (normalises differing `advance()` signatures)
+- `session/char_config.py` — loads per-character JSON config and calls `set_physics_config` / `set_ability` on the session
+- `ai/factory.py` — instantiates AI controllers (FSM, pattern-based) by difficulty level
+- `ai/controllers/` — AI controller implementations (FSMAIController, PatternAIController, etc.)
+- `ai/goap/`, `ai/fuzzy/` — GOAP planner and fuzzy logic modules used by AI controllers
+- `replay/codec.py` — msgpack + zstandard serialisation for replay recording
+- `replay/writer.py` / `reader.py` — frame-by-frame replay capture and playback
+- `launcher.py` — CustomTkinter UI for nickname, room codes, offline/online mode; handles STUN probe and same-LAN IP resolution
 - `launcher_settings.py` — JSON persistence for UI state (`settings.json`)
 - `lobby_client.py` — WebSocket client connecting Launcher to lobby
-- `crypto_utils.py` — ChaCha20-Poly1305 encryption/decryption for session handoff payloads
-- `stun_utils.py` — STUN server probing to detect public IP/port (same port later reused by GGRS)
+- `crypto_utils.py` — **Deprecated.** Original ChaCha20-Poly1305 session encryption replaced by Ed25519 signing; kept as tombstone only.
+- `stun_utils.py` — STUN server probing to detect public IP/port; Python socket is closed after probing, GGRS opens its own socket bound to the same port number
 - `debug_manager.py` — debug overlay (frames, rollbacks, sync)
 - `assets_manager/` — OOP sprite/animation management per character
 
@@ -68,7 +83,7 @@ Exposes a PyO3 module (`battlelite_core`) with:
 FastAPI + WebSocket signaling server. Manages rooms, collects STUN endpoints, triggers match start. Deployed via Docker (`src/python/lobby_server/Dockerfile`). `LOBBY_SERVER_URL` is set in `.env`.
 
 ### Session Handoff Flow
-Launcher → (STUN probe) → Lobby → (room full) → Launcher encrypts session data (IP, port, seed) with ChaCha20-Poly1305 → passes encrypted payload as CLI arg to `main.py` → Rust decrypts via `decrypt_payload()`.
+Launcher → (STUN probe) → Lobby → (room full) → Lobby signs `{match_id, seed, host_id}` with Ed25519 private key → sends signed session data via WebSocket to Launcher → Launcher passes plain JSON payload (including `sig`) as CLI arg to `main.py` → `main.py` verifies Ed25519 signature using `config/lobby_pubkey.txt` before initialising `state(0)`.
 
 ## Key Constraints
 
