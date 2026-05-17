@@ -14,7 +14,7 @@ BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透�
 
 ## 目錄
 
-- [BattleLite](#battlelite)
+- [BattleLite ](#battlelite-)
   - [目錄](#目錄)
   - [一、 架構總覽](#一-架構總覽)
     - [模組分工](#模組分工)
@@ -35,6 +35,7 @@ BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透�
   - [七、 網路架構](#七-網路架構)
     - [整體連線流程](#整體連線流程)
     - [Lobby Server（Signaling Server）](#lobby-serversignaling-server)
+    - [Host 轉移機制](#host-轉移機制)
     - [排行榜與牌位統計](#排行榜與牌位統計)
   - [八、 STUN 探測與 NAT 打洞](#八-stun-探測與-nat-打洞)
     - [為什麼需要 STUN？](#為什麼需要-stun)
@@ -45,7 +46,9 @@ BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透�
     - [什麼是 Rollback Netcode？](#什麼是-rollback-netcode)
     - [GGRS 在 BattleLite 的實作](#ggrs-在-battlelite-的實作)
     - [確定性要求](#確定性要求)
-    - [輸入延遲（Input Delay）](#輸入延遲input-delay)
+    - [GGRS 同步前置條件](#ggrs-同步前置條件)
+    - [開場倒計時同步](#開場倒計時同步)
+    - [回放錄製與重播系統](#回放錄製與重播系統)
   - [十、 Session 啟動流程](#十-session-啟動流程)
     - [安全的 Session 資料傳遞](#安全的-session-資料傳遞)
   - [十一、 AI 對手系統](#十一-ai-對手系統)
@@ -82,7 +85,7 @@ BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透�
 │  │  │ 配對大廳  │    │  遊戲主循環  │  │ Signaling Server │   │   │
 │  │  │ (CTk)    │    │  (Pygame)   │  │     (FastAPI)    │   │   │
 │  │  └────┬─────┘    └──────┬──────┘  └──────────────────┘   │   │
-│  │       │ 加密 payload    │ 讀取/渲染狀態                   │   │
+│  │       │ 簽章 payload    │ 讀取/渲染狀態                   │   │
 │  └───────┼─────────────────┼────────────────────────────────┘   │
 │          │ CLI 參數        │ PyO3 綁定                          │
 │  ┌───────▼─────────────────▼────────────────────────────────┐   │
@@ -117,8 +120,13 @@ BattleLite/
 │   ├── main.py                  # 遊戲入口：解析 payload、建立 session
 │   ├── app_root.py              # 定義資源根目錄
 │   ├── session/
-│   │   ├── adapter.py           # OfflineAdapter / GGRSAdapter
-│   │   └── char_config.py       # 調度角色參數
+│   │   ├── adapter.py           # OfflineAdapter / GGRSAdapter（統一介面）
+│   │   ├── char_config.py       # 調度角色參數
+│   │   └── migration.py         # Host 斷線後的 Session 重建邏輯
+│   ├── replay/
+│   │   ├── writer.py            # 錄製回放（寫入輸入序列）
+│   │   ├── reader.py            # 讀取回放（逐幀還原輸入）
+│   │   └── codec.py             # 回放格式序列化
 │   ├── game/
 │   │   ├── input_manager.py     # 按鍵常數、按鍵映射等
 │   │   ├── match_manager.py     # 勝負判定、開場倒數等
@@ -128,7 +136,7 @@ BattleLite/
 │   ├── assets_manager/          # 角色 Sprite / PhysicsStats / AbilityDef
 │   └── *_manager.py             # 算繪、特效、音效、Debug 管理器
 ├── src/rust_core/src/
-│   ├── lib.rs                   # PyO3 模組入口、封包解密
+│   ├── lib.rs                   # PyO3 模組入口
 │   ├── config.rs                # 綁定各種 Config
 │   ├── player.rs                # 綁定遊戲角色參數
 │   ├── entity.rs                # 綁定投射物
@@ -160,18 +168,18 @@ Pygame Renderer / HUD / FX / SFX
 
 ### Tech Stack
 
-| 類別         | 技術                       | 用途                                     |
-| ------------ | -------------------------- | ---------------------------------------- |
-| 遊戲畫面     | Pygame                     | 視窗、輸入、Sprite、音效與主循環         |
-| Launcher UI  | CustomTkinter              | 主選單、設定、房間、離線 AI 面板、排行榜 |
-| 戰鬥核心     | Rust + PyO3                | Python 可呼叫的 `battlelite_core` 擴充   |
-| Rollback     | GGRS                       | P2P input synchronization + rollback     |
-| 信令伺服器   | FastAPI + WebSocket        | 房間狀態、端點交換、game_start 廣播      |
-| 排行榜資料庫 | SQLite + aiosqlite         | `matches` / `match_results` 牌位賽統計   |
-| 安全傳遞     | ChaCha20-Poly1305 + Base64 | Launcher → Game 的 session payload 加密  |
-| 網路探測     | STUN + UDP Hole Punching   | NAT 後方玩家建立 P2P UDP 通道            |
-| 設定管理     | JSON + python-dotenv       | `settings.json`、Lobby URL、執行環境切換 |
-| 打包         | PyInstaller                | `BattleLite` + `Game` 雙執行檔           |
+| 類別         | 技術                     | 用途                                     |
+| ------------ | ------------------------ | ---------------------------------------- |
+| 遊戲畫面     | Pygame                   | 視窗、輸入、Sprite、音效與主循環         |
+| Launcher UI  | CustomTkinter            | 主選單、設定、房間、離線 AI 面板、排行榜 |
+| 戰鬥核心     | Rust + PyO3              | Python 可呼叫的 `battlelite_core` 擴充   |
+| Rollback     | GGRS                     | P2P input synchronization + rollback     |
+| 信令伺服器   | FastAPI + WebSocket      | 房間狀態、端點交換、game_start 廣播      |
+| 排行榜資料庫 | SQLite + aiosqlite       | `matches` / `match_results` 牌位賽統計   |
+| 安全傳遞     | Ed25519 非對稱簽章       | Lobby Server 簽署 session，Client 驗章   |
+| 網路探測     | STUN + UDP Hole Punching | NAT 後方玩家建立 P2P UDP 通道            |
+| 設定管理     | JSON + python-dotenv     | `settings.json`、Lobby URL、執行環境切換 |
+| 打包         | PyInstaller              | `BattleLite` + `Game` 雙執行檔           |
 
 
 ### 遊戲流程
@@ -209,6 +217,16 @@ Pygame Renderer / HUD / FX / SFX
   GGRSSession P2P
       │
       └─ room_code 符合 __queue_xxx__，結果寫入 leaderboard DB
+
+重播模式
+  main.py --replay <path>
+      │
+      ▼
+  ReplayReader 逐幀還原輸入
+      │
+      ├─ P：暫停 / 繼續
+      ├─ 1 / 2 / 3：0.5x / 1x / 2x 速度
+      └─ 封鎖所有移動 / 攻擊 / 技能鍵（純觀戰）
 ```
 
 Launcher 呼叫 Game 流程：
@@ -216,11 +234,11 @@ Launcher 呼叫 Game 流程：
 ```
 BattleLite Launcher
   │
-  │ encrypt_payload(session_data)
+  │ --payload <plaintext JSON + sig>
   ▼
 Game executable / main.py
   │
-  │ decrypt_payload()
+  │ Ed25519 驗章（config/lobby_pubkey.txt）
   ▼
 OfflineSession 或 GGRSSession
 ```
@@ -497,6 +515,33 @@ WebSocket 訊息類型:
   game_start      → 打洞等待後，通知正式開始（2 秒延遲）
 ```
 
+### Host 轉移機制
+
+Host 斷線時，從剩餘玩家中自動選出新 Host（player_id 最小者）。  
+**牌位賽不會觸發轉移機制**，直接結算遊戲。
+
+```
+觸發條件:
+  get_disconnected_mask() 偵測到 host_id 位元 → alive_ids 非空
+  且 room_code 不符合 __queue_xxx__（排除牌位賽）
+
+轉移流程:
+  1. 遊戲暫停，顯示「Host 轉移中 / 新 Host：<玩家名>」 2.5 秒
+  2. rebuild_after_host_death() 快照玩家狀態 → 釋放舊 session
+  3. 判斷是否還有其他人類遠端：
+
+     2P + 2AI（只剩本地玩家）:
+       → OfflineSession，繼續與 AI 在本地對戰
+       → is_offline = True，不再觸發 GGRS 相關流程
+
+     3P + 1AI（仍有人類遠端）:
+       → 重建 GGRSSession，排除已斷線的舊 Host
+       → 新 Host 接管 AI bot_ids，其他玩家 AI 槽指向新 Host 端點
+       → 重新握手 + 倒數 3 秒後繼續遊戲
+
+  4. mm._session 同步更新，MatchManager 使用新 session
+```
+
 ### 排行榜與牌位統計
 
 排行榜只統計「牌位賽」結果。自訂房間與離線模式不影響段位。
@@ -672,18 +717,80 @@ SaveGameState → LoadGameState → N × AdvanceFrame
   >  不依賴時間（wall clock）
 ```
 
-### 輸入延遲（Input Delay）
+### GGRS 同步前置條件
+
+握手（Synchronizing）與倒計時（Running, countdown > 0）期間，每幀必須呼叫 `advance([0]*n)`，否則 `SyncRequest / SyncReply` 無法完成，`is_synchronized()` 永遠不會變 True：
 
 ```
-GGRS 預設加入 2 幀人工輸入延遲:
-  Frame 1: 你按了跳躍
-  Frame 3: 你看到角色跳起來（延遲 2 幀）
+while not is_synchronized():
+    session.advance([0] * num_players)   # 驅動封包交換，不推進遊戲幀
 
-好處: 減少需要回滾的頻率
-代價: 操作有 ~33ms 的輕微延遲感
-
-設定位置: SessionBuilder::with_input_delay(2)
+while countdown_frames > 0:
+    session.advance([0] * num_players)   # 維持心跳，GGRS 正常推進空幀
 ```
+
+### 開場倒計時同步
+
+倒計時以 `session.current_frame()`（GGRS 保證兩端一致）為基準，而非本地 render 幀：
+
+```python
+if _sync_start_frame is None:
+    _sync_start_frame = session.current_frame()
+countdown_frames = max(0, 180 - (session.current_frame() - _sync_start_frame))
+```
+
+Host 握手只需 1 次（1 個遠端），Client 可能需多次（多個遠端指向同一端點），完成時間不同。以 GGRS 幀為基準可讓雙方始終看到相同的倒計時數值。
+
+### 回放錄製與重播系統
+
+GGRS 每幀都會透過 `get_last_inputs()` 回傳當幀所有玩家的最新輸入（含回滾修正後的結果）。  
+ReplayWriter 會直接錄製這些 1-byte input bitmask 輸入參數，並於重播時由 ReplayReader 逐幀餵回 OfflineSession 進行對戰模擬的推演，這是利用了 GGRS 的確定性來重現完全相同的戰鬥過程。
+
+```
+錄製（僅支援線上模式）:
+  [Python] 每幀 session.get_last_inputs() → ReplayWriter.append_frame()
+                │
+                ▼ 結束時 finalize()
+  [Python] replay/<timestamp>_<room>.json  （codec v2 壓縮寫入）
+
+
+重播:
+  [Python] ReplayReader.next_inputs()
+                │ 1-byte bitmask × n players
+                ▼
+  [Python] OfflineSession.advance()
+                │ 內部呼叫
+                ▼
+  [Rust]   perform_tick()    ← 物理 / 碰撞 / 狀態機確定性重現
+                │
+                ▼
+  [Python] Pygame Renderer（封鎖所有真人輸入）
+```
+
+**回放檔案格式（v2）：**
+
+v1（舊版）直接儲存 JSON array，檔案龐大。  
+v2 採用壓縮管線：
+
+```
+list[list[int]]
+  → Columnar Storage（每位玩家的輸入序列各自獨立為一列 bytes）
+  → MessagePack
+  → Zstd（level 3）
+  → base64 string
+```
+
+Columnar Storage 轉置讓同一玩家的輸入字節相鄰，使 Zstd 能更有效辨識重複模式（靜止、走路等重複輸入佔多數），1000 幀 4 人對戰測試壓縮率約 74%。
+
+**新舊格式相容性：**
+
+```
+version 欄位:
+  v1 → frames: [[0,64],[32,8], ...]   (plain list，向下相容)
+  v2 → frames: "KLUv/QBY..."          (base64 壓縮字串)
+```
+
+Launcher 開啟回放時若格式版本不符，會彈出警告對話框讓使用者決定是否繼續播放。
 
 ---
 
@@ -691,32 +798,36 @@ GGRS 預設加入 2 幀人工輸入延遲:
 
 ### 安全的 Session 資料傳遞
 
-由於 Launcher 需要把 IP、Port、Seed 等資訊傳給 `main.py`，但透過 CLI 參數傳遞明文資料並不安全，因此在傳遞前先透過 [ChaCha20-Poly1305](https://en.wikipedia.org/wiki/ChaCha20-Poly1305) 演算法加密。
+Launcher 從 Lobby Server 取得對戰資訊後，以 CLI 參數明文傳給 `main.py`。  
+為確保資料來自合法 Lobby Server 而非偽造，採用 **Ed25519 非對稱簽章**：
 
 ```
- Launcher                             main.py
-    │                                    │
-    │  payload = {                       │
-    │    "local_id": 0,                  │
-    │    "players": [                    │
-    │      {"ip": "1.2.3.4",             │
-    │       "port": 10001, "id": 1}      │
-    │    ],                              │
-    │    "seed": 123456                  │
-    │  }                                 │
-    │                                    │
-    │  nonce = os.urandom(12)            │
-    │  ciphertext = ChaCha20(payload)    │
-    │  encoded = base64(nonce + cipher)  │
-    │                                    │
-    │── python main.py --payload <B64>─▶│
-    │                                    │
-    │                decrypt_payload()   │
-    │                → 取得 ip/port/seed │
-    │                → 建立 GGRSSession  │
+Lobby Server                  Launcher                         main.py
+     │                            │                               │
+     │  私鑰簽署                   │                               │
+     │  sign({host_id,            │                               │
+     │        match_id, seed})    │                               │
+     │                            │                               │
+     │── game_start (WS) ────────▶│                              │
+     │   { players, seed,         │                               │
+     │     sig: <Ed25519 sig> }   │                               │
+     │                            │                               │
+     │                            │── --payload <JSON+sig> ────▶ │
+     │                            │                               │
+     │                            │    讀 config/lobby_pubkey.txt │
+     │                            │    Ed25519 驗章               │
+     │                            │    → 驗章失敗則拒絕啟動        │
+     │                            │    → 驗章通過                 │
+     │                            │    → 建立 GGRSSession         │
 ```
 
-> **格式：** `Base64(Nonce[12 bytes] + Ciphertext)`
+| 金鑰 | 位置                                    | 說明                     |
+| ---- | --------------------------------------- | ------------------------ |
+| 私鑰 | Lobby Server `.env` `LOBBY_SIGNING_KEY` | 只有伺服器持有，永不分發 |
+| 公鑰 | 遊戲目錄 `config/lobby_pubkey.txt`      | 隨遊戲散佈，可公開       |
+
+> 簽章僅覆蓋 `{host_id, match_id, seed}` 三個影響對戰確定性的欄位。
+> IP / Port 等玩家資訊不在簽章範圍內，但同樣包含在 payload JSON 中。
 
 ---
 
@@ -981,14 +1092,14 @@ dist/BattleLite/
 Launcher 在開發模式下以 Python 腳本啟動 Game：
 
 ```
-python src/python/main.py --payload <B64>
+python src/python/main.py --payload <JSON+sig>
 ```
 
 在 frozen 模式下則呼叫同目錄的 `Game` 執行檔：
 
 ```
 dist/BattleLite/BattleLite.exe
-  └─ launches → dist/BattleLite/Game.exe --payload <B64>
+  └─ launches → dist/BattleLite/Game.exe --payload <JSON+sig>
 ```
 
 ### 資源根目錄
@@ -1085,18 +1196,25 @@ pytest tests/test_physics.py -v
 
 ### 遊戲內快捷鍵
 
-| 按鍵            | 功能                                |
-| --------------- | ----------------------------------- |
-| ESC             | 離開遊戲                            |
-| 上下左右 / WASD | 移動（依設定的按鍵組合）            |
-| Z / J           | 攻擊（依設定的按鍵組合）            |
-| X / K           | 技能（依設定的按鍵組合）            |
-| Space           | 跳躍                                |
-| F1              | 切換 Debug、AI 資訊面板（離線模式） |
-| F2              | 切換受控角色（離線模式）            |
-| F3              | 切換角色職業（離線模式）            |
-| P               | 暫停 / 繼續（離線模式）             |
-| R               | 重新開始回合（離線模式）            |
+| 按鍵               | 功能                    |
+| ------------------ | ----------------------- |
+| ---（按鍵組合）--- |                         |
+| ESC                | 離開遊戲                |
+| 上下左右 / WASD    | 移動                    |
+| Z / J              | 攻擊                    |
+| X / K              | 技能                    |
+| Space              | 跳躍                    |
+| ---（離線模式）--- |                         |
+| F1                 | 切換 Debug、AI 資訊面板 |
+| F2                 | 切換受控角色            |
+| F3                 | 切換角色職業            |
+| P                  | 暫停 / 繼續             |
+| R                  | 重新開始回合            |
+| ---（重播模式）--- |                         |
+| P                  | 暫停 / 繼續重播         |
+| 1                  | 重播速度 0.5x           |
+| 2                  | 重播速度 1.0x           |
+| 3                  | 重播速度 2.0x           |
 
 ---
 

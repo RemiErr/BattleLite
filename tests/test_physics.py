@@ -57,9 +57,9 @@ def test_attack_hit_detection():
     p1.facing_right = False
     assert p1.check_attack_hit(p2) is False
     
-    # 測試高度差避開
+    # 測試高度差避開（預設 hurt_half_h=50000, ability half_h=5000，閾值=55000）
     p1.facing_right = True
-    p2.z = 10000 # 跳很高
+    p2.z = 60000
     assert p1.check_attack_hit(p2) is False
 
 # --- 4. 數值系統測試 ---

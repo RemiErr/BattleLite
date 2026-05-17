@@ -15,10 +15,13 @@ class MatchManager:
         self._char_assets = char_assets
         self._fx_manager = fx_manager
         self._hud = hud
+        self._reset_state()
 
+    def _reset_state(self) -> None:
+        """重置所有純量對戰狀態欄位，不碰 session 或資源。"""
         self.match_result: int | None = None
-        self.player_elapsed_frames: list[int] = [0] * num_players
-        self.last_states: list[int] = [STATE_IDLE] * num_players
+        self.player_elapsed_frames: list[int] = [0] * self._num_players
+        self.last_states: list[int] = [STATE_IDLE] * self._num_players
         self.paused: bool = False
         self.countdown_frames: int = 3 * 60
         self._result_submitted: bool = False
@@ -51,10 +54,7 @@ class MatchManager:
             p.shield_hp = 0
             self._session.set_player(i, p)
         spawn_fn(self._session, self._num_players)
-        self.match_result = None
-        self.player_elapsed_frames = [0] * self._num_players
-        self.last_states = [STATE_IDLE] * self._num_players
-        self._result_submitted = False
+        self._reset_state()
         self._fx_manager.effects_front.clear()
         self._fx_manager.effects_behind.clear()
         self._fx_manager._player_fx.clear()

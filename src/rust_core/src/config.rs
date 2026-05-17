@@ -6,11 +6,12 @@ pub(crate) const MAX_HP: i32 = 100000;
 pub(crate) const MAX_MP: i32 = 50000;
 pub(crate) const MP_REGEN: i32 = 50;
 
-pub(crate) const STATE_IDLE: u8 = 0;
-pub(crate) const STATE_WALK: u8 = 1;
-// Action state IDs (2, 4, …) are Python-defined via AbilityConfig.state_id
-pub(crate) const STATE_HURT: u8 = 3;
-pub(crate) const STATE_DEAD: u8 = 5;
+pub(crate) const STATE_IDLE:   u8 = 0;
+pub(crate) const STATE_WALK:   u8 = 1;
+pub(crate) const STATE_ATTACK: u8 = 2;
+pub(crate) const STATE_HURT:   u8 = 3;
+pub(crate) const STATE_SKILL:  u8 = 4;
+pub(crate) const STATE_DEAD:   u8 = 5;
 
 pub(crate) const INPUT_RIGHT:  u8 = 1 << 0;
 pub(crate) const INPUT_LEFT:   u8 = 1 << 1;

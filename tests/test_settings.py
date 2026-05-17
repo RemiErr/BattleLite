@@ -26,7 +26,8 @@ def test_settings_manager_defaults():
     
     assert settings["nickname"] == "Player"
     assert settings["volume"] == 50
-    assert settings["window_size"] == [800, 600]
+    assert "window_pos" in settings
+    assert settings["fullscreen"] is False
     
     if os.path.exists(test_file):
         os.remove(test_file)

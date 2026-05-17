@@ -23,5 +23,9 @@ pillow==12.2.0
 websockets==16.0
 python-dotenv==1.2.2
 
+# --- Replay 壓縮 ---
+msgpack>=1.0
+zstandard>=0.21
+
 # --- 打包 ---
 pyinstaller==6.20.0

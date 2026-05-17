@@ -17,15 +17,8 @@ pub struct OfflineSession {
 impl OfflineSession {
     #[new]
     fn new(num_players: usize) -> Self {
-        let spawn_points = [
-            (200000, 300000), (824000, 300000),
-            (200000, 450000), (824000, 450000),
-        ];
-        let players = (0..num_players).map(|i| {
-            let mut p = Player::new();
-            if i < spawn_points.len() { p.x = spawn_points[i].0; p.y = spawn_points[i].1; }
-            p
-        }).collect();
+        // spawn 座標由 Python _set_spawn_positions() 在 session.advance() 前設定
+        let players = (0..num_players).map(|_| Player::new()).collect();
         let configs = (0..5).map(|_| CharConfig::default()).collect();
         OfflineSession {
             state: GameState { players, frame: 0, entities: Vec::new() },

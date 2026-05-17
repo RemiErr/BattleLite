@@ -1,6 +1,7 @@
 import json
 import os
-from src.python.replay import get_replay_dir
+from src.python.replay import get_replay_dir, REPLAY_FORMAT_VERSION
+from src.python.replay.codec import encode_frames
 
 
 class ReplayWriter:
@@ -19,9 +20,10 @@ class ReplayWriter:
         path = os.path.join(d, fname)
         data = {
             **self._header,
-            "winner": winner,
+            "version":      REPLAY_FORMAT_VERSION,
+            "winner":       winner,
             "total_frames": len(self._frames),
-            "frames": self._frames,
+            "frames":       encode_frames(self._frames),
         }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
