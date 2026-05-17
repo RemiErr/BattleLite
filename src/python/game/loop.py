@@ -354,6 +354,7 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             if not session.is_synchronized() or mm.countdown_frames > 0:
                 session.advance([0] * num_players)
 
+        _frames_this_tick = 0
         if mm.match_result is None and not mm.paused and mm.countdown_frames == 0:
             prev_z = [session.get_player(i).z for i in range(num_players)]
             prev_entity_count = session.get_entity_count()
@@ -368,6 +369,7 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                             mm.match_result = -2
                             break
                         session.advance(inp)
+                        _frames_this_tick += 1
                         _advance_budget -= 1.0
 
             elif is_offline:
@@ -401,6 +403,7 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                     else:
                         inputs.append(0)
                 session.advance(inputs)
+                _frames_this_tick = 1
 
             else:
                 inputs = [0] * num_players
@@ -428,6 +431,7 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                         goap_replan_budget -= 1
                     inputs[pid] = mask
                 session.advance(inputs)
+                _frames_this_tick = 1
                 if _replay_writer:
                     _replay_writer.append_frame(session.get_last_inputs())
 
@@ -563,7 +567,7 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                 mm.player_elapsed_frames[i] = 0
                 mm.last_states[i] = p.state
             elif p.hitstop == 0:
-                mm.player_elapsed_frames[i] += 1
+                mm.player_elapsed_frames[i] += _frames_this_tick
             render_list.append((i, p))
         render_list.sort(key=lambda item: item[1].y)
 
