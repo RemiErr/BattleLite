@@ -488,6 +488,7 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                             from src.python.session.adapter import OfflineAdapter as _OA
                             if isinstance(session, _OA):
                                 is_offline = True
+                            _sync_start_frame = None
                             host_id = new_host_id
                             i_am_host = (controlled_idx == new_host_id)
                             config["host_id"] = new_host_id
