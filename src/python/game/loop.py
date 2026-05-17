@@ -247,6 +247,7 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
     mm = MatchManager(session, num_players, char_assets, fx_manager, hud)
     switch_player = 0
     sync_wait_frames = 0
+    _sync_start_frame: int | None = None
     _prev_dc_mask = 0
     _dc_notices:  list[tuple[str, int]] = []
     _DC_NOTICE_FRAMES = 180
@@ -343,9 +344,17 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
 
         # 1. 邏輯推進
         input_mask = 0 if is_replay else get_input_mask(key_map)
-        if mm.countdown_frames > 0 and (is_offline or session.is_synchronized()):
-            mm.countdown_frames -= 1
-            input_mask = 0
+        if is_offline:
+            if mm.countdown_frames > 0:
+                mm.countdown_frames -= 1
+                input_mask = 0
+        elif not is_replay and session.is_synchronized():
+            if _sync_start_frame is None:
+                _sync_start_frame = session.current_frame()
+            mm.countdown_frames = max(
+                0, (3 * 60) - (session.current_frame() - _sync_start_frame))
+            if mm.countdown_frames > 0:
+                input_mask = 0
 
         # 線上模式每幀都需 poll GGRS，否則握手永遠無法完成：
         #   - 握手期（Synchronizing）：Rust 層不推進 frame，僅交換 SyncRequest/Reply
@@ -466,6 +475,9 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                                 config, session, new_host_id,
                                 num_players, char_assets, apply_char_config,
                             )
+                            from src.python.session.adapter import OfflineAdapter as _OA
+                            if isinstance(session, _OA):
+                                is_offline = True
                             host_id = new_host_id
                             i_am_host = (controlled_idx == new_host_id)
                             config["host_id"] = new_host_id

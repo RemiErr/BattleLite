@@ -15,6 +15,15 @@ class _SessionAdapterBase:
     def __init__(self, session):
         self._s = session
 
+    def advance(self, inputs: list) -> None:
+        raise NotImplementedError
+
+    def get_last_inputs(self) -> list:
+        raise NotImplementedError
+
+    def clear_entities(self) -> None:
+        raise NotImplementedError
+
     def get_player(self, pid: int):
         return self._s.get_player(pid)
 
@@ -57,6 +66,9 @@ class OfflineAdapter(_SessionAdapterBase):
 
     def clear_entities(self) -> None:
         self._s.clear_entities()
+
+    def is_synchronized(self) -> bool:
+        return True
 
     def get_disconnected_mask(self) -> int:
         return 0
