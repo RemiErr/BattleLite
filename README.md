@@ -35,6 +35,7 @@ BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透�
   - [七、 網路架構](#七-網路架構)
     - [整體連線流程](#整體連線流程)
     - [Lobby Server（Signaling Server）](#lobby-serversignaling-server)
+    - [Host 轉移機制](#host-轉移機制)
     - [排行榜與牌位統計](#排行榜與牌位統計)
   - [八、 STUN 探測與 NAT 打洞](#八-stun-探測與-nat-打洞)
     - [為什麼需要 STUN？](#為什麼需要-stun)
@@ -45,6 +46,8 @@ BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透�
     - [什麼是 Rollback Netcode？](#什麼是-rollback-netcode)
     - [GGRS 在 BattleLite 的實作](#ggrs-在-battlelite-的實作)
     - [確定性要求](#確定性要求)
+    - [GGRS 同步前置條件](#ggrs-同步前置條件)
+    - [開場倒計時同步](#開場倒計時同步)
     - [輸入延遲（Input Delay）](#輸入延遲input-delay)
   - [十、 Session 啟動流程](#十-session-啟動流程)
     - [安全的 Session 資料傳遞](#安全的-session-資料傳遞)
@@ -117,8 +120,13 @@ BattleLite/
 │   ├── main.py                  # 遊戲入口：解析 payload、建立 session
 │   ├── app_root.py              # 定義資源根目錄
 │   ├── session/
-│   │   ├── adapter.py           # OfflineAdapter / GGRSAdapter
-│   │   └── char_config.py       # 調度角色參數
+│   │   ├── adapter.py           # OfflineAdapter / GGRSAdapter（統一介面）
+│   │   ├── char_config.py       # 調度角色參數
+│   │   └── migration.py         # Host 斷線後的 Session 重建邏輯
+│   ├── replay/
+│   │   ├── writer.py            # 錄製回放（寫入輸入序列）
+│   │   ├── reader.py            # 讀取回放（逐幀還原輸入）
+│   │   └── codec.py             # 回放格式序列化
 │   ├── game/
 │   │   ├── input_manager.py     # 按鍵常數、按鍵映射等
 │   │   ├── match_manager.py     # 勝負判定、開場倒數等
@@ -209,6 +217,16 @@ Pygame Renderer / HUD / FX / SFX
   GGRSSession P2P
       │
       └─ room_code 符合 __queue_xxx__，結果寫入 leaderboard DB
+
+重播模式
+  main.py --replay <path>
+      │
+      ▼
+  ReplayReader 逐幀還原輸入
+      │
+      ├─ P：暫停 / 繼續
+      ├─ 1 / 2 / 3：0.5x / 1x / 2x 速度
+      └─ 封鎖所有移動 / 攻擊 / 技能鍵（純觀戰）
 ```
 
 Launcher 呼叫 Game 流程：
@@ -497,6 +515,33 @@ WebSocket 訊息類型:
   game_start      → 打洞等待後，通知正式開始（2 秒延遲）
 ```
 
+### Host 轉移機制
+
+Host 斷線時，從剩餘玩家中自動選出新 Host（player_id 最小者）。  
+**牌位賽不會觸發轉移機制**，直接結算遊戲。
+
+```
+觸發條件:
+  get_disconnected_mask() 偵測到 host_id 位元 → alive_ids 非空
+  且 room_code 不符合 __queue_xxx__（排除牌位賽）
+
+轉移流程:
+  1. 遊戲暫停，顯示「Host 轉移中 / 新 Host：<玩家名>」 2.5 秒
+  2. rebuild_after_host_death() 快照玩家狀態 → 釋放舊 session
+  3. 判斷是否還有其他人類遠端：
+
+     2P + 2AI（只剩本地玩家）:
+       → OfflineSession，繼續與 AI 在本地對戰
+       → is_offline = True，不再觸發 GGRS 相關流程
+
+     3P + 1AI（仍有人類遠端）:
+       → 重建 GGRSSession，排除已斷線的舊 Host
+       → 新 Host 接管 AI bot_ids，其他玩家 AI 槽指向新 Host 端點
+       → 重新握手 + 倒數 3 秒後繼續遊戲
+
+  4. mm._session 同步更新，MatchManager 使用新 session
+```
+
 ### 排行榜與牌位統計
 
 排行榜只統計「牌位賽」結果。自訂房間與離線模式不影響段位。
@@ -672,6 +717,30 @@ SaveGameState → LoadGameState → N × AdvanceFrame
   >  不依賴時間（wall clock）
 ```
 
+### GGRS 同步前置條件
+
+握手（Synchronizing）與倒計時（Running, countdown > 0）期間，每幀必須呼叫 `advance([0]*n)`，否則 `SyncRequest / SyncReply` 無法完成，`is_synchronized()` 永遠不會變 True：
+
+```
+while not is_synchronized():
+    session.advance([0] * num_players)   # 驅動封包交換，不推進遊戲幀
+
+while countdown_frames > 0:
+    session.advance([0] * num_players)   # 維持心跳，GGRS 正常推進空幀
+```
+
+### 開場倒計時同步
+
+倒計時以 `session.current_frame()`（GGRS 保證兩端一致）為基準，而非本地 render 幀：
+
+```python
+if _sync_start_frame is None:
+    _sync_start_frame = session.current_frame()
+countdown_frames = max(0, 180 - (session.current_frame() - _sync_start_frame))
+```
+
+Host 握手只需 1 次（1 個遠端），Client 可能需多次（多個遠端指向同一端點），完成時間不同。以 GGRS 幀為基準可讓雙方始終看到相同的倒計時數值。
+
 ### 輸入延遲（Input Delay）
 
 ```
@@ -694,7 +763,7 @@ SessionBuilder 加入 .with_input_delay(2) 啟用。
 
 ### 安全的 Session 資料傳遞
 
-Launcher 從 Lobby Server 取得對戰資訊後，以 CLI 參數明文傳給 `main.py`。
+Launcher 從 Lobby Server 取得對戰資訊後，以 CLI 參數明文傳給 `main.py`。  
 為確保資料來自合法 Lobby Server 而非偽造，採用 **Ed25519 非對稱簽章**：
 
 ```
@@ -1092,18 +1161,25 @@ pytest tests/test_physics.py -v
 
 ### 遊戲內快捷鍵
 
-| 按鍵            | 功能                                |
-| --------------- | ----------------------------------- |
-| ESC             | 離開遊戲                            |
-| 上下左右 / WASD | 移動（依設定的按鍵組合）            |
-| Z / J           | 攻擊（依設定的按鍵組合）            |
-| X / K           | 技能（依設定的按鍵組合）            |
-| Space           | 跳躍                                |
-| F1              | 切換 Debug、AI 資訊面板（離線模式） |
-| F2              | 切換受控角色（離線模式）            |
-| F3              | 切換角色職業（離線模式）            |
-| P               | 暫停 / 繼續（離線模式）             |
-| R               | 重新開始回合（離線模式）            |
+| 按鍵               | 功能                    |
+| ------------------ | ----------------------- |
+| ---（按鍵組合）--- |                         |
+| ESC                | 離開遊戲                |
+| 上下左右 / WASD    | 移動                    |
+| Z / J              | 攻擊                    |
+| X / K              | 技能                    |
+| Space              | 跳躍                    |
+| ---（離線模式）--- |                         |
+| F1                 | 切換 Debug、AI 資訊面板 |
+| F2                 | 切換受控角色            |
+| F3                 | 切換角色職業            |
+| P                  | 暫停 / 繼續             |
+| R                  | 重新開始回合            |
+| ---（重播模式）--- |                         |
+| P                  | 暫停 / 繼續重播         |
+| 1                  | 重播速度 0.5x           |
+| 2                  | 重播速度 1.0x           |
+| 3                  | 重播速度 2.0x           |
 
 ---
 
