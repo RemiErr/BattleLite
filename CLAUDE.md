@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-BattleLite is a 2D side-scrolling brawler inspired by Little Fighter 2, supporting 4-player multiplayer via P2P rollback netcode (GGRS). The architecture splits concerns between two runtimes: **Rust is the Brain, Python is the Skin**.
+BattleLite is a 4-player 2D brawler built from scratch with P2P rollback netcode (GGRS) as a core design goal. The architecture splits concerns between two runtimes: **Rust is the Brain, Python is the Skin**.
 
 ## Development Setup
 
@@ -89,7 +89,20 @@ Launcher → (STUN probe) → Lobby → (room full) → Lobby signs `{match_id, 
 
 **Determinism (non-negotiable for rollback):** All physics lives in Rust with fixed-point `i32` arithmetic (×1000 scale). No floats, no `std::rand` — use seeded PRNG. Any state that affects gameplay must flow through `perform_tick()`.
 
-**Input format:** 1-byte bitmask `[RIGHT|LEFT|UP|DOWN|JUMP|ATTACK|SKILL]` (bits 0–6).
+**Input format:** 1-byte bitmask `[RIGHT|LEFT|UP|DOWN|JUMP|ATTACK|SKILL]` (bits 0–6). No combo-input system — all abilities are single-button triggered.
+
+**Adding a new character requires changes in 6 places:**
+1. `main.py` — add import and register in `_build_char_assets()` dict
+2. `launcher.py` — append to `CHAR_NAMES` list
+3. `lobby_server/main.py` — append to `CHAR_NAMES` dict
+4. `ai/factory.py` — update comment and AI behaviour if needed
+5. Rust `ggrs_session.rs` + `offline_session.rs` — increment `(0..5)` to `(0..N)` and recompile
+6. New `assets_manager/characters/<name>.py` + `src/assets/char/<name>/` sprite sheet
+
+**Known technical debt:**
+- Desync is silently ignored (`advance_frame()` errors are swallowed) — no in-game notification or recovery
+- No TURN relay fallback; symmetric NAT peers cannot connect
+- AI is driven by the host client; host disconnect freezes all AI players
 
 **WSL2 quirks:**
 - Rust compiled in WSL2 produces a Linux `.so` — not usable on Windows native. Every dev device must compile its own `battlelite_core`.
