@@ -102,6 +102,7 @@ def _gen_room_code(length: int = 6) -> str:
 # ── 常數 ─────────────────────────────────────────────────────────────────
 
 _PRESET_LABELS = ["方向鍵 + Z/X", "WASD + J/K"]
+_PLAYERS_MAX = 20  # 對戰紀錄畫面玩家名稱過長時的截斷長度（實際會有滾動顯示）
 
 
 # ── 主應用程式 ────────────────────────────────────────────────────────────
@@ -586,8 +587,35 @@ class LauncherApp(ctk.CTk):
 
         ctk.CTkLabel(info_f, text=ts_disp, font=_font(11),
                      text_color="gray70", width=110, anchor="w").pack(side="left", padx=2)
-        ctk.CTkLabel(info_f, text=players_str, font=_font(11),
-                     width=130, anchor="w").pack(side="left", padx=4)
+        players_short = (
+            players_str[:_PLAYERS_MAX] + "…") if len(players_str) > _PLAYERS_MAX else players_str
+        players_lbl = ctk.CTkLabel(info_f, text=players_short, font=_font(11),
+                                   width=130, anchor="w")
+        players_lbl.pack(side="left", padx=4)
+        if len(players_str) > _PLAYERS_MAX:
+            _padded = players_str + "    "
+            _state = {"job": None, "pos": 0}
+
+            def _tick(lbl=players_lbl, st=_state, full=_padded, mx=_PLAYERS_MAX):
+                doubled = full * 2
+                lbl.configure(text=doubled[st["pos"]: st["pos"] + mx])
+                st["pos"] = (st["pos"] + 1) % len(full)
+                st["job"] = lbl.after(120, _tick)
+
+            def _on_enter(_e, lbl=players_lbl, st=_state):
+                st["pos"] = 0
+                if st["job"] is None:
+                    _tick()
+
+            def _on_leave(_e, lbl=players_lbl, st=_state, short=players_short):
+                if st["job"]:
+                    lbl.after_cancel(st["job"])
+                    st["job"] = None
+                lbl.configure(text=short)
+
+            players_lbl.bind("<Enter>", _on_enter)
+            players_lbl.bind("<Leave>", _on_leave)
+
         ctk.CTkLabel(info_f, text=dur_str, font=_font(11),
                      text_color="gray60", width=55, anchor="w").pack(side="right", padx=4)
         ctk.CTkLabel(info_f, text=f"勝者: {winner_str}", font=_font(11),
