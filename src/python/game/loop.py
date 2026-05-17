@@ -24,7 +24,7 @@ from src.python.replay.writer import ReplayWriter
 from src.python.replay.reader import ReplayReader
 
 # --- 世界邊界與出生點 ---
-WORLD_PX_W  = SCREEN_W * 3
+WORLD_PX_W = SCREEN_W * 3
 WORLD_X_MIN = 0
 WORLD_X_MAX = WORLD_PX_W * 1000
 WORLD_Y_MIN = 250_000
@@ -43,11 +43,10 @@ def _set_spawn_positions(session, num_players: int):
         session.set_player(i, p)
 
 
-
 def _submit_result(config: dict, controlled_idx: int, char_type: int, match_result: int):
     import urllib.request
     lobby_url = config.get("lobby_url", "")
-    match_id  = config.get("match_id", "")
+    match_id = config.get("match_id", "")
     if not lobby_url or not match_id:
         return
     if match_result == controlled_idx:
@@ -56,7 +55,8 @@ def _submit_result(config: dict, controlled_idx: int, char_type: int, match_resu
         result = "draw"
     else:
         result = "lose"
-    num_human = config.get("num_players", 2) - len(config.get("ai_players", {}))
+    num_human = config.get("num_players", 2) - \
+        len(config.get("ai_players", {}))
     payload = json.dumps({
         "match_id":    match_id,
         "room_code":   config.get("room", ""),
@@ -129,7 +129,7 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
     pygame.display.set_caption(f"BattleLite - {config['nickname']}")
     clock = pygame.time.Clock()
     debug_manager = DebugManager()
-    fx_manager    = FxManager()
+    fx_manager = FxManager()
 
     # --- 角色資源與 Session（需在 display 初始化後建立）---
     char_assets = build_char_assets()
@@ -139,11 +139,12 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             [(p["ip"], p["port"]) for p in config.get("players", [])
              if p["id"] != config["local_id"]],
         )
-    session     = build_session(char_assets)
+    session = build_session(char_assets)
 
     # --- 載入設定（音量 + 按鍵組合）---
     if getattr(sys, 'frozen', False):
-        _settings_path = os.path.join(os.path.dirname(sys.executable), 'settings.json')
+        _settings_path = os.path.join(
+            os.path.dirname(sys.executable), 'settings.json')
     else:
         _settings_path = os.path.join(PROJECT_ROOT, 'settings.json')
     _vol, _preset_idx = 50, 0
@@ -152,21 +153,22 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
         try:
             with open(_settings_path) as f:
                 s = json.load(f)
-                _vol        = s.get("volume", 50)
+                _vol = s.get("volume", 50)
                 _preset_idx = int(s.get("key_preset", 0))
                 _bg_enabled = s.get("background_enabled", True)
-                _bg_id      = int(s.get("background_id", 1))
+                _bg_id = int(s.get("background_id", 1))
         except Exception:
             pass
 
     sfx_manager = SfxManager(volume=_vol / 100.0)
-    key_map     = load_key_map(_preset_idx)
+    key_map = load_key_map(_preset_idx)
 
     _BG_PARALLAX = 0.3
-    _BG_W        = SCREEN_W + int((WORLD_PX_W - SCREEN_W) * _BG_PARALLAX) + 1
-    _bg_surface  = None
+    _BG_W = SCREEN_W + int((WORLD_PX_W - SCREEN_W) * _BG_PARALLAX) + 1
+    _bg_surface = None
     if _bg_enabled:
-        _bg_path = os.path.join(PROJECT_ROOT, "src", "assets", "background", f"{_bg_id}.png")
+        _bg_path = os.path.join(PROJECT_ROOT, "src",
+                                "assets", "background", f"{_bg_id}.png")
         if os.path.exists(_bg_path):
             try:
                 _raw = pygame.image.load(_bg_path).convert()
@@ -176,7 +178,8 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                 print(f"[WARN] 背景圖載入失敗: {e}")
 
     # --- HUD、SFX 初始化 ---
-    player_names: dict[int, str] = {config["local_id"]: config.get("nickname", "Player")}
+    player_names: dict[int, str] = {
+        config["local_id"]: config.get("nickname", "Player")}
     for p_info in config.get("players", []):
         if "nickname" in p_info:
             player_names[p_info["id"]] = p_info["nickname"]
@@ -184,38 +187,40 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
     for ct, asset in char_assets.items():
         sfx_manager.register(ct, asset.sfx)
 
-    _arrow_path = os.path.join(PROJECT_ROOT, "src", "assets", "HUD", "arrow-down.png")
+    _arrow_path = os.path.join(
+        PROJECT_ROOT, "src", "assets", "HUD", "arrow-down.png")
     try:
         _arrow_img = pygame.image.load(_arrow_path).convert_alpha()
     except Exception:
         _arrow_img = None
 
     # --- 字型 ---
-    font_path = os.path.join(PROJECT_ROOT, "src/assets/fonts/NotoSansTC-VariableFont_wght.ttf")
+    font_path = os.path.join(
+        PROJECT_ROOT, "src/assets/fonts/NotoSansTC-VariableFont_wght.ttf")
     if os.path.exists(font_path):
-        result_font_big   = pygame.font.SysFont("Arial", 56, bold=True)
+        result_font_big = pygame.font.SysFont("Arial", 56, bold=True)
         result_font_small = pygame.font.Font(font_path, 24)
-        wait_font         = pygame.font.SysFont("Arial", 36, bold=True)
-        info_font         = pygame.font.Font(font_path, 16)
+        wait_font = pygame.font.SysFont("Arial", 36, bold=True)
+        info_font = pygame.font.Font(font_path, 16)
     else:
-        result_font_big   = pygame.font.SysFont("Arial", 56, bold=True)
+        result_font_big = pygame.font.SysFont("Arial", 56, bold=True)
         result_font_small = pygame.font.SysFont("Arial", 24)
-        wait_font         = pygame.font.SysFont("Arial", 36, bold=True)
-        info_font         = pygame.font.SysFont("Arial", 16)
+        wait_font = pygame.font.SysFont("Arial", 36, bold=True)
+        info_font = pygame.font.SysFont("Arial", 16)
 
     # --- 場次設定 ---
-    is_offline     = config["is_offline"]
-    num_players    = config["num_players"]
+    is_offline = config["is_offline"]
+    num_players = config["num_players"]
     controlled_idx = config["local_id"]
-    host_id        = config.get("host_id", 0)
-    i_am_host      = is_offline or (controlled_idx == host_id)
-    is_replay      = bool(config.get("replay_path"))
+    host_id = config.get("host_id", 0)
+    i_am_host = is_offline or (controlled_idx == host_id)
+    is_replay = bool(config.get("replay_path"))
 
     # 線上模式或重播：依 payload / replay header 初始化各玩家角色
     if not is_offline or is_replay:
         for p_info in config.get("players", []):
             pid = p_info.get("id", 0)
-            ct  = p_info.get("char_type", 0)
+            ct = p_info.get("char_type", 0)
             if 0 <= pid < num_players and ct in char_assets:
                 p = session.get_player(pid)
                 p.character_type = ct
@@ -228,7 +233,7 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
     seed = config.get("seed", 0)
     for p_id_str, ai_info in config.get("ai_players", {}).items():
         pid = int(p_id_str)
-        ct  = ai_info.get("char_type", 0)
+        ct = ai_info.get("char_type", 0)
         if 0 <= pid < num_players and ct in char_assets:
             p = session.get_player(pid)
             p.character_type = ct
@@ -240,9 +245,9 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
     _set_spawn_positions(session, num_players)
 
     mm = MatchManager(session, num_players, char_assets, fx_manager, hud)
-    switch_player    = 0
+    switch_player = 0
     sync_wait_frames = 0
-    _prev_dc_mask    = 0
+    _prev_dc_mask = 0
     _dc_notices:  list[tuple[str, int]] = []
     _DC_NOTICE_FRAMES = 180
     _migrated_hosts: set[int] = set()
@@ -255,7 +260,7 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                        for p in config.get("players", [])]
         for _pid_str, _ai in config.get("ai_players", {}).items():
             _rp_players.append({"id": int(_pid_str), "nickname": "CPU",
-                                 "char_type": _ai.get("char_type", 0)})
+                                "char_type": _ai.get("char_type", 0)})
         _rp_players.sort(key=lambda x: x["id"])
         _replay_writer = ReplayWriter({
             "timestamp":   datetime.datetime.now().isoformat(timespec="seconds"),
@@ -266,9 +271,10 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             "seed":        config.get("seed", 0),
             "players":     _rp_players,
         })
-    _reader: ReplayReader | None = ReplayReader(config["replay_path"]) if is_replay else None
-    _replay_paused  = False
-    _replay_speed   = 1.0
+    _reader: ReplayReader | None = ReplayReader(
+        config["replay_path"]) if is_replay else None
+    _replay_paused = False
+    _replay_speed = 1.0
     _advance_budget = 0.0
 
     _perf_enabled = os.environ.get("DEBUG_PERF") == "1"
@@ -311,16 +317,19 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                         if is_replay:
                             _reader = ReplayReader(config["replay_path"])
                             _advance_budget = 0.0
-                            _replay_paused  = False
+                            _replay_paused = False
                         mm.restart(_set_spawn_positions)
                     continue
                 if event.key == pygame.K_F1 and is_offline:
                     debug_manager.toggle()
                 if event.key == pygame.K_F2 and is_offline:
                     player_names.pop(controlled_idx, None)
-                    switch_player  = (switch_player + 1) % num_players
+                    switch_player = (switch_player + 1) % num_players
                     controlled_idx = switch_player
-                    player_names[controlled_idx] = config.get("nickname", "Player")
+                    player_names[controlled_idx] = config.get(
+                        "nickname", "Player")
+                if is_replay:
+                    continue  # 封鎖其他所有鍵
                 if event.key == pygame.K_F3 and is_offline:
                     p = session.get_player(controlled_idx)
                     new_type = (p.character_type + 1) % len(char_assets)
@@ -333,7 +342,7 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                     mm.last_states[controlled_idx] = STATE_IDLE
 
         # 1. 邏輯推進
-        input_mask = get_input_mask(key_map)
+        input_mask = 0 if is_replay else get_input_mask(key_map)
         if mm.countdown_frames > 0 and (is_offline or session.is_synchronized()):
             mm.countdown_frames -= 1
             input_mask = 0
@@ -346,7 +355,7 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                 session.advance([0] * num_players)
 
         if mm.match_result is None and not mm.paused and mm.countdown_frames == 0:
-            prev_z            = [session.get_player(i).z for i in range(num_players)]
+            prev_z = [session.get_player(i).z for i in range(num_players)]
             prev_entity_count = session.get_entity_count()
 
             if is_replay:
@@ -378,7 +387,8 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                         ]
                         opp_p = min(
                             alive_opponents,
-                            key=lambda q: max(abs(ai_p.x - q.x), abs(ai_p.y - q.y)),
+                            key=lambda q: max(
+                                abs(ai_p.x - q.x), abs(ai_p.y - q.y)),
                             default=session.get_player(controlled_idx),
                         )
                         ctrl = ai_controllers[pid]
@@ -407,7 +417,8 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                     ]
                     opp_p = min(
                         alive_opponents,
-                        key=lambda q: max(abs(ai_p.x - q.x), abs(ai_p.y - q.y)),
+                        key=lambda q: max(abs(ai_p.x - q.x),
+                                          abs(ai_p.y - q.y)),
                         default=session.get_player(controlled_idx),
                     )
                     if hasattr(controller, 'set_replan_budget'):
@@ -428,7 +439,8 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                     for _i in range(num_players):
                         if new_bits & (1 << _i):
                             _name = player_names.get(_i, f"Player {_i + 1}")
-                            _dc_notices.append((f"{_name} 已斷線", _DC_NOTICE_FRAMES))
+                            _dc_notices.append(
+                                (f"{_name} 已斷線", _DC_NOTICE_FRAMES))
                     _prev_dc_mask = cur_mask
 
                 if (mm.match_result is None
@@ -450,28 +462,30 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                                 config, session, new_host_id,
                                 num_players, char_assets, apply_char_config,
                             )
-                            host_id    = new_host_id
-                            i_am_host  = (controlled_idx == new_host_id)
+                            host_id = new_host_id
+                            i_am_host = (controlled_idx == new_host_id)
                             config["host_id"] = new_host_id
                             _prev_dc_mask = 0
                             if i_am_host:
                                 for _pid_str, _ai_info in config.get("ai_players", {}).items():
                                     _pid = int(_pid_str)
-                                    _ct  = _ai_info.get("char_type", 0)
+                                    _ct = _ai_info.get("char_type", 0)
                                     if _pid not in ai_controllers and _ct in char_assets:
                                         ai_controllers[_pid] = make_ai(
                                             _ct, _ai_info.get("level", 1), seed)
                             _dc_notices.append(
                                 (f"Host 轉移 → Player {new_host_id + 1}", _DC_NOTICE_FRAMES))
-                            print(f"[MIGRATION] host {host_id} → {new_host_id}")
+                            print(
+                                f"[MIGRATION] host {host_id} → {new_host_id}")
                         except Exception as _e:
-                            _dc_notices.append(("Host 轉移失敗", _DC_NOTICE_FRAMES))
+                            _dc_notices.append(
+                                ("Host 轉移失敗", _DC_NOTICE_FRAMES))
                             print(f"[MIGRATION ERROR] {_e}")
 
             # --- SFX 事件偵測 ---
             for i in range(num_players):
-                p      = session.get_player(i)
-                ct     = p.character_type
+                p = session.get_player(i)
+                ct = p.character_type
                 old_st = mm.last_states[i]
                 if p.state != old_st:
                     if p.state == STATE_HURT:
@@ -480,10 +494,11 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                             if j == i:
                                 continue
                             atk = session.get_player(j)
-                            ab  = char_assets.get(
+                            ab = char_assets.get(
                                 atk.character_type, char_assets[0]).get_ability(mm.last_states[j])
                             if ab and ab.melee_enabled:
-                                sfx_manager.on_hit(atk.character_type, mm.last_states[j])
+                                sfx_manager.on_hit(
+                                    atk.character_type, mm.last_states[j])
                                 break
                     elif p.state == STATE_DEAD:
                         sfx_manager.on_dead(ct)
@@ -517,8 +532,8 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
 
         # 2. 渲染
         _ctrl_p = session.get_player(controlled_idx)
-        cam_x   = _ctrl_p.x / 1000.0 - SCREEN_W / 2
-        cam_x   = max(0.0, min(cam_x, float(WORLD_PX_W - SCREEN_W)))
+        cam_x = _ctrl_p.x / 1000.0 - SCREEN_W / 2
+        cam_x = max(0.0, min(cam_x, float(WORLD_PX_W - SCREEN_W)))
 
         # --- 背景與場景 ---
         floor_y_min = WORLD_Y_MIN // 1000 + HUD_H
@@ -528,12 +543,16 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             screen.blit(_bg_surface, (int(-cam_x * _BG_PARALLAX), HUD_H))
         pygame.draw.rect(screen, (30, 30, 30),
                          (0, floor_y_min, SCREEN_W, floor_y_max - floor_y_min))
-        line_col  = (80, 80, 80) if _bg_surface else (45, 45, 45)
+        line_col = (80, 80, 80) if _bg_surface else (45, 45, 45)
         line_col2 = (95, 95, 95) if _bg_surface else (55, 55, 55)
-        pygame.draw.line(screen, line_col,  (0, floor_y_min), (SCREEN_W, floor_y_min), 1)
-        pygame.draw.line(screen, line_col,  (0, floor_y_max), (SCREEN_W, floor_y_max), 1)
-        pygame.draw.line(screen, line_col2, (0, 300 + HUD_H),  (SCREEN_W, 300 + HUD_H),  1)
-        pygame.draw.line(screen, line_col2, (0, 450 + HUD_H),  (SCREEN_W, 450 + HUD_H),  1)
+        pygame.draw.line(screen, line_col,  (0, floor_y_min),
+                         (SCREEN_W, floor_y_min), 1)
+        pygame.draw.line(screen, line_col,  (0, floor_y_max),
+                         (SCREEN_W, floor_y_max), 1)
+        pygame.draw.line(screen, line_col2, (0, 300 + HUD_H),
+                         (SCREEN_W, 300 + HUD_H),  1)
+        pygame.draw.line(screen, line_col2, (0, 450 + HUD_H),
+                         (SCREEN_W, 450 + HUD_H),  1)
 
         state_changed: dict[int, bool] = {}
         render_list = []
@@ -542,7 +561,7 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             state_changed[i] = (p.state != mm.last_states[i])
             if state_changed[i]:
                 mm.player_elapsed_frames[i] = 0
-                mm.last_states[i]           = p.state
+                mm.last_states[i] = p.state
             elif p.hitstop == 0:
                 mm.player_elapsed_frames[i] += 1
             render_list.append((i, p))
@@ -556,16 +575,18 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                                 (int(sx - 25), int(sy + p.z / 1000.0), 50, 14))
 
         for eid in range(session.get_entity_count()):
-            e    = session.get_entity(eid)
-            ex   = int(e.x / 1000.0 - cam_x)
-            ey   = int((e.y / 1000.0) - (e.z / 1000.0) + HUD_H)
-            ab   = char_assets.get(e.character_type, char_assets[0]).get_ability(e.ability_state_id)
+            e = session.get_entity(eid)
+            ex = int(e.x / 1000.0 - cam_x)
+            ey = int((e.y / 1000.0) - (e.z / 1000.0) + HUD_H)
+            ab = char_assets.get(e.character_type, char_assets[0]).get_ability(
+                e.ability_state_id)
             hdef = ab.hit_box if ab else None
             if hdef is not None:
                 shadow_gy = int(ey + hdef.oy + hdef.h + e.z / 1000.0)
             else:
                 shadow_gy = int(e.y / 1000.0 + HUD_H)
-            shadow_w = max(8, int(30 * (ab.proj_fx.scale if ab and ab.proj_fx else 1.0)))
+            shadow_w = max(
+                8, int(30 * (ab.proj_fx.scale if ab and ab.proj_fx else 1.0)))
             pygame.draw.ellipse(screen, (10, 10, 10),
                                 (ex - shadow_w // 2, shadow_gy - 4, shadow_w, 8))
 
@@ -605,24 +626,28 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
 
             if p.state == STATE_WALK and p.z == 0 and mm.player_elapsed_frames[original_idx] % 12 == 0:
                 heel_offset = 20 if p.facing_right else -20
-                fx_path = os.path.join(PROJECT_ROOT, "src/assets/fx/13 - Copie.png")
+                fx_path = os.path.join(
+                    PROJECT_ROOT, "src/assets/fx/13 - Copie.png")
                 p_vx = -1.2 if p.facing_right else 1.2
                 fx_manager.spawn(fx_path, 126, 116, sx - heel_offset, sy,
                                  speed=4, scale=0.3, vy=-0.7, vx=p_vx, layer="behind")
 
             if is_offline and debug_manager.enabled and original_idx == controlled_idx:
-                pygame.draw.rect(screen, (255, 255, 255), (blit_x, blit_y, sw, sh), 1)
+                pygame.draw.rect(screen, (255, 255, 255),
+                                 (blit_x, blit_y, sw, sh), 1)
 
             if state_changed.get(original_idx):
                 ab = asset.get_ability(p.state)
                 if ab is not None and ab.projectile_vx == 0 and ab.fx is not None:
-                    fxdef   = ab.fx
+                    fxdef = ab.fx
                     hit_def = ab.hit_box
                     if hit_def is not None:
-                        fx_x, fx_y = hit_def.screen_center(sx, sy, p.facing_right)
+                        fx_x, fx_y = hit_def.screen_center(
+                            sx, sy, p.facing_right)
                         fx_x, fx_y = int(fx_x), int(fx_y)
                     else:
-                        fx_x = int(sx + (fxdef.offset_x if p.facing_right else -fxdef.offset_x))
+                        fx_x = int(
+                            sx + (fxdef.offset_x if p.facing_right else -fxdef.offset_x))
                         fx_y = int(sy + fxdef.offset_y)
                     fx_manager.spawn(fxdef.path, fxdef.frame_w, fxdef.frame_h,
                                      fx_x, fx_y, speed=fxdef.speed, scale=fxdef.scale)
@@ -637,47 +662,51 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                     a = asset.get_ability(state)
                     if a is None or not a.melee_enabled:
                         return False
-                    spd     = asset.speed_map.get(state, 4)
+                    spd = asset.speed_map.get(state, 4)
                     elapsed = (a.timer - timer) // spd
                     return a.hit_frame_start <= elapsed <= a.hit_frame_end
 
-                ab_cur   = asset.get_ability(p.state)
+                ab_cur = asset.get_ability(p.state)
                 melee_on = (ab_cur is not None and ab_cur.melee_enabled
                             and _in_hit_window(p.state, p.timer))
-                hit_def  = asset.get_hit_box(p.state)
+                hit_def = asset.get_hit_box(p.state)
                 if hit_def and melee_on:
                     pygame.draw.rect(screen, (255, 50, 50),
                                      hit_def.to_screen_rect(sx, sy, p.facing_right), 1)
 
         # [Phase 3 續] 投擲物實體
         for eid in range(session.get_entity_count()):
-            e    = session.get_entity(eid)
-            ex   = int(e.x / 1000.0 - cam_x)
-            ey   = int((e.y / 1000.0) - (e.z / 1000.0) + HUD_H)
-            ab   = char_assets.get(e.character_type, char_assets[0]).get_ability(e.ability_state_id)
-            fxdef   = ab.proj_fx  if ab else None
-            hit_def = ab.hit_box  if ab else None
-            total   = ab.projectile_lifetime if ab else 30
+            e = session.get_entity(eid)
+            ex = int(e.x / 1000.0 - cam_x)
+            ey = int((e.y / 1000.0) - (e.z / 1000.0) + HUD_H)
+            ab = char_assets.get(e.character_type, char_assets[0]).get_ability(
+                e.ability_state_id)
+            fxdef = ab.proj_fx if ab else None
+            hit_def = ab.hit_box if ab else None
+            total = ab.projectile_lifetime if ab else 30
             if hit_def is not None:
                 fx_cx, fx_cy = hit_def.entity_screen_center(ex, ey)
             else:
                 fx_cx, fx_cy = ex, ey
             if fxdef is not None:
                 elapsed = max(0, total - e.lifetime)
-                frames  = fx_manager._load(fxdef.path, fxdef.frame_w, fxdef.frame_h)
-                idx     = (elapsed // max(1, fxdef.speed)) % len(frames)
-                frame   = frames[idx]
+                frames = fx_manager._load(
+                    fxdef.path, fxdef.frame_w, fxdef.frame_h)
+                idx = (elapsed // max(1, fxdef.speed)) % len(frames)
+                frame = frames[idx]
                 if e.vx < 0:
                     frame = pygame.transform.flip(frame, True, False)
                 if fxdef.scale != 1.0:
-                    fw = max(1, int(frame.get_width()  * fxdef.scale))
+                    fw = max(1, int(frame.get_width() * fxdef.scale))
                     fh = max(1, int(frame.get_height() * fxdef.scale))
                     frame = pygame.transform.scale(frame, (fw, fh))
-                screen.blit(frame, (int(fx_cx) - frame.get_width()  // 2,
+                screen.blit(frame, (int(fx_cx) - frame.get_width() // 2,
                                     int(fx_cy) - frame.get_height() // 2))
             else:
-                pygame.draw.circle(screen, (255, 100,  0), (int(fx_cx), int(fx_cy)), 10)
-                pygame.draw.circle(screen, (255, 220, 60), (int(fx_cx), int(fx_cy)),  6)
+                pygame.draw.circle(screen, (255, 100,  0),
+                                   (int(fx_cx), int(fx_cy)), 10)
+                pygame.draw.circle(screen, (255, 220, 60),
+                                   (int(fx_cx), int(fx_cy)),  6)
             if debug_manager.enabled and hit_def:
                 pygame.draw.rect(screen, (255, 50, 50),
                                  hit_def.to_entity_screen_rect(ex, ey), 1)
@@ -686,7 +715,8 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
         fx_manager.update_and_draw(screen, layer="front")
 
         hud.draw(screen, render_list)
-        debug_manager.draw(screen, session, render_list, clock.get_fps(), ai_controllers)
+        debug_manager.draw(screen, session, render_list,
+                           clock.get_fps(), ai_controllers)
 
         # 同步等待提示
         if not is_offline and not session.is_synchronized():
@@ -694,24 +724,29 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             if sync_wait_frames == 1:
                 remotes = [(p["id"], p["ip"], p["port"]) for p in config.get("players", [])
                            if p["id"] != controlled_idx]
-                print(f"[SYNC] start  my_id={controlled_idx}  my_port={config['local_port']}  remotes={remotes}")
+                print(
+                    f"[SYNC] start  my_id={controlled_idx}  my_port={config['local_port']}  remotes={remotes}")
             elif sync_wait_frames % (60 * 5) == 0:
                 remotes = [(p["id"], p["ip"], p["port"]) for p in config.get("players", [])
                            if p["id"] != controlled_idx]
-                print(f"[SYNC] waiting... {sync_wait_frames//60}s  my_port={config['local_port']}  remotes={remotes}")
+                print(
+                    f"[SYNC] waiting... {sync_wait_frames//60}s  my_port={config['local_port']}  remotes={remotes}")
             overlay = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
             overlay.fill((0, 0, 0, 150))
             screen.blit(overlay, (0, 0))
-            cx, cy    = SCREEN_W // 2, SCREEN_H // 2
-            text_surf = wait_font.render("WAITING FOR SYNC...", True, (255, 255, 0))
+            cx, cy = SCREEN_W // 2, SCREEN_H // 2
+            text_surf = wait_font.render(
+                "WAITING FOR SYNC...", True, (255, 255, 0))
             screen.blit(text_surf, text_surf.get_rect(center=(cx, cy)))
             remotes_str = "  ".join(
                 f"id={p['id']} {p['ip']}:{p['port']}"
                 for p in config.get("players", []) if p["id"] != controlled_idx)
             info1 = info_font.render(
                 f"My id={controlled_idx}  local_port={config['local_port']}", True, (200, 200, 200))
-            info2 = info_font.render(f"Remote: {remotes_str}", True, (200, 200, 200))
-            info3 = info_font.render(f"Waiting {sync_wait_frames // 60}s", True, (150, 150, 150))
+            info2 = info_font.render(
+                f"Remote: {remotes_str}", True, (200, 200, 200))
+            info3 = info_font.render(
+                f"Waiting {sync_wait_frames // 60}s", True, (150, 150, 150))
             screen.blit(info1, info1.get_rect(center=(cx, cy + 50)))
             screen.blit(info2, info2.get_rect(center=(cx, cy + 75)))
             screen.blit(info3, info3.get_rect(center=(cx, cy + 100)))
@@ -721,11 +756,11 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             ov = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
             ov.fill((0, 0, 0, 120))
             screen.blit(ov, (0, 0))
-            cx, cy  = SCREEN_W // 2, SCREEN_H // 2
-            num     = (mm.countdown_frames + 59) // 60
+            cx, cy = SCREEN_W // 2, SCREEN_H // 2
+            num = (mm.countdown_frames + 59) // 60
             cd_surf = result_font_big.render(str(num), True, (255, 220, 60))
             screen.blit(cd_surf, cd_surf.get_rect(center=(cx, cy)))
-            sub     = "準備！" if num == 1 else "GET READY"
+            sub = "準備！" if num == 1 else "GET READY"
             sub_surf = result_font_small.render(sub, True, (200, 200, 200))
             screen.blit(sub_surf, sub_surf.get_rect(center=(cx, cy + 60)))
 
@@ -738,13 +773,15 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             if mm.match_result == -2:
                 msg, color = "DRAW!", (200, 200, 200)
             else:
-                name      = player_names.get(mm.match_result, f"Player {mm.match_result + 1}")
+                name = player_names.get(
+                    mm.match_result, f"Player {mm.match_result + 1}")
                 char_name = char_assets.get(
                     session.get_player(mm.match_result).character_type, char_assets[0]).name
                 msg, color = f"{name}  ({char_name})  WINS!", (255, 220, 60)
             big_surf = result_font_big.render(msg, True, color)
             screen.blit(big_surf, big_surf.get_rect(center=(cx, cy - 20)))
-            hint    = "R: 重播  ESC: Quit" if is_replay else ("R: Restart  ESC: Quit" if is_offline else "ESC: Quit")
+            hint = "R: 重播  ESC: Quit" if is_replay else (
+                "R: Restart  ESC: Quit" if is_offline else "ESC: Quit")
             sm_surf = result_font_small.render(hint, True, (180, 180, 180))
             screen.blit(sm_surf, sm_surf.get_rect(center=(cx, cy + 50)))
 
@@ -753,18 +790,20 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             ov = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
             ov.fill((0, 0, 0, 140))
             screen.blit(ov, (0, 0))
-            cx, cy     = SCREEN_W // 2, SCREEN_H // 2
-            pause_surf = result_font_big.render("PAUSED", True, (255, 255, 255))
+            cx, cy = SCREEN_W // 2, SCREEN_H // 2
+            pause_surf = result_font_big.render(
+                "PAUSED", True, (255, 255, 255))
             screen.blit(pause_surf, pause_surf.get_rect(center=(cx, cy - 20)))
-            hint_surf  = result_font_small.render("P: Resume  ESC: Quit", True, (180, 180, 180))
+            hint_surf = result_font_small.render(
+                "P: Resume  ESC: Quit", True, (180, 180, 180))
             screen.blit(hint_surf, hint_surf.get_rect(center=(cx, cy + 40)))
 
         # 重播覆蓋提示
         if is_replay:
-            speed_str  = f"{_replay_speed:.1f}x"
-            pause_str  = "  [PAUSED]" if _replay_paused else ""
+            speed_str = f"{_replay_speed:.1f}x"
+            pause_str = "  [PAUSED]" if _replay_paused else ""
             replay_txt = f"REPLAY  {speed_str}{pause_str}  |  P: 暫停  1: 0.5x  2: 1x  3: 2x"
-            rt_surf    = info_font.render(replay_txt, True, (220, 220, 60))
+            rt_surf = info_font.render(replay_txt, True, (220, 220, 60))
             screen.blit(rt_surf, (SCREEN_W - rt_surf.get_width() - 10,
                                   SCREEN_H - rt_surf.get_height() - 10))
 
@@ -774,7 +813,8 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             _alpha = min(255, _t * 3)
             _ns = info_font.render(_msg, True, (255, 100, 100))
             _ns.set_alpha(_alpha)
-            screen.blit(_ns, (SCREEN_W // 2 - _ns.get_width() // 2, 20 + _idx * 24))
+            screen.blit(
+                _ns, (SCREEN_W // 2 - _ns.get_width() // 2, 20 + _idx * 24))
 
         pygame.display.flip()
         if _perf_enabled:
