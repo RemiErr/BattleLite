@@ -181,8 +181,9 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
     player_names: dict[int, str] = {
         config["local_id"]: config.get("nickname", "Player")}
     for p_info in config.get("players", []):
-        if "nickname" in p_info:
-            player_names[p_info["id"]] = p_info["nickname"]
+        _pname = p_info.get("nickname") or p_info.get("name")
+        if _pname:
+            player_names[p_info["id"]] = _pname
     hud = HUD(char_assets, player_names=player_names)
     for ct, asset in char_assets.items():
         sfx_manager.register(ct, asset.sfx)
@@ -201,11 +202,13 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
         result_font_big = pygame.font.SysFont("Arial", 56, bold=True)
         result_font_small = pygame.font.Font(font_path, 24)
         wait_font = pygame.font.SysFont("Arial", 36, bold=True)
+        migration_font = pygame.font.Font(font_path, 36)
         info_font = pygame.font.Font(font_path, 16)
     else:
         result_font_big = pygame.font.SysFont("Arial", 56, bold=True)
         result_font_small = pygame.font.SysFont("Arial", 24)
         wait_font = pygame.font.SysFont("Arial", 36, bold=True)
+        migration_font = pygame.font.SysFont("Arial", 36)
         info_font = pygame.font.SysFont("Arial", 16)
 
     # --- 場次設定 ---
@@ -463,7 +466,8 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                 if (mm.match_result is None
                         and (cur_mask & (1 << host_id))
                         and host_id not in _migrated_hosts
-                        and config.get("ai_players")):
+                        and config.get("ai_players")
+                        and not config.get("room", "").startswith("__queue_")):
                     alive_ids = [
                         _i for _i in range(num_players)
                         if _i != host_id
@@ -831,11 +835,11 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
             ov.fill((0, 0, 0, 170))
             screen.blit(ov, (0, 0))
             cx, cy = SCREEN_W // 2, SCREEN_H // 2
-            title_surf = wait_font.render("Host 轉移中", True, (255, 220, 60))
-            name_surf = result_font_small.render(
+            title_surf = migration_font.render("Host 轉移中", True, (255, 220, 60))
+            name_surf = migration_font.render(
                 _migration_overlay[0], True, (255, 255, 255))
-            screen.blit(title_surf, title_surf.get_rect(center=(cx, cy - 30)))
-            screen.blit(name_surf, name_surf.get_rect(center=(cx, cy + 20)))
+            screen.blit(title_surf, title_surf.get_rect(center=(cx, cy - 35)))
+            screen.blit(name_surf, name_surf.get_rect(center=(cx, cy + 25)))
 
         # 重播覆蓋提示
         if is_replay:
