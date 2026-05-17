@@ -48,7 +48,7 @@ BattleLite 是一款 2D 橫向捲軸多人對戰遊戲，最多支援 4 人透�
     - [確定性要求](#確定性要求)
     - [GGRS 同步前置條件](#ggrs-同步前置條件)
     - [開場倒計時同步](#開場倒計時同步)
-    - [輸入延遲（Input Delay）](#輸入延遲input-delay)
+    - [回放錄製與重播系統](#回放錄製與重播系統)
   - [十、 Session 啟動流程](#十-session-啟動流程)
     - [安全的 Session 資料傳遞](#安全的-session-資料傳遞)
   - [十一、 AI 對手系統](#十一-ai-對手系統)
@@ -741,21 +741,56 @@ countdown_frames = max(0, 180 - (session.current_frame() - _sync_start_frame))
 
 Host 握手只需 1 次（1 個遠端），Client 可能需多次（多個遠端指向同一端點），完成時間不同。以 GGRS 幀為基準可讓雙方始終看到相同的倒計時數值。
 
-### 輸入延遲（Input Delay）
+### 回放錄製與重播系統
+
+GGRS 每幀都會透過 `get_last_inputs()` 回傳當幀所有玩家的最新輸入（含回滾修正後的結果）。  
+ReplayWriter 會直接錄製這些 1-byte input bitmask 輸入參數，並於重播時由 ReplayReader 逐幀餵回 OfflineSession 進行對戰模擬的推演，這是利用了 GGRS 的確定性來重現完全相同的戰鬥過程。
 
 ```
-目前未啟用人工輸入延遲（with_input_delay 未設定）。
+錄製（僅支援線上模式）:
+  [Python] 每幀 session.get_last_inputs() → ReplayWriter.append_frame()
+                │
+                ▼ 結束時 finalize()
+  [Python] replay/<timestamp>_<room>.json  （codec v2 壓縮寫入）
 
-GGRS 支援加入 N 幀人工延遲以減少回滾頻率:
-  Frame 1: 你按了跳躍
-  Frame N+1: 角色跳起來（延遲 N 幀）
 
-好處: 延遲穩定時可減少需要回滾的頻率
-代價: 操作有 N × 16ms 的輕微延遲感
-
-若日後網路測試顯示回滾頻繁，可在 ggrs_session.rs 的
-SessionBuilder 加入 .with_input_delay(2) 啟用。
+重播:
+  [Python] ReplayReader.next_inputs()
+                │ 1-byte bitmask × n players
+                ▼
+  [Python] OfflineSession.advance()
+                │ 內部呼叫
+                ▼
+  [Rust]   perform_tick()    ← 物理 / 碰撞 / 狀態機確定性重現
+                │
+                ▼
+  [Python] Pygame Renderer（封鎖所有真人輸入）
 ```
+
+**回放檔案格式（v2）：**
+
+v1（舊版）直接儲存 JSON array，檔案龐大。  
+v2 採用壓縮管線：
+
+```
+list[list[int]]
+  → Columnar Storage（每位玩家的輸入序列各自獨立為一列 bytes）
+  → MessagePack
+  → Zstd（level 3）
+  → base64 string
+```
+
+Columnar Storage 轉置讓同一玩家的輸入字節相鄰，使 Zstd 能更有效辨識重複模式（靜止、走路等重複輸入佔多數），1000 幀 4 人對戰測試壓縮率約 74%。
+
+**新舊格式相容性：**
+
+```
+version 欄位:
+  v1 → frames: [[0,64],[32,8], ...]   (plain list，向下相容)
+  v2 → frames: "KLUv/QBY..."          (base64 壓縮字串)
+```
+
+Launcher 開啟回放時若格式版本不符，會彈出警告對話框讓使用者決定是否繼續播放。
 
 ---
 
