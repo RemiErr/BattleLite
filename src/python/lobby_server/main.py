@@ -48,6 +48,7 @@ def _sign_session(match_id: str, seed: int, host_id: int) -> str:
 
 TIER_THRESHOLDS = {"games": 5, "silver_min": 40.0, "gold_min": 60.0}
 RANKED_ROOM_PATTERN = r"\_\_queue\_%\_\_"
+CHAR_NAMES = {0: "Knight", 1: "Mage", 2: "Archer", 3: "Paladin", 4: "Wizard"}
 
 
 def _is_queue_room(room_id: str) -> bool:
@@ -329,6 +330,9 @@ async def _maybe_push_to_sheets(match_id: str) -> None:
             for r in await cur.fetchall()
         ]
 
+    for p in players:
+        p["char_type"] = CHAR_NAMES.get(p["char_type"], str(p["char_type"]))
+
     winners = [p["nickname"] for p in players if p["result"] == "win"]
     winner_str = winners[0] if winners else "平手: " + \
         " / ".join(p["nickname"] for p in players)
@@ -338,7 +342,7 @@ async def _maybe_push_to_sheets(match_id: str) -> None:
     payload = {
         "match_id":  match_id,
         "room_code":  _player_tier[room_code] if _is_queue_room(room_code) else room_code,
-        "room_type": "排位賽" if _is_queue_room(room_code) else "自訂對戰",
+        "room_type": "Rank" if _is_queue_room(room_code) else "Custom",
         "timestamp": now_tw.strftime("%Y-%m-%d %H:%M:%S"),
         "players":   players,
         "winner":    winner_str,
