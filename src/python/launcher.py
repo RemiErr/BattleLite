@@ -1522,6 +1522,8 @@ class LauncherApp(ctk.CTk):
         log_path = os.path.join(os.path.dirname(sys.executable)
                                 if getattr(sys, 'frozen', False) else PROJECT_ROOT,
                                 "game_launch.log")
+        # 新一局從 lobby 真正開啟時，重置重試計數
+        self._launch_retry_count = 0
         try:
             env = os.environ.copy()
             if sock_fd:
@@ -1541,6 +1543,13 @@ class LauncherApp(ctk.CTk):
                     f"exe_exists: {os.path.exists(cmd[0])}\n"
                     f"punch_diag: {json.dumps(punch_diag)}\n"
                 )
+            # 保存重試所需狀態（env 中刻意拿掉 sock_fd —— 原 fd 在下方已 close，
+            # 重試時讓 child 走 GGRSSession 的 UdpNonBlockingSocket::bind_to_port 後備路徑）
+            self._last_launch_cmd = cmd
+            self._last_launch_env = {k: v for k, v in env.items()
+                                     if k != "BATTLELITE_SOCK_FD"}
+            self._last_launch_log_path = log_path
+            self._launch_start_time = time.monotonic()
             self.game_process = subprocess.Popen(
                 cmd, env=env,
                 # False = 讓可繼承的 socket 傳遞下去
@@ -1563,6 +1572,33 @@ class LauncherApp(ctk.CTk):
     def _monitor_game(self):
         if self.game_process and self.game_process.poll() is not None:
             exit_code = self.game_process.returncode
+            elapsed = time.monotonic() - getattr(self, "_launch_start_time", 0)
+
+            # exit 42 = Game 端 sync timeout（NAT/防火牆封死 UDP）
+            if exit_code == 42:
+                self._reset_room_state()
+                self._show_main()
+                self._set_status_main(
+                    "無法連線到對手（30 秒內未完成同步）。\n"
+                    "可能原因：雙方或單方 NAT/防火牆封鎖 UDP。\n"
+                    "建議：(1) 關閉 VPN  (2) 同網域改用 LAN 模式  "
+                    "(3) 改用手機熱點切換 NAT 類型"
+                )
+                self.deiconify()
+                self.game_process = None
+                return
+
+            # 啟動 5 秒內非 0 退出 → 一次性自動重試（不重新打洞，讓 GGRS 自行 rebind）
+            if (exit_code != 0 and elapsed < 5.0
+                    and getattr(self, "_launch_retry_count", 0) < 1
+                    and getattr(self, "_last_launch_cmd", None) is not None):
+                self._launch_retry_count += 1
+                self._set_status_main(
+                    f"遊戲啟動失敗（exit {exit_code}），自動重試中...")
+                self._relaunch_without_sockfd()
+                return
+
+            # 其他狀況：正常退出 / 已撐過啟動期的 crash / 重試次數已用完
             self._reset_room_state()
             self._show_main()
             self._set_status_main(f"遊戲結束（exit {exit_code}）。")
@@ -1570,6 +1606,27 @@ class LauncherApp(ctk.CTk):
             self.game_process = None
         else:
             self.after(1000, self._monitor_game)
+
+    def _relaunch_without_sockfd(self):
+        # 第一次 _do_launch 已 close parent 端 socket 副本，且 child 退出時 OS
+        # 端 socket 已釋放；無法再繼承同一個 fd。讓 GGRS 重新 bind 到同 port，
+        # 只要 NAT mapping 仍存活（30 秒內通常 OK），連線可恢復。
+        try:
+            self.game_process = subprocess.Popen(
+                self._last_launch_cmd,
+                env=self._last_launch_env,
+                close_fds=True,
+                stdout=open(self._last_launch_log_path, "a"),
+                stderr=subprocess.STDOUT,
+            )
+            self._launch_start_time = time.monotonic()
+            self._monitor_game()
+        except Exception as e:
+            self._set_status_main(f"重試失敗：{e}")
+            self._reset_room_state()
+            self._show_main()
+            self.deiconify()
+            self.game_process = None
 
     def _on_closing(self):
         self.settings_mgr.set("window_pos", [self.winfo_x(), self.winfo_y()])

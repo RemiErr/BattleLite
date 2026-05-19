@@ -749,6 +749,28 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
                     )
                 if _pd.get("first_packets"):
                     print(f"[SYNC DIAG] first_packets={_pd['first_packets']}")
+            elif sync_wait_frames >= 60 * 30:
+                _pd = config.get("punch_diag", {})
+                _dc = session.get_disconnected_mask()
+                _diag_base = (os.path.dirname(sys.executable)
+                              if getattr(sys, 'frozen', False) else PROJECT_ROOT)
+                _diag_path = os.path.join(_diag_base, "sync_failure.log")
+                try:
+                    with open(_diag_path, "w", encoding="utf-8") as _df:
+                        _df.write(json.dumps({
+                            "reason": "sync_timeout_30s",
+                            "my_id": controlled_idx,
+                            "my_port": config["local_port"],
+                            "remotes": _remotes_now,
+                            "disconnected_mask": _dc,
+                            "ggrs_frame": session.current_frame(),
+                            "punch_diag": _pd,
+                        }, ensure_ascii=False, indent=2))
+                except Exception:
+                    pass
+                print(f"[SYNC] timeout after 30s — exiting with code 42")
+                pygame.quit()
+                sys.exit(42)
             elif sync_wait_frames % (60 * 5) == 0:
                 print(
                     f"[SYNC] waiting... {sync_wait_frames//60}s"
