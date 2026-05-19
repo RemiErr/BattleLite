@@ -1339,8 +1339,8 @@ class LauncherApp(ctk.CTk):
                         _local_addr = ""
                         try:
                             _local_addr = str(udp_sock.getsockname())
+                            udp_sock.set_inheritable(True)   # must use socket method; os.set_inheritable() calls _get_osfhandle() which fails for WinSock handles
                             sock_fd = udp_sock.fileno()
-                            os.set_inheritable(sock_fd, True)
                             udp_sock.detach()   # release Python's ownership, don't close
                         except Exception as _e:
                             _hand_off_error = f"{type(_e).__name__}: {_e}"
