@@ -76,35 +76,6 @@ def _submit_result(config: dict, controlled_idx: int, char_type: int, match_resu
         print(f"[WARN] Failed to submit result: {e}")
 
 
-def _bridgalive_for_ggrs(local_port: int, remotes: list, duration: float = 2.0) -> None:
-    """GGRS 綁定 socket 前重新打洞，刷新 NAT 對應，避免空窗期 mapping 過期。"""
-    import socket as _socket
-    if not remotes:
-        return
-    sock = None
-    try:
-        sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
-        sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
-        sock.bind(('0.0.0.0', local_port))
-        deadline = time.monotonic() + duration
-        while time.monotonic() < deadline:
-            for ip, port in remotes:
-                try:
-                    sock.sendto(b'\x00', (ip, port))
-                except Exception:
-                    pass
-            pygame.event.pump()
-            time.sleep(0.05)
-        print(f"[PUNCH] bridgalive 完成 port={local_port} → {remotes}")
-    except Exception as e:
-        print(f"[WARN] bridgalive 失敗（可忽略）: {e}")
-    finally:
-        if sock:
-            try:
-                sock.close()
-            except Exception:
-                pass
-
 
 def run_loop(config: dict, build_char_assets, build_session) -> None:
     """遊戲主迴圈。
@@ -133,12 +104,6 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
 
     # --- 角色資源與 Session（需在 display 初始化後建立）---
     char_assets = build_char_assets()
-    if not config.get("is_offline") and not config.get("replay_path"):
-        _bridgalive_for_ggrs(
-            config["local_port"],
-            [(p["ip"], p["port"]) for p in config.get("players", [])
-             if p["id"] != config["local_id"]],
-        )
     session = build_session(char_assets)
 
     # --- 載入設定（音量 + 按鍵組合）---

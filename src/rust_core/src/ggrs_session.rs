@@ -7,6 +7,7 @@ use ggrs::{
 use std::net::SocketAddr;
 
 use crate::config::{CharConfig, do_set_physics_config, do_set_ability};
+use crate::inherited_socket::InheritedSocket;
 use crate::player::Player;
 use crate::entity::EntityView;
 use crate::game_state::{GameState, BattleConfig, perform_tick};
@@ -26,15 +27,14 @@ pub struct GGRSSession {
 #[pymethods]
 impl GGRSSession {
     #[new]
-    #[pyo3(signature = (local_player_id, num_players, port, remotes, bot_ids=None))]
+    #[pyo3(signature = (local_player_id, num_players, port, remotes, bot_ids=None, socket_fd=None))]
     fn new(
         local_player_id: usize, num_players: usize, port: u16,
         remotes: Vec<(usize, String, u16)>,
         bot_ids: Option<Vec<usize>>,
+        socket_fd: Option<usize>,
     ) -> PyResult<Self> {
         let bot_ids = bot_ids.unwrap_or_default();
-        let socket = UdpNonBlockingSocket::bind_to_port(port)
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         let mut builder = SessionBuilder::<BattleConfig>::new()
             .with_num_players(num_players).with_fps(60).unwrap();
         builder = builder.add_player(PlayerType::Local, local_player_id).unwrap();
@@ -48,8 +48,18 @@ impl GGRSSession {
                 builder = builder.add_player(PlayerType::Remote(addr), id).unwrap();
             }
         }
-        let session = builder.start_p2p_session(socket)
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        // 重用啟動器的 punch socket（相同的作業系統 socket → 相同的 NAT 對應 →
+        // 對外連線埠與大廳報告的相同）。若未提供 fd，則回退為新綁定（離線模式或
+        // 作業系統繼承失敗時）。
+        let session = if let Some(fd) = socket_fd.filter(|&f| f != 0) {
+            let socket = InheritedSocket::from_fd(fd)
+                .map_err(|e| PyRuntimeError::new_err(format!("socket_fd={fd}: {e}")))?;
+            builder.start_p2p_session(socket)
+        } else {
+            let socket = UdpNonBlockingSocket::bind_to_port(port)
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            builder.start_p2p_session(socket)
+        }.map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         // spawn 座標由 Python _set_spawn_positions() 在 session.advance() 前設定
         let players = (0..num_players).map(|_| Player::new()).collect();
         let configs = (0..5).map(|_| CharConfig::default()).collect();

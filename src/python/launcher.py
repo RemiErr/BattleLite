@@ -1307,10 +1307,20 @@ class LauncherApp(ctk.CTk):
                         punch_stop.set()
                         if punch_thread:
                             punch_thread.join(timeout=1.0)
+                        # 將打洞用的 socket 交給遊戲程序，而不是關閉它。
+                        # 讓作業系統保留 socket 連線 → 維持 NAT 對應
+                        # → GGRS 會取得與大廳回報相同的外部埠號。
+                        sock_fd = 0
                         try:
-                            udp_sock.close()
+                            sock_fd = udp_sock.fileno()
+                            os.set_inheritable(sock_fd, True)
+                            udp_sock.detach()   # release Python's ownership, don't close
                         except Exception:
-                            pass
+                            try:
+                                udp_sock.close()
+                            except Exception:
+                                pass
+                            sock_fd = 0
                         self._udp_sock = None
 
                         my_pub = next((p["pub_ip"] for p in msg["players"]
@@ -1342,6 +1352,7 @@ class LauncherApp(ctk.CTk):
                             "lobby_url":   LOBBY_HTTP_URL,
                             "ai_players":  ai_players_final,
                             "sig":         msg.get("sig", ""),
+                            "_sock_fd":    sock_fd,
                         }
                         await client.close()
                         self.after(
@@ -1445,6 +1456,8 @@ class LauncherApp(ctk.CTk):
             pass
 
     def _do_launch(self, session_data: dict):
+        # _sock_fd is an OS-level socket handle, not part of the session payload.
+        sock_fd = session_data.pop("_sock_fd", 0)
         payload = json.dumps(session_data, separators=(',', ':'))
         self.settings_mgr.set("nickname", session_data["nickname"])
         self.settings_mgr.save()
@@ -1452,6 +1465,9 @@ class LauncherApp(ctk.CTk):
                                 if getattr(sys, 'frozen', False) else PROJECT_ROOT,
                                 "game_launch.log")
         try:
+            env = os.environ.copy()
+            if sock_fd:
+                env["BATTLELITE_SOCK_FD"] = str(sock_fd)
             if getattr(sys, 'frozen', False):
                 game_exe = os.path.join(
                     os.path.dirname(sys.executable), "Game")
@@ -1461,10 +1477,18 @@ class LauncherApp(ctk.CTk):
                 cmd = [sys.executable, script, "--payload", payload]
             with open(log_path, "w") as _lf:
                 _lf.write(
-                    f"cmd: {cmd}\nexe_exists: {os.path.exists(cmd[0])}\n")
+                    f"cmd: {cmd}\nsock_fd: {sock_fd}\nexe_exists: {os.path.exists(cmd[0])}\n")
             self.game_process = subprocess.Popen(
-                cmd, env=os.environ.copy(),
+                cmd, env=env,
+                # False = 讓可繼承的 socket 傳遞下去
+                close_fds=not bool(sock_fd),
                 stdout=open(log_path, "a"), stderr=subprocess.STDOUT)
+            # 關閉啟動器繼承的 socket 副本（subprocess 現在已持有它）
+            if sock_fd:
+                try:
+                    socket.socket(fileno=sock_fd).close()
+                except Exception:
+                    pass
             self._reset_room_state()
             self._show_main()
             self._set_status_main("遊戲進行中...")
