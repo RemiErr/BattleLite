@@ -718,16 +718,43 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
         # 同步等待提示
         if not is_offline and not session.is_synchronized():
             sync_wait_frames += 1
+            _remotes_now = [(p["id"], p["ip"], p["port"]) for p in config.get("players", [])
+                            if p["id"] != controlled_idx]
             if sync_wait_frames == 1:
-                remotes = [(p["id"], p["ip"], p["port"]) for p in config.get("players", [])
-                           if p["id"] != controlled_idx]
+                _pd = config.get("punch_diag", {})
                 print(
-                    f"[SYNC] start  my_id={controlled_idx}  my_port={config['local_port']}  remotes={remotes}")
+                    f"[SYNC] start"
+                    f"  sock_fd_env={os.environ.get('BATTLELITE_SOCK_FD', '0')}"
+                    f"  my_id={controlled_idx}  my_port={config['local_port']}"
+                    f"  pub={_pd.get('pub_ip')}:{_pd.get('pub_port')}"
+                    f"  remotes={_remotes_now}"
+                )
+            elif sync_wait_frames == 60 * 15:
+                _pd = config.get("punch_diag", {})
+                _dc = session.get_disconnected_mask()
+                print(f"[SYNC] still waiting after 15s; likely UDP path or GGRS handshake failure")
+                print(
+                    f"[SYNC DIAG] disconnected_mask={_dc:#04x}"
+                    f"  punch sent_endpoints={len(_pd.get('sent', {}))}"
+                    f"  recv_endpoints={len(_pd.get('recv', {}))}"
+                )
+                for _p in config.get("players", []):
+                    if _p["id"] == controlled_idx:
+                        continue
+                    _key = f"{_p['ip']}:{_p['port']}"
+                    print(
+                        f"[SYNC DIAG] P{_p['id']} {_key}"
+                        f"  punch_sent={_pd.get('sent', {}).get(_key, 0)}"
+                        f"  punch_recv={_pd.get('recv', {}).get(_key, 0)}"
+                    )
+                if _pd.get("first_packets"):
+                    print(f"[SYNC DIAG] first_packets={_pd['first_packets']}")
             elif sync_wait_frames % (60 * 5) == 0:
-                remotes = [(p["id"], p["ip"], p["port"]) for p in config.get("players", [])
-                           if p["id"] != controlled_idx]
                 print(
-                    f"[SYNC] waiting... {sync_wait_frames//60}s  my_port={config['local_port']}  remotes={remotes}")
+                    f"[SYNC] waiting... {sync_wait_frames//60}s"
+                    f"  ggrs_frame={session.current_frame()}"
+                    f"  my_port={config['local_port']}  remotes={_remotes_now}"
+                )
             overlay = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
             overlay.fill((0, 0, 0, 150))
             screen.blit(overlay, (0, 0))
