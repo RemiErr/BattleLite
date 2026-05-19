@@ -40,8 +40,20 @@ impl InheritedSocket {
 
 impl NonBlockingSocket<SocketAddr> for InheritedSocket {
     fn send_to(&mut self, msg: &Message, addr: &SocketAddr) {
-        let buf = bincode::serialize(msg).unwrap();
-        self.socket.send_to(&buf, addr).unwrap();
+        // transient 網路錯誤（暫時 ARP 失敗、interface flap、IPv6 路徑變動等）
+        // 不 crash Game，bincode 序列化失敗代表 GGRS 給的 Message 結構壞掉，
+        // 同樣只記錄一次，讓上層繼續推進。GGRS 自帶重送機制會補上遺失的封包。
+        match bincode::serialize(msg) {
+            Ok(buf) => {
+                if let Err(e) = self.socket.send_to(&buf, addr) {
+                    eprintln!("[InheritedSocket] send_to {} failed: {} ({:?})",
+                              addr, e, e.kind());
+                }
+            }
+            Err(e) => {
+                eprintln!("[InheritedSocket] bincode::serialize failed: {}", e);
+            }
+        }
     }
 
     fn receive_all_messages(&mut self) -> Vec<(SocketAddr, Message)> {
@@ -55,7 +67,13 @@ impl NonBlockingSocket<SocketAddr> for InheritedSocket {
                 }
                 Err(ref e) if e.kind() == ErrorKind::WouldBlock => return received,
                 Err(ref e) if e.kind() == ErrorKind::ConnectionReset => continue,
-                Err(e) => panic!("{:?}: {} on {:?}", e.kind(), e, &self.socket),
+                // 其他 IO 錯誤（routing 暫時失敗、interface 跳變等）：log 後當作
+                // 「本輪沒收到封包」處理，不 panic。下個 frame 還會再 poll。
+                Err(e) => {
+                    eprintln!("[InheritedSocket] recv_from error: {:?}: {} on {:?}",
+                              e.kind(), e, &self.socket);
+                    return received;
+                }
             }
         }
     }
