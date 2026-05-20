@@ -86,8 +86,37 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
     兩個 factory 在 pygame.display.set_mode() 之後才呼叫，以確保
     pygame.image.convert_alpha() 可正常執行。
     """
+    # --- 載入設定（在 pygame init 前讀取，決定是否啟用音訊）---
+    if getattr(sys, 'frozen', False):
+        _settings_path = os.path.join(
+            os.path.dirname(sys.executable), 'settings.json')
+    else:
+        _settings_path = os.path.join(PROJECT_ROOT, 'settings.json')
+    _vol, _preset_idx = 50, 0
+    _bg_enabled, _bg_id = True, 1
+    _sound_enabled = True
+    if os.path.exists(_settings_path):
+        try:
+            with open(_settings_path) as f:
+                s = json.load(f)
+                _vol = s.get("volume", 50)
+                _preset_idx = int(s.get("key_preset", 0))
+                _bg_enabled = s.get("background_enabled", True)
+                _bg_id = int(s.get("background_id", 1))
+                _sound_enabled = s.get("sound_enabled", True)
+        except Exception:
+            pass
+
+    _sound_active = _sound_enabled and _vol > 0
+
     # --- pygame 初始化 ---
-    pygame.init()
+    pygame.display.init()
+    pygame.font.init()
+    if _sound_active:
+        try:
+            pygame.mixer.init()
+        except pygame.error:
+            _sound_active = False
 
     game_icon_path = os.path.join(PROJECT_ROOT, "src/assets/img/game.png")
     if os.path.exists(game_icon_path):
@@ -106,26 +135,7 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
     char_assets = build_char_assets()
     session = build_session(char_assets)
 
-    # --- 載入設定（音量 + 按鍵組合）---
-    if getattr(sys, 'frozen', False):
-        _settings_path = os.path.join(
-            os.path.dirname(sys.executable), 'settings.json')
-    else:
-        _settings_path = os.path.join(PROJECT_ROOT, 'settings.json')
-    _vol, _preset_idx = 50, 0
-    _bg_enabled, _bg_id = True, 1
-    if os.path.exists(_settings_path):
-        try:
-            with open(_settings_path) as f:
-                s = json.load(f)
-                _vol = s.get("volume", 50)
-                _preset_idx = int(s.get("key_preset", 0))
-                _bg_enabled = s.get("background_enabled", True)
-                _bg_id = int(s.get("background_id", 1))
-        except Exception:
-            pass
-
-    sfx_manager = SfxManager(volume=_vol / 100.0)
+    sfx_manager = SfxManager(volume=_vol / 100.0, enabled=_sound_active)
     key_map = load_key_map(_preset_idx)
 
     _BG_PARALLAX = 0.3

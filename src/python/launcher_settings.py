@@ -18,6 +18,7 @@ class SettingsManager:
     DEFAULT_SETTINGS = {
         "nickname":           "Player",
         "volume":             50,
+        "sound_enabled":      True,
         "window_pos":         [100, 100],
         "fullscreen":         False,
         "last_room":          "",

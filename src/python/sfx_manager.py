@@ -20,8 +20,10 @@ class SfxManager:
       on_dead   (char_type)           — 死亡
     """
 
-    def __init__(self, volume: float = 1.0) -> None:
+    def __init__(self, volume: float = 1.0, enabled: bool = True) -> None:
         self._enabled = False
+        if not enabled:
+            return
         if not pygame.mixer.get_init():
             try:
                 pygame.mixer.init()

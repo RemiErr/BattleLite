@@ -240,29 +240,47 @@ class LauncherApp(ctk.CTk):
                      height=28).grid(row=0, column=2)
 
         # ── 左欄：控制項 ──────────────────────────────────────────────────
+        sound_ctrl = ctk.CTkFrame(f, fg_color="transparent")
+        sound_ctrl.grid(row=1, column=0, pady=(16, 4))
+        ctk.CTkLabel(sound_ctrl, text="音效", font=_font(14)).pack(
+            side="left", padx=(0, 8))
+        self._settings_sound_switch = ctk.CTkSwitch(sound_ctrl, text="")
+        self._settings_sound_switch.pack(side="left")
+        if self.settings_mgr.get("sound_enabled"):
+            self._settings_sound_switch.select()
+        else:
+            self._settings_sound_switch.deselect()
+
         ctk.CTkLabel(f, text="音量", font=_font(14)).grid(
-            row=1, column=0, pady=(16, 4))
+            row=2, column=0, pady=(4, 4))
         self._settings_vol = ctk.IntVar(value=self.settings_mgr.get("volume"))
         slider = ctk.CTkSlider(f, from_=0, to=100,
                                variable=self._settings_vol, width=260)
-        slider.grid(row=2, column=0, pady=4)
+        slider.grid(row=3, column=0, pady=4)
         self._settings_vol_lbl = ctk.CTkLabel(
             f, text=f"{self._settings_vol.get()}%")
-        self._settings_vol_lbl.grid(row=3, column=0)
-        slider.configure(
-            command=lambda v: self._settings_vol_lbl.configure(
-                text=f"{int(v)}%"))
+        self._settings_vol_lbl.grid(row=4, column=0)
+
+        def _on_vol_change(v):
+            val = int(v)
+            self._settings_vol_lbl.configure(text=f"{val}%")
+            if val == 0:
+                self._settings_sound_switch.deselect()
+            else:
+                self._settings_sound_switch.select()
+
+        slider.configure(command=_on_vol_change)
 
         ctk.CTkLabel(f, text="按鍵組合", font=_font(14)).grid(
-            row=4, column=0, pady=(12, 4))
+            row=5, column=0, pady=(12, 4))
         self._settings_preset_seg = ctk.CTkSegmentedButton(
             f, values=_PRESET_LABELS, width=260)
         self._settings_preset_seg.set(
             _PRESET_LABELS[self.settings_mgr.get("key_preset")])
-        self._settings_preset_seg.grid(row=5, column=0, pady=4)
+        self._settings_preset_seg.grid(row=6, column=0, pady=4)
 
         bg_ctrl = ctk.CTkFrame(f, fg_color="transparent")
-        bg_ctrl.grid(row=6, column=0, pady=(12, 4))
+        bg_ctrl.grid(row=7, column=0, pady=(12, 4))
         ctk.CTkLabel(bg_ctrl, text="背景圖", font=_font(14)
                      ).pack(side="left", padx=(0, 8))
         self._settings_bg_switch = ctk.CTkSwitch(
@@ -275,7 +293,7 @@ class LauncherApp(ctk.CTk):
 
         # ── 右欄：背景預覽 + 選號列 ──────────────────────────────────────
         preview_frame = ctk.CTkFrame(f, fg_color="gray17", corner_radius=8)
-        preview_frame.grid(row=1, column=1, rowspan=6,
+        preview_frame.grid(row=1, column=1, rowspan=7,
                            padx=(8, 15), pady=(8, 4), sticky="n")
         ctk.CTkLabel(preview_frame, text="預覽", font=_font(12),
                      text_color="gray60").pack(pady=(8, 4))
@@ -291,7 +309,7 @@ class LauncherApp(ctk.CTk):
 
         # 儲存（橫跨兩欄）
         ctk.CTkButton(f, text="儲存", command=self._save_settings).grid(
-            row=7, column=0, columnspan=2, pady=(12, 16))
+            row=8, column=0, columnspan=2, pady=(12, 16))
 
     # ── Leaderboard Frame ─────────────────────────────────────────────────
 
@@ -927,6 +945,10 @@ class LauncherApp(ctk.CTk):
         self._settings_vol.set(self.settings_mgr.get("volume"))
         self._settings_vol_lbl.configure(
             text=f"{self.settings_mgr.get('volume')}%")
+        if self.settings_mgr.get("sound_enabled"):
+            self._settings_sound_switch.select()
+        else:
+            self._settings_sound_switch.deselect()
         self._settings_preset_seg.set(
             _PRESET_LABELS[self.settings_mgr.get("key_preset")])
         if self.settings_mgr.get("background_enabled"):
@@ -987,7 +1009,10 @@ class LauncherApp(ctk.CTk):
         self._refresh_leaderboard()
 
     def _save_settings(self):
-        self.settings_mgr.set("volume", int(self._settings_vol.get()))
+        vol = int(self._settings_vol.get())
+        self.settings_mgr.set("volume", vol)
+        sound_on = bool(self._settings_sound_switch.get()) and vol > 0
+        self.settings_mgr.set("sound_enabled", sound_on)
         self.settings_mgr.set(
             "key_preset",
             _PRESET_LABELS.index(self._settings_preset_seg.get()))
