@@ -125,9 +125,11 @@ def _build_session(config: dict, char_assets: dict):
                     print(f"  player id={pid}  (AI @ host)"
                           f"  {host_player['ip']}:{host_player['port']}")
         bot_ids = ai_player_ids if i_am_host else []
+        sock_fd = int(os.environ.get("BATTLELITE_SOCK_FD", "0")) or None
+        print(f"[GGRS] sock_fd={sock_fd}  local_port={config['local_port']}")
         session = GGRSAdapter(
             GGRSSession(controlled_idx, num_players, config["local_port"],
-                        remote_players_list, bot_ids),
+                        remote_players_list, bot_ids, sock_fd),
             controlled_idx, bot_ids,
         )
 

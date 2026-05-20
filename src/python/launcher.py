@@ -1256,12 +1256,17 @@ class LauncherApp(ctk.CTk):
             "local_ip": local_ip, "local_port": local_port,
         })
 
-        punch_stop = threading.Event()
+        punch_stop    = threading.Event()
         punch_thread: threading.Thread | None = None
+        _recv_thread: threading.Thread | None = None
+        _punch_sent:  dict[str, int] = {}
+        _punch_recv:  dict[str, int] = {}
+        _punch_first: list           = []
+        _punch_start  = 0.0
         result = "timeout"
 
         async def _listen_loop():
-            nonlocal punch_thread, result
+            nonlocal punch_thread, result, _recv_thread, _punch_start
             try:
                 async for msg in client.listen():
                     if self._queue_cancelled:
@@ -1296,21 +1301,54 @@ class LauncherApp(ctk.CTk):
                             for p in msg["players"]
                             if p["id"] != self._my_id and p["pub_port"] != 0
                         ]
+                        _punch_start = time.monotonic()
                         punch_stop.clear()
                         punch_thread = threading.Thread(
                             target=self._punch_loop,
-                            args=(udp_sock, remotes, punch_stop), daemon=True)
+                            args=(udp_sock, remotes, punch_stop, _punch_sent),
+                            daemon=True)
+                        _recv_thread = threading.Thread(
+                            target=self._punch_recv_loop,
+                            args=(udp_sock, punch_stop, _punch_recv, _punch_first),
+                            daemon=True)
                         punch_thread.start()
+                        _recv_thread.start()
                         self._set_status_room("打洞中...")
 
                     elif t == "game_start":
                         punch_stop.set()
                         if punch_thread:
                             punch_thread.join(timeout=1.0)
+                        if _recv_thread:
+                            _recv_thread.join(timeout=0.3)
+
+                        punch_diag = {
+                            "pub_ip":       pub_ip,
+                            "pub_port":     pub_port,
+                            "duration_sec": round(time.monotonic() - _punch_start, 2),
+                            "sent":         dict(_punch_sent),
+                            "recv":         dict(_punch_recv),
+                            "first_packets": _punch_first,
+                        }
+
+                        # 將打洞用的 socket 交給遊戲程序，而不是關閉它。
+                        # 讓作業系統保留 socket 連線 → 維持 NAT 對應
+                        # → GGRS 會取得與大廳回報相同的外部埠號。
+                        sock_fd = 0
+                        _hand_off_error = ""
+                        _local_addr = ""
                         try:
-                            udp_sock.close()
-                        except Exception:
-                            pass
+                            _local_addr = str(udp_sock.getsockname())
+                            udp_sock.set_inheritable(True)   # must use socket method; os.set_inheritable() calls _get_osfhandle() which fails for WinSock handles
+                            sock_fd = udp_sock.fileno()
+                            udp_sock.detach()   # release Python's ownership, don't close
+                        except Exception as _e:
+                            _hand_off_error = f"{type(_e).__name__}: {_e}"
+                            try:
+                                udp_sock.close()
+                            except Exception:
+                                pass
+                            sock_fd = 0
                         self._udp_sock = None
 
                         my_pub = next((p["pub_ip"] for p in msg["players"]
@@ -1341,7 +1379,11 @@ class LauncherApp(ctk.CTk):
                             "match_id":    msg.get("match_id", ""),
                             "lobby_url":   LOBBY_HTTP_URL,
                             "ai_players":  ai_players_final,
-                            "sig":         msg.get("sig", ""),
+                            "sig":              msg.get("sig", ""),
+                            "_sock_fd":         sock_fd,
+                            "_hand_off_error":  _hand_off_error,
+                            "_local_addr":      _local_addr,
+                            "punch_diag":       punch_diag,
                         }
                         await client.close()
                         self.after(
@@ -1385,14 +1427,37 @@ class LauncherApp(ctk.CTk):
 
     # ── 工具方法 ──────────────────────────────────────────────────────────
 
-    def _punch_loop(self, sock: socket.socket, remotes: list, stop: threading.Event):
+    def _punch_loop(
+        self, sock: socket.socket, remotes: list,
+        stop: threading.Event, sent_counts: dict | None = None,
+    ):
         while not stop.is_set():
             for ip, port in remotes:
                 try:
                     sock.sendto(b'\x00', (ip, port))
+                    if sent_counts is not None:
+                        key = f"{ip}:{port}"
+                        sent_counts[key] = sent_counts.get(key, 0) + 1
                 except Exception:
                     pass
             time.sleep(0.1)
+
+    def _punch_recv_loop(
+        self, sock: socket.socket, stop: threading.Event,
+        recv_counts: dict, first_packets: list,
+    ):
+        import select as _sel
+        while not stop.is_set():
+            try:
+                r, _, _ = _sel.select([sock], [], [], 0.05)
+                if r:
+                    data, addr = sock.recvfrom(512)
+                    key = f"{addr[0]}:{addr[1]}"
+                    recv_counts[key] = recv_counts.get(key, 0) + 1
+                    if len(first_packets) < 5:
+                        first_packets.append({"from": key, "len": len(data)})
+            except Exception:
+                time.sleep(0.05)
 
     def _reset_room_state(self):
         self._my_id = 0
@@ -1445,13 +1510,24 @@ class LauncherApp(ctk.CTk):
             pass
 
     def _do_launch(self, session_data: dict):
+        # _ keys are OS-level / diagnostic fields, not part of the session payload.
+        sock_fd         = session_data.pop("_sock_fd", 0)
+        hand_off_error  = session_data.pop("_hand_off_error", "")
+        local_addr      = session_data.pop("_local_addr", "")
+        # punch_diag は payload に残してゲーム側でも参照できるようにする
+        punch_diag      = session_data.get("punch_diag", {})
         payload = json.dumps(session_data, separators=(',', ':'))
         self.settings_mgr.set("nickname", session_data["nickname"])
         self.settings_mgr.save()
         log_path = os.path.join(os.path.dirname(sys.executable)
                                 if getattr(sys, 'frozen', False) else PROJECT_ROOT,
                                 "game_launch.log")
+        # 新一局從 lobby 真正開啟時，重置重試計數
+        self._launch_retry_count = 0
         try:
+            env = os.environ.copy()
+            if sock_fd:
+                env["BATTLELITE_SOCK_FD"] = str(sock_fd)
             if getattr(sys, 'frozen', False):
                 game_exe = os.path.join(
                     os.path.dirname(sys.executable), "Game")
@@ -1461,10 +1537,30 @@ class LauncherApp(ctk.CTk):
                 cmd = [sys.executable, script, "--payload", payload]
             with open(log_path, "w") as _lf:
                 _lf.write(
-                    f"cmd: {cmd}\nexe_exists: {os.path.exists(cmd[0])}\n")
+                    f"cmd: {cmd}\n"
+                    f"sock_fd: {sock_fd}  local_addr: {local_addr}\n"
+                    f"hand_off_error: {hand_off_error!r}\n"
+                    f"exe_exists: {os.path.exists(cmd[0])}\n"
+                    f"punch_diag: {json.dumps(punch_diag)}\n"
+                )
+            # 保存重試所需狀態（env 中刻意拿掉 sock_fd —— 原 fd 在下方已 close，
+            # 重試時讓 child 走 GGRSSession 的 UdpNonBlockingSocket::bind_to_port 後備路徑）
+            self._last_launch_cmd = cmd
+            self._last_launch_env = {k: v for k, v in env.items()
+                                     if k != "BATTLELITE_SOCK_FD"}
+            self._last_launch_log_path = log_path
+            self._launch_start_time = time.monotonic()
             self.game_process = subprocess.Popen(
-                cmd, env=os.environ.copy(),
+                cmd, env=env,
+                # False = 讓可繼承的 socket 傳遞下去
+                close_fds=not bool(sock_fd),
                 stdout=open(log_path, "a"), stderr=subprocess.STDOUT)
+            # 關閉啟動器繼承的 socket 副本（subprocess 現在已持有它）
+            if sock_fd:
+                try:
+                    socket.socket(fileno=sock_fd).close()
+                except Exception:
+                    pass
             self._reset_room_state()
             self._show_main()
             self._set_status_main("遊戲進行中...")
@@ -1476,6 +1572,33 @@ class LauncherApp(ctk.CTk):
     def _monitor_game(self):
         if self.game_process and self.game_process.poll() is not None:
             exit_code = self.game_process.returncode
+            elapsed = time.monotonic() - getattr(self, "_launch_start_time", 0)
+
+            # exit 42 = Game 端 sync timeout（NAT/防火牆封死 UDP）
+            if exit_code == 42:
+                self._reset_room_state()
+                self._show_main()
+                self._set_status_main(
+                    "無法連線到對手（30 秒內未完成同步）。\n"
+                    "可能原因：雙方或單方 NAT/防火牆封鎖 UDP。\n"
+                    "建議：(1) 關閉 VPN  (2) 同網域改用 LAN 模式  "
+                    "(3) 改用手機熱點切換 NAT 類型"
+                )
+                self.deiconify()
+                self.game_process = None
+                return
+
+            # 啟動 5 秒內非 0 退出 → 一次性自動重試（不重新打洞，讓 GGRS 自行 rebind）
+            if (exit_code != 0 and elapsed < 5.0
+                    and getattr(self, "_launch_retry_count", 0) < 1
+                    and getattr(self, "_last_launch_cmd", None) is not None):
+                self._launch_retry_count += 1
+                self._set_status_main(
+                    f"遊戲啟動失敗（exit {exit_code}），自動重試中...")
+                self._relaunch_without_sockfd()
+                return
+
+            # 其他狀況：正常退出 / 已撐過啟動期的 crash / 重試次數已用完
             self._reset_room_state()
             self._show_main()
             self._set_status_main(f"遊戲結束（exit {exit_code}）。")
@@ -1483,6 +1606,27 @@ class LauncherApp(ctk.CTk):
             self.game_process = None
         else:
             self.after(1000, self._monitor_game)
+
+    def _relaunch_without_sockfd(self):
+        # 第一次 _do_launch 已 close parent 端 socket 副本，且 child 退出時 OS
+        # 端 socket 已釋放；無法再繼承同一個 fd。讓 GGRS 重新 bind 到同 port，
+        # 只要 NAT mapping 仍存活（30 秒內通常 OK），連線可恢復。
+        try:
+            self.game_process = subprocess.Popen(
+                self._last_launch_cmd,
+                env=self._last_launch_env,
+                close_fds=True,
+                stdout=open(self._last_launch_log_path, "a"),
+                stderr=subprocess.STDOUT,
+            )
+            self._launch_start_time = time.monotonic()
+            self._monitor_game()
+        except Exception as e:
+            self._set_status_main(f"重試失敗：{e}")
+            self._reset_room_state()
+            self._show_main()
+            self.deiconify()
+            self.game_process = None
 
     def _on_closing(self):
         self.settings_mgr.set("window_pos", [self.winfo_x(), self.winfo_y()])

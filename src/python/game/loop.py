@@ -76,35 +76,6 @@ def _submit_result(config: dict, controlled_idx: int, char_type: int, match_resu
         print(f"[WARN] Failed to submit result: {e}")
 
 
-def _bridgalive_for_ggrs(local_port: int, remotes: list, duration: float = 2.0) -> None:
-    """GGRS 綁定 socket 前重新打洞，刷新 NAT 對應，避免空窗期 mapping 過期。"""
-    import socket as _socket
-    if not remotes:
-        return
-    sock = None
-    try:
-        sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
-        sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
-        sock.bind(('0.0.0.0', local_port))
-        deadline = time.monotonic() + duration
-        while time.monotonic() < deadline:
-            for ip, port in remotes:
-                try:
-                    sock.sendto(b'\x00', (ip, port))
-                except Exception:
-                    pass
-            pygame.event.pump()
-            time.sleep(0.05)
-        print(f"[PUNCH] bridgalive 完成 port={local_port} → {remotes}")
-    except Exception as e:
-        print(f"[WARN] bridgalive 失敗（可忽略）: {e}")
-    finally:
-        if sock:
-            try:
-                sock.close()
-            except Exception:
-                pass
-
 
 def run_loop(config: dict, build_char_assets, build_session) -> None:
     """遊戲主迴圈。
@@ -133,12 +104,6 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
 
     # --- 角色資源與 Session（需在 display 初始化後建立）---
     char_assets = build_char_assets()
-    if not config.get("is_offline") and not config.get("replay_path"):
-        _bridgalive_for_ggrs(
-            config["local_port"],
-            [(p["ip"], p["port"]) for p in config.get("players", [])
-             if p["id"] != config["local_id"]],
-        )
     session = build_session(char_assets)
 
     # --- 載入設定（音量 + 按鍵組合）---
@@ -753,16 +718,65 @@ def run_loop(config: dict, build_char_assets, build_session) -> None:
         # 同步等待提示
         if not is_offline and not session.is_synchronized():
             sync_wait_frames += 1
+            _remotes_now = [(p["id"], p["ip"], p["port"]) for p in config.get("players", [])
+                            if p["id"] != controlled_idx]
             if sync_wait_frames == 1:
-                remotes = [(p["id"], p["ip"], p["port"]) for p in config.get("players", [])
-                           if p["id"] != controlled_idx]
+                _pd = config.get("punch_diag", {})
                 print(
-                    f"[SYNC] start  my_id={controlled_idx}  my_port={config['local_port']}  remotes={remotes}")
+                    f"[SYNC] start"
+                    f"  sock_fd_env={os.environ.get('BATTLELITE_SOCK_FD', '0')}"
+                    f"  my_id={controlled_idx}  my_port={config['local_port']}"
+                    f"  pub={_pd.get('pub_ip')}:{_pd.get('pub_port')}"
+                    f"  remotes={_remotes_now}"
+                )
+            elif sync_wait_frames == 60 * 15:
+                _pd = config.get("punch_diag", {})
+                _dc = session.get_disconnected_mask()
+                print(f"[SYNC] still waiting after 15s; likely UDP path or GGRS handshake failure")
+                print(
+                    f"[SYNC DIAG] disconnected_mask={_dc:#04x}"
+                    f"  punch sent_endpoints={len(_pd.get('sent', {}))}"
+                    f"  recv_endpoints={len(_pd.get('recv', {}))}"
+                )
+                for _p in config.get("players", []):
+                    if _p["id"] == controlled_idx:
+                        continue
+                    _key = f"{_p['ip']}:{_p['port']}"
+                    print(
+                        f"[SYNC DIAG] P{_p['id']} {_key}"
+                        f"  punch_sent={_pd.get('sent', {}).get(_key, 0)}"
+                        f"  punch_recv={_pd.get('recv', {}).get(_key, 0)}"
+                    )
+                if _pd.get("first_packets"):
+                    print(f"[SYNC DIAG] first_packets={_pd['first_packets']}")
+            elif sync_wait_frames >= 60 * 30:
+                _pd = config.get("punch_diag", {})
+                _dc = session.get_disconnected_mask()
+                _diag_base = (os.path.dirname(sys.executable)
+                              if getattr(sys, 'frozen', False) else PROJECT_ROOT)
+                _diag_path = os.path.join(_diag_base, "sync_failure.log")
+                try:
+                    with open(_diag_path, "w", encoding="utf-8") as _df:
+                        _df.write(json.dumps({
+                            "reason": "sync_timeout_30s",
+                            "my_id": controlled_idx,
+                            "my_port": config["local_port"],
+                            "remotes": _remotes_now,
+                            "disconnected_mask": _dc,
+                            "ggrs_frame": session.current_frame(),
+                            "punch_diag": _pd,
+                        }, ensure_ascii=False, indent=2))
+                except Exception:
+                    pass
+                print(f"[SYNC] timeout after 30s — exiting with code 42")
+                pygame.quit()
+                sys.exit(42)
             elif sync_wait_frames % (60 * 5) == 0:
-                remotes = [(p["id"], p["ip"], p["port"]) for p in config.get("players", [])
-                           if p["id"] != controlled_idx]
                 print(
-                    f"[SYNC] waiting... {sync_wait_frames//60}s  my_port={config['local_port']}  remotes={remotes}")
+                    f"[SYNC] waiting... {sync_wait_frames//60}s"
+                    f"  ggrs_frame={session.current_frame()}"
+                    f"  my_port={config['local_port']}  remotes={_remotes_now}"
+                )
             overlay = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
             overlay.fill((0, 0, 0, 150))
             screen.blit(overlay, (0, 0))

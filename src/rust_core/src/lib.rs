@@ -8,6 +8,7 @@ mod boundary;
 mod collision;
 mod input;
 mod game_state;
+mod inherited_socket;
 mod offline_session;
 mod ggrs_session;
 
