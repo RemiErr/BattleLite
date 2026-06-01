@@ -11,6 +11,8 @@ httpx==0.28.1
 # --- 信令大廳伺服器 ---
 fastapi==0.135.3
 uvicorn[standard]==0.44.0
+aiosqlite==0.22.1
+slowapi==0.1.9
 
 # --- 安全與加密 ---
 cryptography==46.0.6
