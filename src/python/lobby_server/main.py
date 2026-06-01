@@ -351,6 +351,13 @@ async def _maybe_push_to_sheets(match_id: str) -> None:
     if count < num_players:
         return  # 尚有玩家未提交
 
+    cur = await _db.execute(
+        "UPDATE matches SET sheets_posted = 1 "
+        "WHERE match_id = ? AND sheets_posted = 0", (match_id,))
+    await _db.commit()
+    if cur.rowcount != 1:
+        return  # 已被其他並發請求搶先推送
+
     async with _db.execute(
         """SELECT player_id, nickname, char_type, result
            FROM match_results WHERE match_id = ? ORDER BY player_id""",
@@ -379,11 +386,6 @@ async def _maybe_push_to_sheets(match_id: str) -> None:
         "players":   players,
         "winner":    winner_str,
     }
-
-    # 先標記避免重複推送
-    await _db.execute(
-        "UPDATE matches SET sheets_posted = 1 WHERE match_id = ?", (match_id,))
-    await _db.commit()
 
     asyncio.create_task(_post_to_sheets(payload))
 
