@@ -133,6 +133,7 @@ class LauncherApp(ctk.CTk):
 
         # 連線狀態
         self.game_process = None
+        self.relay_proxy_process: subprocess.Popen | None = None
         self.lobby_thread: threading.Thread | None = None
         self.loop: asyncio.AbstractEventLoop | None = None
         self._client: LobbyClient | None = None
@@ -1314,6 +1315,10 @@ class LauncherApp(ctk.CTk):
                         punch_thread.start()
                         _recv_thread.start()
                         self._set_status_room("打洞中...")
+                        # 1.5s 後回報 per-peer 連通狀態給 lobby，讓 lobby 決定是否啟用 relay。
+                        # 早於 lobby 的 PUNCH_DURATION (2.0s) 完成，留 0.5s 安全邊界。
+                        asyncio.create_task(self._send_punch_report(
+                            client, msg["players"], _punch_recv, my_pub, delay=1.5))
 
                     elif t == "game_start":
                         punch_stop.set()
@@ -1331,36 +1336,53 @@ class LauncherApp(ctk.CTk):
                             "first_packets": _punch_first,
                         }
 
-                        # 將打洞用的 socket 交給遊戲程序，而不是關閉它。
-                        # 讓作業系統保留 socket 連線 → 維持 NAT 對應
-                        # → GGRS 會取得與大廳回報相同的外部埠號。
+                        relay_info = msg.get("relay")
                         sock_fd = 0
                         _hand_off_error = ""
                         _local_addr = ""
-                        try:
-                            _local_addr = str(udp_sock.getsockname())
-                            udp_sock.set_inheritable(True)   # must use socket method; os.set_inheritable() calls _get_osfhandle() which fails for WinSock handles
-                            sock_fd = udp_sock.fileno()
-                            udp_sock.detach()   # release Python's ownership, don't close
-                        except Exception as _e:
-                            _hand_off_error = f"{type(_e).__name__}: {_e}"
+
+                        if relay_info:
+                            # Relay 模式：不交接 socket，spawn proxy 子程序；
+                            # GGRS 將自己 bind 到 local_port，對 loopback proxy 通訊。
                             try:
                                 udp_sock.close()
                             except Exception:
                                 pass
-                            sock_fd = 0
+                            self._spawn_relay_proxy(
+                                relay_info, msg.get("match_id", ""),
+                                msg["players"])
+                            PROXY_BASE_PORT = 30000
+                            resolved = [
+                                {**p, "ip": "127.0.0.1",
+                                 "port": PROXY_BASE_PORT + p["id"]}
+                                for p in msg["players"]
+                            ]
+                        else:
+                            # 既有 happy path：把打洞 socket fd 交接給 game subprocess
+                            try:
+                                _local_addr = str(udp_sock.getsockname())
+                                udp_sock.set_inheritable(True)   # must use socket method; os.set_inheritable() calls _get_osfhandle() which fails for WinSock handles
+                                sock_fd = udp_sock.fileno()
+                                udp_sock.detach()   # release Python's ownership, don't close
+                            except Exception as _e:
+                                _hand_off_error = f"{type(_e).__name__}: {_e}"
+                                try:
+                                    udp_sock.close()
+                                except Exception:
+                                    pass
+                                sock_fd = 0
+                            my_pub = next((p["pub_ip"] for p in msg["players"]
+                                           if p["id"] == self._my_id), "")
+                            resolved = []
+                            for p in msg["players"]:
+                                same_lan = (p["pub_ip"] == my_pub
+                                            and p["id"] != self._my_id)
+                                resolved.append({**p,
+                                                 "ip":   p["local_ip"] if same_lan else p["pub_ip"],
+                                                 "port": p["local_port"] if same_lan else p["pub_port"],
+                                                 })
                         self._udp_sock = None
 
-                        my_pub = next((p["pub_ip"] for p in msg["players"]
-                                       if p["id"] == self._my_id), "")
-                        resolved = []
-                        for p in msg["players"]:
-                            same_lan = (p["pub_ip"] == my_pub
-                                        and p["id"] != self._my_id)
-                            resolved.append({**p,
-                                             "ip":   p["local_ip"] if same_lan else p["pub_ip"],
-                                             "port": p["local_port"] if same_lan else p["pub_port"],
-                                             })
                         # host 的 self._ai_players 為本地權威；非 host 從伺服器廣播取得
                         local_ai = {str(k): v for k,
                                     v in self._ai_players.items()}
@@ -1385,6 +1407,8 @@ class LauncherApp(ctk.CTk):
                             "_local_addr":      _local_addr,
                             "punch_diag":       punch_diag,
                         }
+                        if relay_info:
+                            session_data["relay"] = relay_info
                         await client.close()
                         self.after(
                             50, lambda sd=session_data: self._do_launch(sd))
@@ -1426,6 +1450,75 @@ class LauncherApp(ctk.CTk):
         return result
 
     # ── 工具方法 ──────────────────────────────────────────────────────────
+
+    def _spawn_relay_proxy(self, relay_info: dict, match_id: str,
+                           players: list) -> None:
+        """啟動 relay_proxy.py 子程序。子程序在 game subprocess 結束後由
+        _monitor_game / 視窗關閉路徑統一 terminate。"""
+        peer_ids = ",".join(str(p["id"]) for p in players)
+        cmd = [
+            sys.executable, "-m", "src.python.relay_proxy",
+            "--relay-ip",  str(relay_info["ip"]),
+            "--relay-port", str(relay_info["port"]),
+            "--match-id",  match_id,
+            "--my-peer-id", str(self._my_id),
+            "--peer-ids",  peer_ids,
+            "--proxy-base-port", "30000",
+        ]
+        log_path = os.path.join(
+            os.path.dirname(sys.executable) if getattr(sys, 'frozen', False)
+            else PROJECT_ROOT, "relay_proxy.log")
+        try:
+            self.relay_proxy_process = subprocess.Popen(
+                cmd, cwd=PROJECT_ROOT,
+                stdout=open(log_path, "w"),
+                stderr=subprocess.STDOUT,
+            )
+            print(f"[Launcher] relay_proxy spawned pid={self.relay_proxy_process.pid}")
+        except Exception as e:
+            print(f"[ERR] spawn relay_proxy failed: {e}")
+            self.relay_proxy_process = None
+
+    def _terminate_relay_proxy(self) -> None:
+        proc = self.relay_proxy_process
+        if proc is None:
+            return
+        try:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=2.0)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+        except Exception:
+            pass
+        self.relay_proxy_process = None
+
+    async def _send_punch_report(
+        self, client: "LobbyClient", players: list, recv_counts: dict,
+        my_pub: str, delay: float,
+    ) -> None:
+        """1.5s 後把 per-peer 打洞成功與否回報 lobby，供 relay-fallback 決策用。"""
+        try:
+            await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            return
+        peers_result: dict[int, bool] = {}
+        for p in players:
+            if p["id"] == self._my_id:
+                continue
+            if p["pub_port"] == 0:
+                peers_result[p["id"]] = False
+                continue
+            same_lan = (p["pub_ip"] == my_pub)
+            ip = p["local_ip"] if same_lan else p["pub_ip"]
+            port = p["local_port"] if same_lan else p["pub_port"]
+            peers_result[p["id"]] = recv_counts.get(f"{ip}:{port}", 0) > 0
+        try:
+            await client.send_data(
+                {"type": "punch_report", "peers": peers_result})
+        except Exception as e:
+            print(f"[WARN] punch_report send failed: {e}")
 
     def _punch_loop(
         self, sock: socket.socket, remotes: list,
@@ -1586,6 +1679,7 @@ class LauncherApp(ctk.CTk):
                 )
                 self.deiconify()
                 self.game_process = None
+                self._terminate_relay_proxy()
                 return
 
             # 啟動 5 秒內非 0 退出 → 一次性自動重試（不重新打洞，讓 GGRS 自行 rebind）
@@ -1604,6 +1698,7 @@ class LauncherApp(ctk.CTk):
             self._set_status_main(f"遊戲結束（exit {exit_code}）。")
             self.deiconify()
             self.game_process = None
+            self._terminate_relay_proxy()
         else:
             self.after(1000, self._monitor_game)
 
@@ -1627,6 +1722,7 @@ class LauncherApp(ctk.CTk):
             self._show_main()
             self.deiconify()
             self.game_process = None
+            self._terminate_relay_proxy()
 
     def _on_closing(self):
         self.settings_mgr.set("window_pos", [self.winfo_x(), self.winfo_y()])
@@ -1636,6 +1732,7 @@ class LauncherApp(ctk.CTk):
                 self._udp_sock.close()
             except Exception:
                 pass
+        self._terminate_relay_proxy()
         self.destroy()
 
 

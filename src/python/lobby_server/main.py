@@ -18,10 +18,19 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+from src.python.lobby_server.relay import RelayProtocol, start_relay
+
 DB_PATH = os.path.join(os.path.dirname(__file__), "leaderboard.db")
 SHEETS_WEBHOOK_URL = os.environ.get("SHEETS_WEBHOOK_URL", "")
 QUEUE_MIN = 2  # TODO: for testing, default is 4
 PUNCH_DURATION = 2.0
+
+# Relay 設定：RELAY_PUBLIC_IP 為空字串時關閉 relay 功能，行為與舊版相容。
+RELAY_BIND_HOST = os.environ.get("RELAY_BIND_HOST", "0.0.0.0")
+RELAY_UDP_PORT = int(os.environ.get("RELAY_UDP_PORT", "9000"))
+RELAY_PUBLIC_IP = os.environ.get("RELAY_PUBLIC_IP", "").strip()
+_relay_proto: RelayProtocol | None = None
+_relay_tasks: list[asyncio.Task] = []
 
 # Ed25519 簽章金鑰（私鑰 seed，32 bytes hex，64 chars）。不設定則 sig 為空字串。
 _signing_key: Ed25519PrivateKey | None = None
@@ -34,14 +43,18 @@ if _signing_key_hex:
         print(f"[WARN] LOBBY_SIGNING_KEY 格式錯誤，簽章停用: {e}")
 
 
-def _sign_session(match_id: str, seed: int, host_id: int) -> str:
-    """以伺服器私鑰簽署核心 session 欄位，回傳 base64url（無 padding）。"""
+def _sign_session(match_id: str, seed: int, host_id: int,
+                  relay: dict | None = None) -> str:
+    """以伺服器私鑰簽署核心 session 欄位，回傳 base64url（無 padding）。
+
+    若有 relay 欄位，會一併納入簽章，防中間人改 relay 目標把流量側錄。
+    """
     if _signing_key is None:
         return ""
-    canonical = json.dumps(
-        {"host_id": host_id, "match_id": match_id, "seed": seed},
-        sort_keys=True, separators=(',', ':'),
-    )
+    payload = {"host_id": host_id, "match_id": match_id, "seed": seed}
+    if relay:
+        payload["relay"] = relay
+    canonical = json.dumps(payload, sort_keys=True, separators=(',', ':'))
     sig = _signing_key.sign(canonical.encode())
     return base64.urlsafe_b64encode(sig).rstrip(b'=').decode()
 
@@ -145,11 +158,23 @@ async def _weekly_purge_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _relay_proto, _relay_tasks
     await _init_db()
     await _migrate_db()
     asyncio.create_task(_weekly_purge_loop())
     asyncio.create_task(_idle_room_sweep())
+    if RELAY_PUBLIC_IP:
+        try:
+            _relay_proto, _relay_tasks = await start_relay(RELAY_BIND_HOST, RELAY_UDP_PORT)
+            print(f"[RELAY] enabled  public={RELAY_PUBLIC_IP}:{RELAY_UDP_PORT}")
+        except Exception as e:
+            print(f"[WARN] relay 啟動失敗: {e}")
+            _relay_proto = None
+    else:
+        print("[RELAY] disabled (set RELAY_PUBLIC_IP to enable)")
     yield
+    for t in _relay_tasks:
+        t.cancel()
     if _db:
         await _db.close()
 
@@ -480,6 +505,24 @@ async def ws_endpoint(websocket: WebSocket, room_id: str, player_name: str):
                     room["ai_players"] = ai_players
                     await _broadcast_room_update(room_id)
 
+            elif t == "punch_report":
+                # Launcher 在 hole-punch 階段結束後回報每個 peer 的連通狀態。
+                # data 格式：{"type": "punch_report", "peers": {<peer_id>: bool}}
+                if room.get("started") and "punch_results" in room:
+                    peers_raw = data.get("peers", {}) or {}
+                    peers_norm: dict[int, bool] = {}
+                    for k, v in peers_raw.items():
+                        try:
+                            peers_norm[int(k)] = bool(v)
+                        except (ValueError, TypeError):
+                            pass
+                    room["punch_results"][pid] = peers_norm
+                    expected = {p["id"] for p in room["players"]}
+                    if expected.issubset(room["punch_results"].keys()):
+                        ev = room.get("punch_event")
+                        if ev is not None:
+                            ev.set()
+
             elif t == "start_game":
                 if not is_queue and pid == 0:
                     ai_count = max(0, min(3, int(data.get("ai_count", 0))))
@@ -551,6 +594,8 @@ async def _initiate_match(room_id: str, host_id: int):
     if room.get("started"):
         return
     room["started"] = True
+    room["punch_results"] = {}
+    room["punch_event"] = asyncio.Event()
     match_id = str(uuid.uuid4())
     seed = random.randint(1, 1_000_000)
     players_info = [_net(p) for p in room["players"]]
@@ -568,11 +613,46 @@ async def _initiate_match(room_id: str, host_id: int):
         _delayed_game_start(room_id, seed, players_info, host_id, match_id))
 
 
+def _decide_relay(players_info: list, punch_results: dict[int, dict[int, bool]]) -> bool:
+    """任一 peer 沒回報、或回報中含 False，即視為需要 relay。"""
+    expected = {p["id"] for p in players_info}
+    for pid in expected:
+        report = punch_results.get(pid)
+        if report is None:
+            return True
+        # 只看「我對其他 peer」是否全通；不要求對自己 entry
+        if any(not ok for tgt, ok in report.items() if tgt != pid):
+            return True
+    return False
+
+
 async def _delayed_game_start(
         room_id: str, seed: int, players_info: list, host_id: int, match_id: str):
-    await asyncio.sleep(PUNCH_DURATION)
+    # Relay 未啟用時走原本的固定 sleep；啟用時等齊 punch_report 或超時。
+    relay_enabled = bool(RELAY_PUBLIC_IP and _relay_proto is not None)
+    room = rooms.get(room_id, {})
+    ev: asyncio.Event | None = room.get("punch_event") if (room and relay_enabled) else None
+    if ev is not None:
+        try:
+            await asyncio.wait_for(ev.wait(), timeout=PUNCH_DURATION)
+        except asyncio.TimeoutError:
+            pass
+    else:
+        await asyncio.sleep(PUNCH_DURATION)
+
     if room_id not in rooms:
         return
+
+    relay_field: dict | None = None
+    if relay_enabled:
+        punch_results = rooms[room_id].get("punch_results", {})
+        if _decide_relay(players_info, punch_results):
+            assert _relay_proto is not None  # 上方 relay_enabled 已保證
+            peer_ids = [p["id"] for p in players_info]
+            _relay_proto.register_match(match_id, peer_ids)
+            relay_field = {"ip": RELAY_PUBLIC_IP, "port": RELAY_UDP_PORT}
+            print(f"[RELAY] match={match_id} engaged (punch fail detected)")
+
     game_msg = {
         "type":      "game_start",
         "seed":      seed,
@@ -580,9 +660,13 @@ async def _delayed_game_start(
         "players":   players_info,
         "match_id":  match_id,
         "ai_players": rooms.get(room_id, {}).get("ai_players", {}),
-        "sig":        _sign_session(match_id, seed, host_id),
+        "sig":        _sign_session(match_id, seed, host_id, relay_field),
     }
-    print(f"🎮 game_start room={room_id} match={match_id}")
+    if relay_field:
+        game_msg["relay"] = relay_field
+
+    relay_tag = " relay=on" if relay_field else ""
+    print(f"🎮 game_start room={room_id} match={match_id}{relay_tag}")
     for p in rooms.get(room_id, {}).get("players", []):
         try:
             await p["websocket"].send_json(game_msg)

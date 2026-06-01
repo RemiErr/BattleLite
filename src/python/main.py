@@ -44,15 +44,18 @@ def _load_pubkey():
 
 
 def _verify_session_sig(config_data: dict, sig_b64: str) -> None:
-    """驗證 lobby server 的 Ed25519 簽章；失敗時 raise ValueError。"""
-    canonical = json.dumps(
-        {
-            "host_id":  config_data["host_id"],
-            "match_id": config_data["match_id"],
-            "seed":     config_data["seed"],
-        },
-        sort_keys=True, separators=(',', ':'),
-    )
+    """驗證 lobby server 的 Ed25519 簽章；失敗時 raise ValueError。
+
+    若 payload 含 `relay` 欄位，會一併納入簽章驗證（與 lobby `_sign_session` 對應）。
+    """
+    canonical_dict = {
+        "host_id":  config_data["host_id"],
+        "match_id": config_data["match_id"],
+        "seed":     config_data["seed"],
+    }
+    if config_data.get("relay"):
+        canonical_dict["relay"] = config_data["relay"]
+    canonical = json.dumps(canonical_dict, sort_keys=True, separators=(',', ':'))
     # base64url without padding → add padding back
     padded = sig_b64 + "=" * (-len(sig_b64) % 4)
     sig_bytes = base64.urlsafe_b64decode(padded)
