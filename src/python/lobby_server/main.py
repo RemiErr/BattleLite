@@ -14,11 +14,17 @@ import time
 import aiosqlite
 import httpx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from dotenv import load_dotenv
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from src.python.lobby_server.relay import RelayProtocol, start_relay
+
+# 本地自架時，從專案根目錄 .env 載入設定，雲端平台則使用環境變數。
+_PROJECT_ROOT = os.path.abspath(os.path.join(
+    os.path.dirname(__file__), "..", "..", ".."))
+load_dotenv(os.path.join(_PROJECT_ROOT, ".env"))
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "leaderboard.db")
 SHEETS_WEBHOOK_URL = os.environ.get("SHEETS_WEBHOOK_URL", "")
@@ -166,7 +172,8 @@ async def lifespan(app: FastAPI):
     if RELAY_PUBLIC_IP:
         try:
             _relay_proto, _relay_tasks = await start_relay(RELAY_BIND_HOST, RELAY_UDP_PORT)
-            print(f"[RELAY] enabled  public={RELAY_PUBLIC_IP}:{RELAY_UDP_PORT}")
+            print(
+                f"[RELAY] enabled  public={RELAY_PUBLIC_IP}:{RELAY_UDP_PORT}")
         except Exception as e:
             print(f"[WARN] relay 啟動失敗: {e}")
             _relay_proto = None
@@ -631,7 +638,8 @@ async def _delayed_game_start(
     # Relay 未啟用時走原本的固定 sleep；啟用時等齊 punch_report 或超時。
     relay_enabled = bool(RELAY_PUBLIC_IP and _relay_proto is not None)
     room = rooms.get(room_id, {})
-    ev: asyncio.Event | None = room.get("punch_event") if (room and relay_enabled) else None
+    ev: asyncio.Event | None = room.get("punch_event") if (
+        room and relay_enabled) else None
     if ev is not None:
         try:
             await asyncio.wait_for(ev.wait(), timeout=PUNCH_DURATION)
