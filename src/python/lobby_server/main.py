@@ -19,7 +19,6 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-from src.python.lobby_server.relay import RelayProtocol, start_relay
 
 # 本地自架時，從專案根目錄 .env 載入設定，雲端平台則使用環境變數。
 _PROJECT_ROOT = os.path.abspath(os.path.join(
@@ -35,7 +34,7 @@ PUNCH_DURATION = 2.0
 RELAY_BIND_HOST = os.environ.get("RELAY_BIND_HOST", "0.0.0.0")
 RELAY_UDP_PORT = int(os.environ.get("RELAY_UDP_PORT", "9000"))
 RELAY_PUBLIC_IP = os.environ.get("RELAY_PUBLIC_IP", "").strip()
-_relay_proto: RelayProtocol | None = None
+_relay_proto: "RelayProtocol | None" = None  # 延遲匯入，註解用字串避免載入期 NameError
 _relay_tasks: list[asyncio.Task] = []
 
 # Ed25519 簽章金鑰（私鑰 seed，32 bytes hex，64 chars）。不設定則 sig 為空字串。
@@ -171,6 +170,8 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_idle_room_sweep())
     if RELAY_PUBLIC_IP:
         try:
+            # 延遲匯入：只有自架（從專案根目錄執行）且啟用 relay 時才載入。
+            from src.python.lobby_server.relay import start_relay
             _relay_proto, _relay_tasks = await start_relay(RELAY_BIND_HOST, RELAY_UDP_PORT)
             print(
                 f"[RELAY] enabled  public={RELAY_PUBLIC_IP}:{RELAY_UDP_PORT}")
